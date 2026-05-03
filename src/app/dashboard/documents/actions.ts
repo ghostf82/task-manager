@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import type { CompanyDocumentStatus } from "@/lib/company-documents";
 import { requireSession } from "@/lib/dashboard-auth";
+import { tAction } from "@/lib/i18n/action-messages";
 import { createClient } from "@/lib/supabase/server";
 
 export type CompanyDocumentPayload = {
@@ -16,25 +17,27 @@ export type CompanyDocumentPayload = {
   file_url?: string | null;
 };
 
-function assertPayload(input: CompanyDocumentPayload) {
-  if (!input.tenant_id) throw new Error("اختر الشركة");
-  if (!input.document_name?.trim()) throw new Error("اسم المستند مطلوب");
-  if (!input.expiry_date) throw new Error("تاريخ الانتهاء مطلوب");
+async function assertPayload(input: CompanyDocumentPayload) {
+  if (!input.tenant_id) throw new Error(await tAction("errors.documents.selectTenant"));
+  if (!input.document_name?.trim())
+    throw new Error(await tAction("errors.documents.nameRequired"));
+  if (!input.expiry_date) throw new Error(await tAction("errors.documents.expiryRequired"));
   const n = Number(input.alert_days_before);
   if (!Number.isFinite(n) || n < 0 || n > 730) {
-    throw new Error("أيام التنبيه يجب أن تكون بين 0 و 730");
+    throw new Error(await tAction("errors.documents.alertRange"));
   }
   const allowed: CompanyDocumentStatus[] = [
     "valid",
     "expired",
     "renewal_pending",
   ];
-  if (!allowed.includes(input.status)) throw new Error("حالة غير صالحة");
+  if (!allowed.includes(input.status))
+    throw new Error(await tAction("errors.documents.invalidStatus"));
 }
 
 export async function createCompanyDocumentAction(input: CompanyDocumentPayload) {
   const session = await requireSession();
-  assertPayload(input);
+  await assertPayload(input);
   const supabase = await createClient();
 
   const { error } = await supabase.from("company_documents").insert({
@@ -56,7 +59,7 @@ export async function updateCompanyDocumentAction(
   input: CompanyDocumentPayload
 ) {
   await requireSession();
-  assertPayload(input);
+  await assertPayload(input);
   const supabase = await createClient();
 
   const { error } = await supabase

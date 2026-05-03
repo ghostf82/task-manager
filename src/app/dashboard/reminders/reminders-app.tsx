@@ -12,6 +12,7 @@ import {
   tickPersonalRemindersAction,
   type ReminderInput,
 } from "@/app/dashboard/reminders/actions";
+import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -43,11 +44,11 @@ export type ReminderRow = {
   is_active: boolean;
 };
 
-const recurrenceLabels: Record<ReminderRow["recurrence"], string> = {
-  once: "مرة واحدة",
-  daily: "يومي",
-  weekly: "أسبوعي",
-};
+function recurrenceKey(rec: ReminderRow["recurrence"]) {
+  if (rec === "once") return "remindersPage.repeatOnce";
+  if (rec === "daily") return "remindersPage.repeatDaily";
+  return "remindersPage.repeatWeekly";
+}
 
 function playSoftBeep() {
   try {
@@ -69,6 +70,7 @@ function playSoftBeep() {
 }
 
 export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
+  const { t, dateLocale } = useDashboardI18n();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [rows, setRows] = useState(initial);
@@ -86,7 +88,7 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
           const res = await tickPersonalRemindersAction();
           if (res.fired > 0) {
             if (res.playSound) playSoftBeep();
-            toast.info(`تم تفعيل ${res.fired} تذكيراً`, {
+            toast.info(t("remindersPage.toastFired").replace("{count}", String(res.fired)), {
               icon: <Bell className="size-4" />,
             });
             router.refresh();
@@ -97,7 +99,7 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
       });
     }, 45_000);
     return () => window.clearInterval(id);
-  }, [router, startTransition]);
+  }, [router, startTransition, t]);
 
   const nextLabel = useMemo(() => {
     return rows
@@ -112,17 +114,12 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            التذكيرات الشخصية
-          </h1>
-          <p className="text-muted-foreground text-sm leading-relaxed">
-            تذكيرات مستقلة عن مهام الشركة. يتم التحقق كل 45 ثانية أثناء فتح
-            التطبيق، مع تنبيه صوتي وإشعار داخل المنصة والبريد عند التفعيل.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("remindersPage.title")}</h1>
+          <p className="text-muted-foreground text-sm leading-relaxed">{t("remindersPage.subtitle")}</p>
         </div>
         <Button type="button" size="sm" onClick={() => setOpen(true)}>
           <Plus className="size-4" />
-          تذكير جديد
+          {t("remindersPage.newReminder")}
         </Button>
       </div>
 
@@ -131,15 +128,15 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <Bell className="size-4" />
-              أقرب موعد
+              {t("remindersPage.nearest")}
             </CardTitle>
             <CardDescription>
               {nextLabel.title} —{" "}
-              {new Date(nextLabel.remind_at).toLocaleString("ar-SA", {
+              {new Date(nextLabel.remind_at).toLocaleString(dateLocale, {
                 dateStyle: "medium",
                 timeStyle: "short",
               })}{" "}
-              ({recurrenceLabels[nextLabel.recurrence]})
+              ({t(recurrenceKey(nextLabel.recurrence))})
             </CardDescription>
           </CardHeader>
         </Card>
@@ -149,8 +146,7 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
         {rows.length === 0 ? (
           <Card>
             <CardContent className="text-muted-foreground py-10 text-center text-sm">
-              لا توجد تذكيرات بعد. أنشئ أول تذكير للبقاء منظماً خارج مهام
-              الشركة.
+              {t("remindersPage.emptyTitle")}. {t("remindersPage.emptyDescription")}
             </CardContent>
           </Card>
         ) : (
@@ -163,30 +159,30 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
                 <div className="min-w-0 space-y-1">
                   <CardTitle className="truncate text-base">{r.title}</CardTitle>
                   <CardDescription>
-                    {new Date(r.remind_at).toLocaleString("ar-SA", {
+                    {new Date(r.remind_at).toLocaleString(dateLocale, {
                       dateStyle: "medium",
                       timeStyle: "short",
                     })}{" "}
-                    · {recurrenceLabels[r.recurrence]}
+                    · {t(recurrenceKey(r.recurrence))}
                   </CardDescription>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-1">
                   {r.sound_enabled ? (
                     <Badge variant="secondary" className="gap-0.5 text-[10px]">
-                      <Volume2 className="size-3" /> صوت
+                      <Volume2 className="size-3" /> {t("remindersPage.soundOn")}
                     </Badge>
                   ) : (
                     <Badge variant="outline" className="gap-0.5 text-[10px]">
-                      <VolumeX className="size-3" /> بدون صوت
+                      <VolumeX className="size-3" /> {t("remindersPage.soundOff")}
                     </Badge>
                   )}
                   {r.email_enabled ? (
                     <Badge variant="secondary" className="gap-0.5 text-[10px]">
-                      <Mail className="size-3" /> بريد
+                      <Mail className="size-3" /> {t("remindersPage.emailOn")}
                     </Badge>
                   ) : (
                     <Badge variant="outline" className="gap-0.5 text-[10px]">
-                      <MailX className="size-3" />
+                      <MailX className="size-3" /> {t("remindersPage.emailOff")}
                     </Badge>
                   )}
                 </div>
@@ -199,7 +195,7 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
                   disabled={pending}
                   onClick={() => setEditing(r)}
                 >
-                  تعديل
+                  {t("remindersPage.edit")}
                 </Button>
                 <Button
                   type="button"
@@ -213,13 +209,13 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
                         router.refresh();
                       } catch (e) {
                         toast.error(
-                          e instanceof Error ? e.message : "تعذر التحديث"
+                          e instanceof Error ? e.message : t("remindersPage.updateFail")
                         );
                       }
                     })
                   }
                 >
-                  {r.is_active ? "إيقاف مؤقت" : "تفعيل"}
+                  {r.is_active ? t("remindersPage.pause") : t("remindersPage.resume")}
                 </Button>
                 <Button
                   type="button"
@@ -228,14 +224,14 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
                   className="text-destructive"
                   disabled={pending}
                   onClick={() => {
-                    if (!confirm("حذف هذا التذكير؟")) return;
+                    if (!confirm(t("remindersPage.confirmDelete"))) return;
                     startTransition(async () => {
                       try {
                         await deletePersonalReminderAction(r.id);
                         router.refresh();
                       } catch (e) {
                         toast.error(
-                          e instanceof Error ? e.message : "تعذر الحذف"
+                          e instanceof Error ? e.message : t("remindersPage.deleteFail")
                         );
                       }
                     });
@@ -257,7 +253,7 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
         mode="create"
         onSubmit={async (input) => {
           await createPersonalReminderAction(input);
-          toast.success("تم إنشاء التذكير");
+          toast.success(t("remindersPage.toastCreated"));
           setOpen(false);
           router.refresh();
         }}
@@ -270,7 +266,7 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
         onSubmit={async (input) => {
           if (!editing) return;
           await updatePersonalReminderAction(editing.id, input);
-          toast.success("تم التحديث");
+          toast.success(t("remindersPage.toastUpdated"));
           setEditing(null);
           router.refresh();
         }}
@@ -292,6 +288,7 @@ function ReminderFormDialog({
   initial?: ReminderRow;
   onSubmit: (v: ReminderInput) => Promise<void>;
 }) {
+  const { t } = useDashboardI18n();
   const [pending, startTransition] = useTransition();
   const [title, setTitle] = useState("");
   const [dt, setDt] = useState("");
@@ -325,25 +322,23 @@ function ReminderFormDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "تذكير جديد" : "تعديل التذكير"}
+            {mode === "create" ? t("remindersPage.dialogCreateTitle") : t("remindersPage.dialogEditTitle")}
           </DialogTitle>
-          <DialogDescription>
-            اختر التاريخ والوقت بتوقيت جهازك؛ يُخزَّن كـ UTC في الخادم.
-          </DialogDescription>
+          <DialogDescription>{t("remindersPage.dialogSubtitle")}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid gap-2">
-            <Label htmlFor="r-title">اسم التذكير</Label>
+            <Label htmlFor="r-title">{t("remindersPage.labelTitle")}</Label>
             <Input
               id="r-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="مثال: مراجعة التقرير الأسبوعي"
+              placeholder={t("remindersPage.titlePlaceholder")}
               disabled={pending}
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="r-dt">التاريخ والوقت</Label>
+            <Label htmlFor="r-dt">{t("remindersPage.labelDateTime")}</Label>
             <Input
               id="r-dt"
               type="datetime-local"
@@ -353,16 +348,16 @@ function ReminderFormDialog({
             />
           </div>
           <div className="grid gap-2">
-            <Label>التكرار</Label>
+            <Label>{t("remindersPage.labelRepeat")}</Label>
             <select
               className="border-input bg-background h-9 rounded-md border px-2 text-sm"
               value={rec}
               disabled={pending}
               onChange={(e) => setRec(e.target.value as ReminderRow["recurrence"])}
             >
-              <option value="once">مرة واحدة</option>
-              <option value="daily">يومي</option>
-              <option value="weekly">أسبوعي</option>
+              <option value="once">{t("remindersPage.repeatOnce")}</option>
+              <option value="daily">{t("remindersPage.repeatDaily")}</option>
+              <option value="weekly">{t("remindersPage.repeatWeekly")}</option>
             </select>
           </div>
           <div className="flex flex-wrap gap-4">
@@ -373,7 +368,7 @@ function ReminderFormDialog({
                 onChange={(e) => setSound(e.target.checked)}
                 disabled={pending}
               />
-              تنبيه صوتي
+              {t("remindersPage.soundToggle")}
             </label>
             <label className="flex cursor-pointer items-center gap-2 text-sm">
               <input
@@ -382,7 +377,7 @@ function ReminderFormDialog({
                 onChange={(e) => setEmail(e.target.checked)}
                 disabled={pending}
               />
-              بريد إلكتروني
+              {t("remindersPage.emailToggle")}
             </label>
           </div>
         </div>
@@ -402,12 +397,12 @@ function ReminderFormDialog({
                     email_enabled: email,
                   });
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "فشل الحفظ");
+                  toast.error(e instanceof Error ? e.message : t("remindersPage.saveFail"));
                 }
               });
             }}
           >
-            حفظ
+            {t("remindersPage.save")}
           </Button>
         </DialogFooter>
       </DialogContent>

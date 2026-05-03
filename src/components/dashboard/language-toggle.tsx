@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Languages } from "lucide-react";
 
 import { setLocaleAction } from "@/app/actions/set-locale";
-import type { AppLocale } from "@/lib/i18n/get-locale";
+import type { AppLocale } from "@/lib/i18n/locale-core";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 

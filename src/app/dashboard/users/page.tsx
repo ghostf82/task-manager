@@ -1,6 +1,7 @@
-import { requireSuperAdmin } from "@/lib/dashboard-auth";
-import { createClient } from "@/lib/supabase/server";
 import { UsersAdminClient } from "@/app/dashboard/users/users-admin-client";
+import { requireSuperAdmin } from "@/lib/dashboard-auth";
+import { getTranslator } from "@/lib/i18n/get-translator";
+import { createClient } from "@/lib/supabase/server";
 
 function pickName(v: unknown): string | null {
   if (!v || typeof v !== "object") return null;
@@ -41,6 +42,7 @@ function lineFor(m: {
 }
 
 export default async function UsersPage() {
+  const { t } = await getTranslator();
   await requireSuperAdmin();
   const supabase = await createClient();
 
@@ -63,7 +65,7 @@ export default async function UsersPage() {
   if (uErr) {
     return (
       <p className="text-destructive text-sm">
-        تعذر تحميل المستخدمين: {uErr.message}
+        {t("usersPage.loadError")}: {uErr.message}
       </p>
     );
   }

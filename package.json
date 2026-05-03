@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "i18n:check": "node scripts/check-i18n-parity.mjs",
+    "build": "npm run i18n:check && next build --turbopack",
     "start": "next start",
     "lint": "eslint",
     "db:seed": "tsx --env-file=.env.local scripts/seed-super-admin.ts"

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 
-import { LOCALE_COOKIE, type AppLocale } from "@/lib/i18n/get-locale";
+import { LOCALE_COOKIE, type AppLocale } from "@/lib/i18n/locale-core";
 
 export async function setLocaleAction(locale: AppLocale) {
   const store = await cookies();

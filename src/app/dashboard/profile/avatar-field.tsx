@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { setAvatarUrlAction } from "@/app/dashboard/profile/actions";
+import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -15,6 +16,7 @@ export function AvatarField({
   userId: string;
   currentUrl: string | null;
 }) {
+  const { t } = useDashboardI18n();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [preview, setPreview] = useState<string | null>(currentUrl);
@@ -28,16 +30,16 @@ export function AvatarField({
       {preview ? (
         <img
           src={preview}
-          alt="صورة المستخدم"
+          alt={t("avatarField.alt")}
           className="size-24 rounded-full object-cover ring-2 ring-border"
         />
       ) : (
         <div className="flex size-24 items-center justify-center rounded-full bg-muted text-2xl font-semibold text-muted-foreground ring-2 ring-border">
-          ؟
+          {t("avatarField.initial")}
         </div>
       )}
       <div className="grid gap-2 text-center sm:text-start">
-        <Label htmlFor="avatar">صورة الملف الشخصي</Label>
+        <Label htmlFor="avatar">{t("avatarField.label")}</Label>
         <input
           id="avatar"
           type="file"
@@ -48,7 +50,7 @@ export function AvatarField({
             const file = e.target.files?.[0];
             if (!file) return;
             if (file.size > 2 * 1024 * 1024) {
-              toast.error("الحد الأقصى 2 ميجابايت");
+              toast.error(t("avatarField.maxSize"));
               return;
             }
             startTransition(async () => {
@@ -65,10 +67,10 @@ export function AvatarField({
                   .getPublicUrl(path);
                 await setAvatarUrlAction(pub.publicUrl);
                 setPreview(pub.publicUrl);
-                toast.success("تم تحديث الصورة");
+                toast.success(t("avatarField.uploadOk"));
                 router.refresh();
               } catch (err) {
-                toast.error(err instanceof Error ? err.message : "فشل الرفع");
+                toast.error(err instanceof Error ? err.message : t("avatarField.uploadFail"));
               }
             });
           }}
@@ -85,14 +87,14 @@ export function AvatarField({
                 await setAvatarUrlAction(null);
                 setPreview(null);
                 router.refresh();
-                toast.success("تمت إزالة الصورة");
+                toast.success(t("avatarField.removeOk"));
               } catch (e) {
-                toast.error(e instanceof Error ? e.message : "فشل");
+                toast.error(e instanceof Error ? e.message : t("avatarField.removeFail"));
               }
             });
           }}
         >
-          إزالة الصورة
+          {t("avatarField.removeButton")}
         </Button>
       </div>
     </div>

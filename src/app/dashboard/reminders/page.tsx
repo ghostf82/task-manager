@@ -1,4 +1,5 @@
 import { requireSession } from "@/lib/dashboard-auth";
+import { getTranslator } from "@/lib/i18n/get-translator";
 import { createClient } from "@/lib/supabase/server";
 import {
   RemindersApp,
@@ -6,6 +7,7 @@ import {
 } from "@/app/dashboard/reminders/reminders-app";
 
 export default async function RemindersPage() {
+  const { t } = await getTranslator();
   await requireSession();
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -18,7 +20,7 @@ export default async function RemindersPage() {
   if (error) {
     return (
       <p className="text-destructive text-sm">
-        تعذر تحميل التذكيرات: {error.message}
+        {t("remindersPage.loadError")}: {error.message}
       </p>
     );
   }

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireSuperAdmin } from "@/lib/dashboard-auth";
+import { tAction } from "@/lib/i18n/action-messages";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -32,8 +33,10 @@ export async function inviteUserAction(input: {
 }) {
   await requireSuperAdmin();
   const email = input.email.trim().toLowerCase();
-  if (!email || !input.full_name.trim()) throw new Error("البريد والاسم مطلوبان");
-  if (!input.memberships.length) throw new Error("اختر شركة واحدة على الأقل مع الدور");
+  if (!email || !input.full_name.trim())
+    throw new Error(await tAction("errors.users.emailNameRequired"));
+  if (!input.memberships.length)
+    throw new Error(await tAction("errors.users.membershipRequired"));
 
   const admin = createAdminClient();
   const supabase = await createClient();
@@ -60,7 +63,7 @@ export async function inviteUserAction(input: {
       email_confirm: true,
     });
     if (error) throw new Error(error.message);
-    if (!data.user) throw new Error("فشل إنشاء المستخدم");
+    if (!data.user) throw new Error(await tAction("errors.users.createFailed"));
     userId = data.user.id;
   }
 
@@ -84,7 +87,8 @@ export async function inviteUserAction(input: {
       .eq("tenant_id", m.tenant_id)
       .eq("slug", m.role_slug)
       .maybeSingle();
-    if (roleErr || !roleRow) throw new Error("تعذر تحديد الدور للشركة المختارة");
+    if (roleErr || !roleRow)
+      throw new Error(await tAction("errors.users.roleLookupFailed"));
 
     await admin
       .from("tenant_memberships")
@@ -134,7 +138,7 @@ export async function deleteUsersAction(userIds: string[]) {
     .filter((r) => !r.is_super_admin)
     .map((r) => r.id);
   if (!safeIds.length) {
-    throw new Error("لا يمكن حذف حسابات السوبر أدمن");
+    throw new Error(await tAction("errors.users.cannotDeleteSuperAdmin"));
   }
   for (const id of safeIds) {
     const { error } = await admin.auth.admin.deleteUser(id);

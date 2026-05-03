@@ -27,7 +27,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import type { AppLocale } from "@/lib/i18n/get-locale";
+import type { AppLocale } from "@/lib/i18n/locale-core";
 import { cn } from "@/lib/utils";
 
 const ICONS: Record<string, LucideIcon> = {

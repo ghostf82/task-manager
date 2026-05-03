@@ -9,6 +9,7 @@ import type { AIToolModule } from "@/lib/ai-tools/types";
 export const odooAiTool: AIToolModule = {
   slug: "odoo",
   displayNameAr: "Odoo",
+  displayNameEn: "Odoo",
   descriptionAr: "مهام المشروع و XML-RPC",
   async collectInbound(supabase: SupabaseClient, userId: string) {
     const bundle = await loadOdooCredentialBundle(supabase, userId);

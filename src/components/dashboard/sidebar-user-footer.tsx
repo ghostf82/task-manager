@@ -5,7 +5,7 @@ import { ChevronRight, ChevronLeft } from "lucide-react";
 
 import { signOutAction } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
-import type { AppLocale } from "@/lib/i18n/get-locale";
+import type { AppLocale } from "@/lib/i18n/locale-core";
 import { cn } from "@/lib/utils";
 
 type Props = {

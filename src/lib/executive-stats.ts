@@ -13,8 +13,9 @@ export type ExecutiveSummary = {
   aiProposalsPending: number;
 };
 
+/** `labelKey` maps to `executiveDashboard.pie.*` in locale files. */
 export type TaskStatusPieSlice = {
-  name: string;
+  labelKey: string;
   value: number;
   fill: string;
 };
@@ -91,9 +92,9 @@ export async function loadTaskStatusPie(
   scope: TaskReportScope
 ): Promise<TaskStatusPieSlice[]> {
   const empty: TaskStatusPieSlice[] = [
-    { name: "مكتملة", value: 0, fill: "#22c55e" },
-    { name: "قيد التنفيذ", value: 0, fill: "#3b82f6" },
-    { name: "متأخرة", value: 0, fill: "#ef4444" },
+    { labelKey: "executiveDashboard.pie.completed", value: 0, fill: "#22c55e" },
+    { labelKey: "executiveDashboard.pie.inProgress", value: 0, fill: "#3b82f6" },
+    { labelKey: "executiveDashboard.pie.overdue", value: 0, fill: "#ef4444" },
   ];
 
   if (scope.mode === "tenants" && !scope.tenantIds.length) {
@@ -129,9 +130,9 @@ export async function loadTaskStatusPie(
   }
 
   return [
-    { name: "مكتملة", value: completed, fill: "#22c55e" },
-    { name: "قيد التنفيذ", value: inProgress, fill: "#3b82f6" },
-    { name: "متأخرة", value: overdue, fill: "#ef4444" },
+    { labelKey: "executiveDashboard.pie.completed", value: completed, fill: "#22c55e" },
+    { labelKey: "executiveDashboard.pie.inProgress", value: inProgress, fill: "#3b82f6" },
+    { labelKey: "executiveDashboard.pie.overdue", value: overdue, fill: "#ef4444" },
   ];
 }
 

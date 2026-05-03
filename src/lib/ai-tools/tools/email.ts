@@ -9,6 +9,7 @@ import type { AIToolModule } from "@/lib/ai-tools/types";
 export const emailAiTool: AIToolModule = {
   slug: "email",
   displayNameAr: "البريد الإلكتروني",
+  displayNameEn: "Email",
   descriptionAr: "IMAP / SMTP",
   async collectInbound(supabase: SupabaseClient, userId: string) {
     const bundle = await loadEmailCredentialBundle(supabase, userId);

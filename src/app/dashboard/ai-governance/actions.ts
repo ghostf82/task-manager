@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { getRegisteredToolSlugs } from "@/lib/ai-tools/registry";
 import { requireSuperAdmin } from "@/lib/dashboard-auth";
+import { tAction } from "@/lib/i18n/action-messages";
 import { createClient } from "@/lib/supabase/server";
 
 export async function setUserAiToolLicenseAction(input: {
@@ -15,7 +16,7 @@ export async function setUserAiToolLicenseAction(input: {
   const supabase = await createClient();
 
   if (!getRegisteredToolSlugs().includes(input.toolSlug)) {
-    return { ok: false, error: "أداة غير معتمدة في النظام." };
+    return { ok: false, error: await tAction("errors.aiGovernance.unknownTool") };
   }
 
   const { error } = await supabase.from("user_ai_tools").upsert(

@@ -1,9 +1,10 @@
 import Link from "next/link";
 
-import { requireSession } from "@/lib/dashboard-auth";
-import { createClient } from "@/lib/supabase/server";
 import { AvatarField } from "@/app/dashboard/profile/avatar-field";
 import { updateProfileAction } from "@/app/dashboard/profile/actions";
+import { requireSession } from "@/lib/dashboard-auth";
+import { getTranslator } from "@/lib/i18n/get-translator";
+import { createClient } from "@/lib/supabase/server";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -22,6 +23,7 @@ export default async function ProfilePage({
   searchParams: Promise<{ saved?: string }>;
 }) {
   const sp = await searchParams;
+  const { t } = await getTranslator();
   const session = await requireSession();
   const supabase = await createClient();
   const { data: profile } = await supabase
@@ -33,21 +35,18 @@ export default async function ProfilePage({
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">الملف الشخصي</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("profilePage.title")}</h1>
         {sp.saved ? (
           <p className="mt-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
-            تم حفظ التغييرات بنجاح.
+            {t("profilePage.saved")}
           </p>
         ) : null}
-        <p className="text-muted-foreground mt-1 text-sm">
-          تحديث الاسم وبيانات الاتصال. لتغيير كلمة المرور استخدم تدفق «تحديث
-          كلمة المرور» عند تسجيل الدخول إن طُلب منك ذلك.
-        </p>
+        <p className="text-muted-foreground mt-1 text-sm">{t("profilePage.intro")}</p>
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>الصورة الشخصية</CardTitle>
-          <CardDescription>JPEG / PNG / WebP — حتى 2 ميجابايت</CardDescription>
+          <CardTitle>{t("profilePage.cardAvatarTitle")}</CardTitle>
+          <CardDescription>{t("profilePage.cardAvatarDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <AvatarField userId={session.id} currentUrl={profile?.avatar_url ?? null} />
@@ -56,34 +55,34 @@ export default async function ProfilePage({
 
       <Card>
         <CardHeader>
-          <CardTitle>المساعد والربط الخارجي</CardTitle>
-          <CardDescription>بيانات الدخول تُشفّر على الخادم قبل التخزين.</CardDescription>
+          <CardTitle>{t("profilePage.cardIntegrationsTitle")}</CardTitle>
+          <CardDescription>{t("profilePage.cardIntegrationsDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2 sm:flex-row">
           <Link
             href="/dashboard/ai-agent"
             className={cn(buttonVariants({ variant: "outline" }), "justify-center")}
           >
-            مساحة المساعد الذكي
+            {t("profilePage.linkAi")}
           </Link>
           <Link
             href="/dashboard/settings/integrations"
             className={cn(buttonVariants({ variant: "outline" }), "justify-center")}
           >
-            الخزنة السرية (Odoo / البريد)
+            {t("profilePage.linkVault")}
           </Link>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>البيانات الأساسية</CardTitle>
-          <CardDescription>البريد للعرض فقط</CardDescription>
+          <CardTitle>{t("profilePage.cardBasicsTitle")}</CardTitle>
+          <CardDescription>{t("profilePage.cardBasicsDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <form action={updateProfileAction} className="grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="email">البريد</Label>
+              <Label htmlFor="email">{t("profilePage.labelEmail")}</Label>
               <Input
                 id="email"
                 name="email_display"
@@ -94,37 +93,35 @@ export default async function ProfilePage({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="full_name">الاسم الكامل</Label>
+              <Label htmlFor="full_name">{t("profilePage.labelFullName")}</Label>
               <Input
                 id="full_name"
                 name="full_name"
                 defaultValue={profile?.full_name ?? ""}
-                placeholder="الاسم كما يظهر في النظام"
+                placeholder={t("profilePage.namePlaceholder")}
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="phone">الجوال</Label>
+              <Label htmlFor="phone">{t("profilePage.labelPhone")}</Label>
               <Input
                 id="phone"
                 name="phone"
                 defaultValue={profile?.phone ?? ""}
-                placeholder="05xxxxxxxx"
+                placeholder={t("profilePage.phonePlaceholder")}
               />
             </div>
             <div className="grid gap-2">
-              <Label>رقم الهوية</Label>
+              <Label>{t("profilePage.labelNationalId")}</Label>
               <Input
                 value={profile?.national_id ?? ""}
                 readOnly
                 disabled
                 className="bg-muted text-muted-foreground"
               />
-              <p className="text-muted-foreground text-[11px]">
-                لتعديل رقم الهوية يُرجى التواصل مع مسؤول النظام.
-              </p>
+              <p className="text-muted-foreground text-[11px]">{t("profilePage.nationalIdHint")}</p>
             </div>
             <Button type="submit" className="w-full sm:w-auto">
-              حفظ التغييرات
+              {t("profilePage.save")}
             </Button>
           </form>
         </CardContent>

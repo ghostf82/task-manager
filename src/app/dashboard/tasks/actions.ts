@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/dashboard-auth";
+import { tAction } from "@/lib/i18n/action-messages";
 import { createClient } from "@/lib/supabase/server";
 import type { TaskStatus } from "@/lib/corporate-tasks";
 
@@ -21,14 +22,14 @@ export type CorporateTaskPayload = {
 export async function createCorporateTaskAction(input: CorporateTaskPayload) {
   await requireSession();
   if (!input.tenant_id || !input.title.trim() || !input.due_on) {
-    throw new Error("حقول مطلوبة ناقصة");
+    throw new Error(await tAction("errors.tasks.missingFields"));
   }
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) throw new Error("غير مصرّح");
+  if (!user) throw new Error(await tAction("errors.tasks.unauthorized"));
 
   const { error } = await supabase.from("corporate_tasks").insert({
     tenant_id: input.tenant_id,
@@ -53,7 +54,8 @@ export async function updateCorporateTaskAction(
   input: CorporateTaskPayload
 ) {
   await requireSession();
-  if (!input.title.trim() || !input.due_on) throw new Error("حقول مطلوبة ناقصة");
+  if (!input.title.trim() || !input.due_on)
+    throw new Error(await tAction("errors.tasks.missingFields"));
 
   const supabase = await createClient();
   const { error } = await supabase

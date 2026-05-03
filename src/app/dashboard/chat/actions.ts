@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/dashboard-auth";
+import { tAction } from "@/lib/i18n/action-messages";
 import { createClient } from "@/lib/supabase/server";
 
 async function findSharedTenant(
@@ -33,14 +34,14 @@ async function findSharedTenant(
 export async function ensureDmConversationAction(otherUserId: string) {
   const session = await requireSession();
   if (!otherUserId || otherUserId === session.id) {
-    throw new Error("مستخدم غير صالح");
+    throw new Error(await tAction("errors.chat.invalidUser"));
   }
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) throw new Error("غير مصرّح");
+  if (!user) throw new Error(await tAction("errors.chat.unauthorized"));
 
   const { data: meRow } = await supabase
     .from("users")
@@ -62,7 +63,7 @@ export async function ensureDmConversationAction(otherUserId: string) {
   if (!isSuper) {
     tenantId = await findSharedTenant(supabase, user.id, otherUserId);
     if (!tenantId) {
-      throw new Error("يمكنك مراسلة الزملاء في نفس الشركة فقط");
+      throw new Error(await tAction("errors.chat.sameCompanyOnly"));
     }
   }
 
@@ -85,7 +86,7 @@ export async function ensureDmConversationAction(otherUserId: string) {
       .eq("dm_key", dmKey)
       .maybeSingle();
     if (again?.id) return again.id as string;
-    throw new Error(cErr?.message ?? "تعذر إنشاء المحادثة");
+    throw new Error(cErr?.message ?? (await tAction("errors.chat.createConversationFailed")));
   }
 
   const cid = conv.id as string;
@@ -112,7 +113,7 @@ export async function sendChatMessageAction(
 ) {
   const session = await requireSession();
   const text = body.trim();
-  if (!text) throw new Error("الرسالة فارغة");
+  if (!text) throw new Error(await tAction("errors.chat.emptyMessage"));
 
   const supabase = await createClient();
   const { error } = await supabase.from("messages").insert({

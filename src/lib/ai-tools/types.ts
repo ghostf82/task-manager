@@ -18,6 +18,7 @@ export type InboundScanContribution = {
 export type AIToolModule = {
   slug: string;
   displayNameAr: string;
+  displayNameEn: string;
   descriptionAr: string;
   /** Pulls data for inbound LLM scan (no UI). */
   collectInbound: (

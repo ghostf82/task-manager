@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 
+import { DashboardI18nProvider } from "@/contexts/dashboard-i18n";
 import { createClient } from "@/lib/supabase/server";
 import { AppFooter } from "@/components/dashboard/app-footer";
 import {
@@ -13,7 +14,7 @@ import { NotificationsMenu } from "@/components/dashboard/notifications-menu";
 import { Toaster } from "@/components/ui/sonner";
 import { requireSession } from "@/lib/dashboard-auth";
 import { DASHBOARD_NAV_LINKS } from "@/lib/i18n/nav-config";
-import { getTranslator } from "@/lib/i18n/get-translator";
+import { getCatalog, getTranslator } from "@/lib/i18n/get-translator";
 
 export default async function DashboardLayout({
   children,
@@ -23,6 +24,7 @@ export default async function DashboardLayout({
   const session = await requireSession();
   const supabase = await createClient();
   const { t, locale } = await getTranslator();
+  const catalog = getCatalog(locale);
 
   const { data: profile } = await supabase
     .from("users")
@@ -88,6 +90,7 @@ export default async function DashboardLayout({
   };
 
   return (
+    <DashboardI18nProvider locale={locale} catalog={catalog}>
     <div className="flex min-h-screen flex-col bg-background">
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <AppSidebar {...shell} />
@@ -115,5 +118,6 @@ export default async function DashboardLayout({
       <AppFooter tagline={t("footer.tagline")} />
       <Toaster richColors position="top-center" />
     </div>
+    </DashboardI18nProvider>
   );
 }

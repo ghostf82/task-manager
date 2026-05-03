@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/dashboard-auth";
+import { tAction } from "@/lib/i18n/action-messages";
 import { createClient } from "@/lib/supabase/server";
 import {
   advancePersonalReminderIfDue,
@@ -18,7 +19,7 @@ export type ReminderInput = {
 
 export async function createPersonalReminderAction(input: ReminderInput) {
   const session = await requireSession();
-  if (!input.title.trim()) throw new Error("عنوان التذكير مطلوب");
+  if (!input.title.trim()) throw new Error(await tAction("errors.reminders.titleRequired"));
 
   const supabase = await createClient();
   const { error } = await supabase.from("personal_reminders").insert({

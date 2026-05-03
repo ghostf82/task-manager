@@ -1,8 +1,10 @@
-import { requireSession } from "@/lib/dashboard-auth";
-import { createClient } from "@/lib/supabase/server";
 import { TasksPageClient } from "@/app/dashboard/tasks/tasks-page-client";
+import { requireSession } from "@/lib/dashboard-auth";
+import { getTranslator } from "@/lib/i18n/get-translator";
+import { createClient } from "@/lib/supabase/server";
 
 export default async function TasksPage() {
+  const { t } = await getTranslator();
   const session = await requireSession();
   const supabase = await createClient();
 
@@ -19,10 +21,12 @@ export default async function TasksPage() {
   if (tErr) {
     return (
       <p className="text-destructive text-sm">
-        تعذر تحميل المهام: {tErr.message}
+        {t("errors.tasks.loadFailed")}: {tErr.message}
       </p>
     );
   }
+
+  const serverToday = new Date().toISOString().slice(0, 10);
 
   let defaultTenantId: string | null = null;
   if (!session.isSuperAdmin) {
@@ -44,6 +48,7 @@ export default async function TasksPage() {
       users={users ?? []}
       isSuperAdmin={session.isSuperAdmin}
       defaultTenantId={defaultTenantId}
+      serverToday={serverToday}
     />
   );
 }

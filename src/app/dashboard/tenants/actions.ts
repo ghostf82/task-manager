@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireSuperAdmin } from "@/lib/dashboard-auth";
+import { tAction } from "@/lib/i18n/action-messages";
 import { createClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
 
@@ -9,7 +10,7 @@ export async function createTenantAction(formData: FormData) {
   await requireSuperAdmin();
   const name = String(formData.get("name") ?? "").trim();
   let slug = String(formData.get("slug") ?? "").trim();
-  if (!name) throw new Error("اسم الشركة مطلوب");
+  if (!name) throw new Error(await tAction("errors.tenants.nameRequired"));
   if (!slug) slug = slugify(name);
 
   const supabase = await createClient();
@@ -28,7 +29,7 @@ export async function updateTenantAction(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   let slug = String(formData.get("slug") ?? "").trim();
-  if (!id || !name) throw new Error("بيانات ناقصة");
+  if (!id || !name) throw new Error(await tAction("errors.tenants.incomplete"));
   if (!slug) slug = slugify(name);
 
   const supabase = await createClient();

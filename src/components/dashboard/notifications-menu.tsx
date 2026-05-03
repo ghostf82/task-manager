@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Bell } from "lucide-react";
 import { markNotificationsReadAction } from "@/app/dashboard/notifications/actions";
+import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -26,12 +27,14 @@ export type NotificationItem = {
 
 export function NotificationsMenu({
   initialItems,
-  label = "الإشعارات",
+  label,
 }: {
   initialItems: NotificationItem[];
-  /** Visible next to the bell (desktop); defaults Arabic for backwards compatibility */
+  /** Header label next to the bell; falls back to dashboard.notifications */
   label?: string;
 }) {
+  const { t, dateLocale } = useDashboardI18n();
+  const displayLabel = label ?? t("dashboard.notifications");
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [items, setItems] = useState(initialItems);
@@ -48,7 +51,7 @@ export function NotificationsMenu({
         );
         router.refresh();
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "تعذر التحديث");
+        toast.error(e instanceof Error ? e.message : t("notificationsMenu.updateFail"));
       }
     });
   }
@@ -62,9 +65,9 @@ export function NotificationsMenu({
         const now = new Date().toISOString();
         setItems((prev) => prev.map((x) => ({ ...x, read_at: x.read_at ?? now })));
         router.refresh();
-        toast.success("تم تحديد الإشعارات كمقروءة");
+        toast.success(t("notificationsMenu.markAllOk"));
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "تعذر التحديث");
+        toast.error(e instanceof Error ? e.message : t("notificationsMenu.updateFail"));
       }
     });
   }
@@ -74,7 +77,7 @@ export function NotificationsMenu({
       <DropdownMenuTrigger className="inline-flex">
         <Button variant="outline" size="sm" className="relative gap-1.5" type="button">
           <Bell className="size-4" />
-          <span className="hidden sm:inline">{label}</span>
+          <span className="hidden sm:inline">{displayLabel}</span>
           {unread.length > 0 ? (
             <span className="absolute -top-1 -end-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
               {unread.length > 9 ? "9+" : unread.length}
@@ -84,7 +87,7 @@ export function NotificationsMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
         <DropdownMenuLabel className="flex items-center justify-between gap-2">
-          <span>آخر التنبيهات</span>
+          <span>{t("notificationsMenu.listTitle")}</span>
           {unread.length > 0 ? (
             <Button
               type="button"
@@ -94,14 +97,14 @@ export function NotificationsMenu({
               disabled={pending}
               onClick={() => void markAll()}
             >
-              تعيين الكل كمقروء
+              {t("notificationsMenu.markAll")}
             </Button>
           ) : null}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {items.length === 0 ? (
           <p className="text-muted-foreground px-2 py-6 text-center text-xs">
-            لا توجد إشعارات حالياً
+            {t("notificationsMenu.empty")}
           </p>
         ) : (
           <ScrollArea className="h-64">
@@ -122,7 +125,7 @@ export function NotificationsMenu({
                       disabled={pending}
                       onClick={() => void markRead(n.id)}
                     >
-                      مقروء
+                      {t("notificationsMenu.read")}
                     </Button>
                   ) : null}
                 </div>
@@ -132,7 +135,7 @@ export function NotificationsMenu({
                   </p>
                 ) : null}
                 <span className="text-muted-foreground text-[10px]">
-                  {new Date(n.created_at).toLocaleString("ar-SA", {
+                  {new Date(n.created_at).toLocaleString(dateLocale, {
                     dateStyle: "short",
                     timeStyle: "short",
                   })}

@@ -15,11 +15,11 @@ import {
 import {
   daysRemaining,
   monthsRemaining,
-  statusLabelsAr,
   taskRowTone,
   taskToneClasses,
   type TaskStatus,
 } from "@/lib/corporate-tasks";
+import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,13 +75,16 @@ export function TasksPageClient({
   users,
   isSuperAdmin,
   defaultTenantId,
+  serverToday,
 }: {
   tasks: TaskRow[];
   tenants: TenantOpt[];
   users: UserOpt[];
   isSuperAdmin: boolean;
   defaultTenantId: string | null;
+  serverToday: string;
 }) {
+  const { t } = useDashboardI18n();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [filterTenant, setFilterTenant] = useState<string>("");
@@ -111,7 +114,8 @@ export function TasksPageClient({
     [selected]
   );
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = serverToday;
+  const taskStatusLabel = (s: TaskStatus) => t(`tasksPage.taskStatus.${s}`);
 
   function toggleAll(checked: boolean) {
     const next: Record<string, boolean> = {};
@@ -121,18 +125,18 @@ export function TasksPageClient({
 
   async function bulkDelete() {
     if (!selectedIds.length) {
-      toast.message("لم يتم تحديد أي مهمة");
+      toast.message(t("tasksPage.toastNoSelection"));
       return;
     }
-    if (!confirm("حذف المهام المحددة؟")) return;
+    if (!confirm(t("tasksPage.confirmBulkDelete"))) return;
     startTransition(async () => {
       try {
         await bulkDeleteCorporateTasksAction(selectedIds);
         setSelected({});
         router.refresh();
-        toast.success("تم الحذف");
+        toast.success(t("tasksPage.toastDeleted"));
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "فشل الحذف");
+        toast.error(e instanceof Error ? e.message : t("tasksPage.toastDeleteFailed"));
       }
     });
   }
@@ -141,11 +145,8 @@ export function TasksPageClient({
     <div className="mx-auto flex max-w-[1200px] flex-col gap-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">مهام الشركات</h1>
-          <p className="text-muted-foreground text-sm">
-            الحسابات التلقائية للأيام والأشهر المتبقية، والتلوين حسب الاستحقاق
-            والمتابعة اليومية.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("tasksPage.title")}</h1>
+          <p className="text-muted-foreground text-sm">{t("tasksPage.subtitle")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {isSuperAdmin ? (
@@ -154,10 +155,10 @@ export function TasksPageClient({
               value={filterTenant}
               onChange={(e) => setFilterTenant(e.target.value)}
             >
-              <option value="">كل الشركات</option>
-              {tenants.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
+              <option value="">{t("tasksPage.allTenants")}</option>
+              {tenants.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name}
                 </option>
               ))}
             </select>
@@ -170,7 +171,7 @@ export function TasksPageClient({
             onClick={() => void bulkDelete()}
           >
             <Trash2 className="size-3.5" />
-            حذف المحدد
+            {t("tasksPage.deleteSelected")}
           </Button>
           <Button
             type="button"
@@ -179,7 +180,7 @@ export function TasksPageClient({
             onClick={() => setOpenCreate(true)}
           >
             <Plus className="size-4" />
-            مهمة جديدة
+            {t("tasksPage.newTask")}
           </Button>
         </div>
       </div>
@@ -189,10 +190,10 @@ export function TasksPageClient({
           <div className="p-4 sm:p-6">
             <EmptyState
               icon={ClipboardList}
-              title="لا مهام مطابقة"
-              description="جرّب تغيير فلتر الشركة أو أنشئ مهمة جديدة لتبدأ التتبع."
+              title={t("tasksPage.emptyTitle")}
+              description={t("tasksPage.emptyDescription")}
               action={{
-                label: "مهمة جديدة",
+                label: t("tasksPage.newTask"),
                 onClick: () => setOpenCreate(true),
               }}
             />
@@ -212,18 +213,18 @@ export function TasksPageClient({
                   />
                 </TableHead>
                 <TableHead>#</TableHead>
-                <TableHead className="min-w-[120px]">الشركة</TableHead>
-                <TableHead className="min-w-[140px]">المهمة</TableHead>
-                <TableHead>المسؤول</TableHead>
-                <TableHead className="hidden xl:table-cell">إصدار</TableHead>
-                <TableHead>انتهاء</TableHead>
-                <TableHead className="hidden lg:table-cell">متابعة</TableHead>
-                <TableHead className="min-w-[120px]">متابعة اليوم؟</TableHead>
-                <TableHead>الحالة</TableHead>
-                <TableHead>%</TableHead>
-                <TableHead className="hidden md:table-cell">أيام</TableHead>
-                <TableHead className="hidden md:table-cell">أشهر</TableHead>
-                <TableHead className="hidden 2xl:table-cell">ملاحظات</TableHead>
+                <TableHead className="min-w-[120px]">{t("tasksPage.table.company")}</TableHead>
+                <TableHead className="min-w-[140px]">{t("tasksPage.table.title")}</TableHead>
+                <TableHead>{t("tasksPage.table.assignee")}</TableHead>
+                <TableHead className="hidden xl:table-cell">{t("tasksPage.table.issued")}</TableHead>
+                <TableHead>{t("tasksPage.table.due")}</TableHead>
+                <TableHead className="hidden lg:table-cell">{t("tasksPage.table.followUp")}</TableHead>
+                <TableHead className="min-w-[120px]">{t("tasksPage.table.followToday")}</TableHead>
+                <TableHead>{t("tasksPage.table.status")}</TableHead>
+                <TableHead>{t("tasksPage.table.pct")}</TableHead>
+                <TableHead className="hidden md:table-cell">{t("tasksPage.table.days")}</TableHead>
+                <TableHead className="hidden md:table-cell">{t("tasksPage.table.months")}</TableHead>
+                <TableHead className="hidden 2xl:table-cell">{t("tasksPage.table.notes")}</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
@@ -286,23 +287,23 @@ export function TasksPageClient({
                                 await setFollowedUpTodayAction(row.id, v);
                                 router.refresh();
                                 if (v === "yes") {
-                                  toast.success("تم تسجيل المتابعة — أُرسل تنبيه للمدير والسوبر أدمن");
+                                  toast.success(t("tasksPage.followUpToast"));
                                 }
                               } catch (err) {
                                 toast.error(
-                                  err instanceof Error ? err.message : "فشل الحفظ"
+                                  err instanceof Error ? err.message : t("tasksPage.followUpFailed")
                                 );
                               }
                             });
                           }}
                         >
-                          <option value="no">لا</option>
-                          <option value="yes">نعم</option>
+                          <option value="no">{t("common.no")}</option>
+                          <option value="yes">{t("common.yes")}</option>
                         </select>
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-[10px] font-normal">
-                          {statusLabelsAr[row.status]}
+                          {taskStatusLabel(row.status)}
                         </Badge>
                       </TableCell>
                       <TableCell className="tabular-nums text-xs">
@@ -329,26 +330,26 @@ export function TasksPageClient({
                               className="gap-2"
                               onClick={() => setEditRow(row)}
                             >
-                              <Pencil className="size-3.5" /> تعديل
+                              <Pencil className="size-3.5" /> {t("common.edit")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               variant="destructive"
                               onClick={() => {
-                                if (!confirm("حذف هذه المهمة؟")) return;
+                                if (!confirm(t("tasksPage.confirmDeleteTask"))) return;
                                 startTransition(async () => {
                                   try {
                                     await deleteCorporateTaskAction(row.id);
                                     router.refresh();
-                                    toast.success("تم الحذف");
+                                    toast.success(t("tasksPage.toastDeleted"));
                                   } catch (err) {
                                     toast.error(
-                                      err instanceof Error ? err.message : "فشل"
+                                      err instanceof Error ? err.message : t("tasksPage.toastDeleteFailed")
                                     );
                                   }
                                 });
                               }}
                             >
-                              <Trash2 className="size-3.5" /> حذف
+                              <Trash2 className="size-3.5" /> {t("common.delete")}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -418,6 +419,8 @@ function TaskFormDialog({
   defaultTenantId: string | null;
   onDone: () => void;
 }) {
+  const { t } = useDashboardI18n();
+  const taskStatusLabel = (s: TaskStatus) => t(`tasksPage.taskStatus.${s}`);
   const [pending, startTransition] = useTransition();
   const [tenantId, setTenantId] = useState(
     initial?.tenant_id ?? defaultTenantId ?? tenants[0]?.id ?? ""
@@ -467,39 +470,37 @@ function TaskFormDialog({
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "مهمة جديدة" : "تعديل مهمة"}
+            {mode === "create" ? t("tasksPage.dialogCreateTitle") : t("tasksPage.dialogEditTitle")}
           </DialogTitle>
-          <DialogDescription>
-            يتم حساب الأيام والأشهر المتبقية تلقائياً من تاريخ الانتهاء.
-          </DialogDescription>
+          <DialogDescription>{t("tasksPage.dialogSubtitle")}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           {mode === "create" ? (
             <div className="grid gap-2">
-              <Label>الشركة</Label>
+              <Label>{t("tasksPage.labelTenant")}</Label>
               <select
                 className="border-input bg-background h-9 rounded-md border px-2 text-sm"
                 disabled={pending}
                 value={tenantId}
                 onChange={(e) => setTenantId(e.target.value)}
               >
-                {tenants.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
+                {tenants.map((tenant) => (
+                  <option key={tenant.id} value={tenant.id}>
+                    {tenant.name}
                   </option>
                 ))}
               </select>
             </div>
           ) : (
             <p className="text-muted-foreground text-xs">
-              الشركة:{" "}
+              {t("tasksPage.labelTenantReadonly")}:{" "}
               <strong>
                 {tenants.find((x) => x.id === initial?.tenant_id)?.name ?? "—"}
               </strong>
             </p>
           )}
           <div className="grid gap-2">
-            <Label htmlFor="tk-title">اسم المهمة</Label>
+            <Label htmlFor="tk-title">{t("tasksPage.labelTitle")}</Label>
             <Input
               id="tk-title"
               value={title}
@@ -510,7 +511,7 @@ function TaskFormDialog({
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="grid gap-1">
-              <Label>المسؤول</Label>
+              <Label>{t("tasksPage.labelAssignee")}</Label>
               <select
                 className="border-input bg-background h-9 rounded-md border px-2 text-sm"
                 disabled={pending}
@@ -526,7 +527,7 @@ function TaskFormDialog({
               </select>
             </div>
             <div className="grid gap-1">
-              <Label>المدير (للتنبيه)</Label>
+              <Label>{t("tasksPage.labelManager")}</Label>
               <select
                 className="border-input bg-background h-9 rounded-md border px-2 text-sm"
                 disabled={pending}
@@ -544,7 +545,7 @@ function TaskFormDialog({
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
             <div className="grid gap-1">
-              <Label htmlFor="tk-issued">إصدار</Label>
+              <Label htmlFor="tk-issued">{t("tasksPage.labelIssued")}</Label>
               <Input
                 id="tk-issued"
                 type="date"
@@ -554,7 +555,7 @@ function TaskFormDialog({
               />
             </div>
             <div className="grid gap-1">
-              <Label htmlFor="tk-due">انتهاء</Label>
+              <Label htmlFor="tk-due">{t("tasksPage.labelDue")}</Label>
               <Input
                 id="tk-due"
                 type="date"
@@ -565,7 +566,7 @@ function TaskFormDialog({
               />
             </div>
             <div className="grid gap-1">
-              <Label htmlFor="tk-fu">متابعة</Label>
+              <Label htmlFor="tk-fu">{t("tasksPage.labelFollowUp")}</Label>
               <Input
                 id="tk-fu"
                 type="date"
@@ -577,7 +578,7 @@ function TaskFormDialog({
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="grid gap-1">
-              <Label>الحالة</Label>
+              <Label>{t("tasksPage.labelStatus")}</Label>
               <select
                 className="border-input bg-background h-9 rounded-md border px-2 text-sm"
                 value={status}
@@ -586,13 +587,13 @@ function TaskFormDialog({
               >
                 {statuses.map((s) => (
                   <option key={s} value={s}>
-                    {statusLabelsAr[s]}
+                    {taskStatusLabel(s)}
                   </option>
                 ))}
               </select>
             </div>
             <div className="grid gap-1">
-              <Label htmlFor="tk-pct">نسبة الإنجاز</Label>
+              <Label htmlFor="tk-pct">{t("tasksPage.labelPercent")}</Label>
               <Input
                 id="tk-pct"
                 type="number"
@@ -606,7 +607,7 @@ function TaskFormDialog({
             </div>
           </div>
           <div className="grid gap-1">
-            <Label htmlFor="tk-notes">ملاحظات</Label>
+            <Label htmlFor="tk-notes">{t("tasksPage.labelNotes")}</Label>
             <Textarea
               id="tk-notes"
               rows={3}
@@ -629,15 +630,15 @@ function TaskFormDialog({
                   } else if (initial) {
                     await updateCorporateTaskAction(initial.id, payload);
                   }
-                  toast.success("تم الحفظ");
+                  toast.success(t("tasksPage.toastSaved"));
                   onDone();
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "فشل الحفظ");
+                  toast.error(e instanceof Error ? e.message : t("tasksPage.toastSaveFailed"));
                 }
               });
             }}
           >
-            حفظ
+            {t("tasksPage.save")}
           </Button>
         </DialogFooter>
       </DialogContent>

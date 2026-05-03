@@ -1,15 +1,12 @@
 import { cookies } from "next/headers";
 
-export const LOCALE_COOKIE = "NEXT_LOCALE";
+import type { AppLocale } from "@/lib/i18n/locale-core";
+import { LOCALE_COOKIE } from "@/lib/i18n/locale-core";
 
-export type AppLocale = "ar" | "en";
+export { LOCALE_COOKIE, type AppLocale, dateLocaleFor, localeDir } from "@/lib/i18n/locale-core";
 
 export async function getLocale(): Promise<AppLocale> {
   const c = await cookies();
   const v = c.get(LOCALE_COOKIE)?.value;
   return v === "en" ? "en" : "ar";
-}
-
-export function localeDir(locale: AppLocale): "rtl" | "ltr" {
-  return locale === "en" ? "ltr" : "rtl";
 }

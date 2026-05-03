@@ -1,8 +1,10 @@
-import { requireSuperAdmin } from "@/lib/dashboard-auth";
-import { createClient } from "@/lib/supabase/server";
 import { TenantsAdminClient } from "@/app/dashboard/tenants/tenants-admin-client";
+import { requireSuperAdmin } from "@/lib/dashboard-auth";
+import { getTranslator } from "@/lib/i18n/get-translator";
+import { createClient } from "@/lib/supabase/server";
 
 export default async function TenantsPage() {
+  const { t } = await getTranslator();
   await requireSuperAdmin();
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -13,7 +15,7 @@ export default async function TenantsPage() {
   if (error) {
     return (
       <p className="text-destructive text-sm">
-        تعذر تحميل الشركات: {error.message}
+        {t("tenantsPage.loadError")}: {error.message}
       </p>
     );
   }

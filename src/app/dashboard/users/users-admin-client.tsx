@@ -11,6 +11,7 @@ import {
   inviteUserAction,
   type InviteMembershipInput,
 } from "@/app/dashboard/users/actions";
+import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,6 +55,7 @@ export function UsersAdminClient({
   tenants: TenantOpt[];
   tenantsError?: string;
 }) {
+  const { t } = useDashboardI18n();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -72,10 +74,10 @@ export function UsersAdminClient({
 
   async function bulk(op: "suspend" | "activate" | "delete") {
     if (!selectedIds.length) {
-      toast.message("لم يتم تحديد أي مستخدم");
+      toast.message(t("usersPage.toastNoSelection"));
       return;
     }
-    if (op === "delete" && !confirm("سيتم حذف الحسابات المحددة نهائياً من النظام. متابعة؟")) {
+    if (op === "delete" && !confirm(t("usersPage.confirmBulkDelete"))) {
       return;
     }
     startTransition(async () => {
@@ -84,9 +86,9 @@ export function UsersAdminClient({
         else await bulkUsersMembershipAction(selectedIds, op);
         setSelected({});
         router.refresh();
-        toast.success("تم تنفيذ الإجراء");
+        toast.success(t("usersPage.toastOpOk"));
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "فشل الإجراء");
+        toast.error(e instanceof Error ? e.message : t("usersPage.toastOpFail"));
       }
     });
   }
@@ -95,10 +97,8 @@ export function UsersAdminClient({
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">المستخدمين</h1>
-          <p className="text-muted-foreground text-sm">
-            دعوة موظفين، ربطهم بالشركات والأدوار، وإجراءات جماعية.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("usersPage.title")}</h1>
+          <p className="text-muted-foreground text-sm">{t("usersPage.subtitle")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -108,7 +108,7 @@ export function UsersAdminClient({
             disabled={pending || !selectedIds.length}
             onClick={() => void bulk("suspend")}
           >
-            تعليق المحدد
+            {t("usersPage.suspendSelected")}
           </Button>
           <Button
             type="button"
@@ -117,7 +117,7 @@ export function UsersAdminClient({
             disabled={pending || !selectedIds.length}
             onClick={() => void bulk("activate")}
           >
-            تفعيل المحدد
+            {t("usersPage.activateSelected")}
           </Button>
           <Button
             type="button"
@@ -127,11 +127,11 @@ export function UsersAdminClient({
             onClick={() => void bulk("delete")}
           >
             <Trash2 className="size-3.5" />
-            حذف المحدد
+            {t("usersPage.deleteSelected")}
           </Button>
           <Button type="button" size="sm" onClick={() => setInviteOpen(true)}>
             <Plus className="size-4" />
-            مستخدم جديد
+            {t("usersPage.newUser")}
           </Button>
         </div>
       </div>
@@ -152,17 +152,17 @@ export function UsersAdminClient({
                   onCheckedChange={(v) => toggleAll(Boolean(v))}
                 />
               </TableHead>
-              <TableHead>البريد</TableHead>
-              <TableHead className="hidden md:table-cell">الاسم</TableHead>
-              <TableHead className="hidden lg:table-cell">العضويات</TableHead>
-              <TableHead>نوع</TableHead>
+              <TableHead>{t("usersPage.tableEmail")}</TableHead>
+              <TableHead className="hidden md:table-cell">{t("usersPage.tableName")}</TableHead>
+              <TableHead className="hidden lg:table-cell">{t("usersPage.tableMemberships")}</TableHead>
+              <TableHead>{t("usersPage.tableType")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {users.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center text-muted-foreground">
-                  لا يوجد مستخدمون بعد.
+                  {t("usersPage.empty")}
                 </TableCell>
               </TableRow>
             ) : (
@@ -189,9 +189,9 @@ export function UsersAdminClient({
                   </TableCell>
                   <TableCell>
                     {u.is_super_admin ? (
-                      <Badge>سوبر أدمن</Badge>
+                      <Badge>{t("usersPage.badgeSuper")}</Badge>
                     ) : (
-                      <Badge variant="secondary">موظف</Badge>
+                      <Badge variant="secondary">{t("usersPage.badgeStaff")}</Badge>
                     )}
                   </TableCell>
                 </TableRow>
@@ -225,6 +225,7 @@ function InviteUserDialog({
   tenants: TenantOpt[];
   onDone: () => void;
 }) {
+  const { t } = useDashboardI18n();
   const [pending, startTransition] = useTransition();
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
@@ -255,15 +256,16 @@ function InviteUserDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>مستخدم جديد</DialogTitle>
+          <DialogTitle>{t("usersPage.inviteTitle")}</DialogTitle>
           <DialogDescription>
-            يُنشأ الحساب بكلمة مرور افتراضية <strong>123456</strong> مع إجبار التغيير
-            عند أول دخول. اربط الموظف بشركة واحدة على الأقل.
+            {t("usersPage.inviteDescriptionBefore")}
+            <strong>123456</strong>
+            {t("usersPage.inviteDescriptionAfter")}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid gap-2">
-            <Label htmlFor="inv-email">البريد</Label>
+            <Label htmlFor="inv-email">{t("usersPage.labelEmail")}</Label>
             <Input
               id="inv-email"
               value={email}
@@ -274,7 +276,7 @@ function InviteUserDialog({
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="inv-name">الاسم الكامل</Label>
+            <Label htmlFor="inv-name">{t("usersPage.labelFullName")}</Label>
             <Input
               id="inv-name"
               value={fullName}
@@ -285,7 +287,7 @@ function InviteUserDialog({
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="grid gap-2">
-              <Label htmlFor="inv-phone">الجوال</Label>
+              <Label htmlFor="inv-phone">{t("usersPage.labelPhone")}</Label>
               <Input
                 id="inv-phone"
                 value={phone}
@@ -294,7 +296,7 @@ function InviteUserDialog({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="inv-nid">رقم الهوية</Label>
+              <Label htmlFor="inv-nid">{t("usersPage.labelNationalId")}</Label>
               <Input
                 id="inv-nid"
                 value={nationalId}
@@ -306,9 +308,9 @@ function InviteUserDialog({
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label>الشركات والأدوار</Label>
+              <Label>{t("usersPage.membershipsTitle")}</Label>
               <Button type="button" size="sm" variant="outline" onClick={addRow}>
-                + صف
+                {t("usersPage.addRow")}
               </Button>
             </div>
             {rows.map((row, idx) => (
@@ -349,15 +351,15 @@ function InviteUserDialog({
                     national_id: nationalId || undefined,
                     memberships,
                   });
-                  toast.success("تم إنشاء / تحديث المستخدم");
+                  toast.success(t("usersPage.toastSaved"));
                   onDone();
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "فشل الحفظ");
+                  toast.error(e instanceof Error ? e.message : t("usersPage.toastSaveFail"));
                 }
               });
             }}
           >
-            حفظ
+            {t("usersPage.save")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -380,6 +382,7 @@ function MembershipRowEditor({
   }) => void;
   disabled: boolean;
 }) {
+  const { t } = useDashboardI18n();
   const [roles, setRoles] = useState<{ slug: string; name: string }[]>([]);
 
   useEffect(() => {
@@ -404,7 +407,7 @@ function MembershipRowEditor({
   return (
     <div className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-2">
       <div className="grid gap-1">
-        <span className="text-muted-foreground text-xs">الشركة</span>
+        <span className="text-muted-foreground text-xs">{t("usersPage.companyShort")}</span>
         <select
           className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
           disabled={disabled}
@@ -417,16 +420,16 @@ function MembershipRowEditor({
             })
           }
         >
-          <option value="">— اختر —</option>
-          {tenants.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
+          <option value="">{t("usersPage.selectPlaceholder")}</option>
+          {tenants.map((tenant) => (
+            <option key={tenant.id} value={tenant.id}>
+              {tenant.name}
             </option>
           ))}
         </select>
       </div>
       <div className="grid gap-1">
-        <span className="text-muted-foreground text-xs">الدور</span>
+        <span className="text-muted-foreground text-xs">{t("usersPage.roleShort")}</span>
         <select
           className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
           disabled={disabled || !row.tenant_id}
@@ -441,13 +444,13 @@ function MembershipRowEditor({
         </select>
       </div>
       <div className="grid gap-1 sm:col-span-2">
-        <span className="text-muted-foreground text-xs">المسمى الوظيفي</span>
+        <span className="text-muted-foreground text-xs">{t("usersPage.jobTitleShort")}</span>
         <Textarea
           rows={2}
           disabled={disabled}
           value={row.job_title}
           onChange={(e) => onChange({ ...row, job_title: e.target.value })}
-          placeholder="مثال: محلل نظم"
+          placeholder={t("usersPage.jobTitlePlaceholder")}
         />
       </div>
     </div>

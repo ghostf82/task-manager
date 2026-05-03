@@ -2,6 +2,7 @@
 
 import type { ComponentType } from "react";
 import Link from "next/link";
+import { useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -39,6 +40,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
+import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { cn } from "@/lib/utils";
 
 function SummaryCard({
@@ -126,8 +128,19 @@ export function ExecutiveDashboard({
   userCount: number;
   unreadNotif: number;
 }) {
-  const pieData = taskPie.filter((s) => s.value > 0);
-  const pieSum = taskPie.reduce((a, b) => a + b.value, 0);
+  const { t } = useDashboardI18n();
+  const pieSlices = useMemo(
+    () =>
+      taskPie.map((s) => ({
+        name: t(s.labelKey),
+        value: s.value,
+        fill: s.fill,
+      })),
+    [taskPie, t],
+  );
+  const pieData = pieSlices.filter((s) => s.value > 0);
+  const pieSum = pieSlices.reduce((a, b) => a + b.value, 0);
+  const pieChartData = pieData.length ? pieData : pieSlices;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
@@ -137,14 +150,13 @@ export function ExecutiveDashboard({
           <div>
             <p className="text-muted-foreground flex items-center gap-2 text-xs font-medium uppercase tracking-widest">
               <LayoutDashboard className="size-3.5 opacity-70" />
-              لوحة قيادة تنفيذية
+              {t("executiveDashboard.eyebrow")}
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">
-              نظرة شاملة على الأداء
+              {t("executiveDashboard.title")}
             </h1>
             <p className="text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed">
-              إحصائيات تلتزم بصلاحياتك: السوبر أدمن يرى كل الشركات، والموظف يرى شركاته فقط
-              (RLS).
+              {t("executiveDashboard.subtitle")}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -152,13 +164,13 @@ export function ExecutiveDashboard({
               href="/api/reports/tasks?format=xlsx"
               className={cn(buttonVariants({ variant: "default", size: "sm" }), "shadow-sm")}
             >
-              Excel — المهام
+              {t("executiveDashboard.excelTasks")}
             </Link>
             <Link
               href="/api/reports/documents"
               className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
             >
-              Excel — المستندات
+              {t("executiveDashboard.excelDocuments")}
             </Link>
           </div>
         </div>
@@ -166,33 +178,33 @@ export function ExecutiveDashboard({
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
-          title="مستندات صالحة"
+          title={t("executiveDashboard.docStableTitle")}
           value={summary.documentsStable}
-          hint="بعيدة عن انتهاء النافذة التحذيرية"
+          hint={t("executiveDashboard.docStableHint")}
           icon={FileCheck}
           href="/dashboard/documents"
           tone="emerald"
         />
         <SummaryCard
-          title="منتهية أو قيد التنبيه"
+          title={t("executiveDashboard.docUrgentTitle")}
           value={summary.documentsUrgent}
-          hint="تتطلب متابعة أو تجديداً"
+          hint={t("executiveDashboard.docUrgentHint")}
           icon={FileWarning}
           href="/dashboard/documents"
           tone="amber"
         />
         <SummaryCard
-          title="مهام مفتوحة"
+          title={t("executiveDashboard.tasksOpenTitle")}
           value={summary.tasksOpen}
-          hint="غير مكتملة وغير ملغاة"
+          hint={t("executiveDashboard.tasksOpenHint")}
           icon={ClipboardList}
           href="/dashboard/tasks"
           tone="default"
         />
         <SummaryCard
-          title="مقترحات ذكاء معلّقة"
+          title={t("executiveDashboard.aiPendingTitle")}
           value={summary.aiProposalsPending}
-          hint="في انتظار مراجعتك"
+          hint={t("executiveDashboard.aiPendingHint")}
           icon={Sparkles}
           href="/dashboard/ai-agent"
           tone="violet"
@@ -205,7 +217,7 @@ export function ExecutiveDashboard({
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Building2 className="size-4 opacity-70" />
-                الشركات
+                {t("executiveDashboard.adminTenantsTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -214,7 +226,7 @@ export function ExecutiveDashboard({
                 href="/dashboard/tenants"
                 className="text-primary mt-2 inline-block text-xs font-medium underline-offset-4 hover:underline"
               >
-                إدارة الشركات
+                {t("executiveDashboard.adminTenantsLink")}
               </Link>
             </CardContent>
           </Card>
@@ -222,7 +234,7 @@ export function ExecutiveDashboard({
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="size-4 opacity-70" />
-                المستخدمين
+                {t("executiveDashboard.adminUsersTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -231,7 +243,7 @@ export function ExecutiveDashboard({
                 href="/dashboard/users"
                 className="text-primary mt-2 inline-block text-xs font-medium underline-offset-4 hover:underline"
               >
-                إدارة المستخدمين
+                {t("executiveDashboard.adminUsersLink")}
               </Link>
             </CardContent>
           </Card>
@@ -239,12 +251,14 @@ export function ExecutiveDashboard({
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Bell className="size-4 opacity-70" />
-                إشعارات غير مقروءة
+                {t("executiveDashboard.unreadTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-3xl font-semibold tabular-nums">{unreadNotif}</p>
-              <p className="text-muted-foreground mt-2 text-xs">من كل النظام</p>
+              <p className="text-muted-foreground mt-2 text-xs">
+                {t("executiveDashboard.unreadSystemHint")}
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -253,7 +267,7 @@ export function ExecutiveDashboard({
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <Bell className="size-4 opacity-70" />
-              إشعارات غير مقروءة
+              {t("executiveDashboard.unreadTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -267,20 +281,20 @@ export function ExecutiveDashboard({
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <ClipboardList className="size-4 text-muted-foreground" />
-              توزيع حالات المهام
+              {t("executiveDashboard.taskDistributionTitle")}
             </CardTitle>
-            <CardDescription>مكتملة، قيد التنفيذ، متأخرة — ضمن نطاقك</CardDescription>
+            <CardDescription>{t("executiveDashboard.taskDistributionDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] w-full min-h-[260px]">
             {pieSum === 0 ? (
               <p className="text-muted-foreground flex h-full items-center justify-center text-sm">
-                لا مهام في النطاق الحالي.
+                {t("executiveDashboard.taskDistributionEmpty")}
               </p>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={pieData.length ? pieData : taskPie}
+                    data={pieChartData}
                     dataKey="value"
                     nameKey="name"
                     cx="50%"
@@ -290,7 +304,7 @@ export function ExecutiveDashboard({
                     paddingAngle={2}
                     label
                   >
-                    {(pieData.length ? pieData : taskPie).map((e, i) => (
+                    {pieChartData.map((e, i) => (
                       <Cell key={i} fill={e.fill} />
                     ))}
                   </Pie>
@@ -306,16 +320,14 @@ export function ExecutiveDashboard({
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <FileWarning className="size-4 text-muted-foreground" />
-              مستندات تحتاج اهتماماً — حسب الشركة
+              {t("executiveDashboard.docsByTenantTitle")}
             </CardTitle>
-            <CardDescription>
-              عدد المستندات المنتهية أو داخل نافذة التنبيه لكل شركة
-            </CardDescription>
+            <CardDescription>{t("executiveDashboard.docsByTenantDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px] w-full min-h-[260px]">
             {!docBar.length ? (
               <p className="text-muted-foreground flex h-full items-center justify-center text-sm">
-                لا توجد مستندات ضمن النطاق أو كلها بعيدة عن الاستحقاق.
+                {t("executiveDashboard.docsByTenantEmpty")}
               </p>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
@@ -334,7 +346,12 @@ export function ExecutiveDashboard({
                     interval={0}
                   />
                   <Tooltip />
-                  <Bar dataKey="count" fill="#f59e0b" radius={[0, 6, 6, 0]} name="مستندات" />
+                  <Bar
+                    dataKey="count"
+                    fill="#f59e0b"
+                    radius={[0, 6, 6, 0]}
+                    name={t("executiveDashboard.chartDocsSeries")}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -344,33 +361,33 @@ export function ExecutiveDashboard({
 
       <Card>
         <CardHeader>
-          <CardTitle>اختصارات سريعة</CardTitle>
-          <CardDescription>وصول مباشر لأهم الوحدات</CardDescription>
+          <CardTitle>{t("executiveDashboard.shortcutsTitle")}</CardTitle>
+          <CardDescription>{t("executiveDashboard.shortcutsDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Link
             href="/dashboard/tasks"
             className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
           >
-            مهام الشركات
+            {t("executiveDashboard.shortcutsTasks")}
           </Link>
           <Link
             href="/dashboard/documents"
             className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
           >
-            مستندات الشركات
+            {t("executiveDashboard.shortcutsDocs")}
           </Link>
           <Link
             href="/dashboard/chat"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
-            مركز التواصل
+            {t("executiveDashboard.shortcutsChat")}
           </Link>
           <Link
             href="/dashboard/ai-agent"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
-            المساعد الذكي
+            {t("executiveDashboard.shortcutsAi")}
           </Link>
           {isSuperAdmin ? (
             <>
@@ -378,19 +395,19 @@ export function ExecutiveDashboard({
                 href="/dashboard/tenants"
                 className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
               >
-                إدارة الشركات
+                {t("executiveDashboard.shortcutsAdminTenants")}
               </Link>
               <Link
                 href="/dashboard/users"
                 className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
               >
-                إدارة المستخدمين
+                {t("executiveDashboard.shortcutsAdminUsers")}
               </Link>
               <Link
                 href="/dashboard/ai-governance"
                 className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
               >
-                حوكمة أدوات الذكاء
+                {t("executiveDashboard.shortcutsAdminGovernance")}
               </Link>
             </>
           ) : null}
@@ -398,13 +415,13 @@ export function ExecutiveDashboard({
             href="/dashboard/reminders"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
-            التذكيرات الشخصية
+            {t("executiveDashboard.shortcutsReminders")}
           </Link>
           <Link
             href="/dashboard/profile"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
-            الملف الشخصي
+            {t("executiveDashboard.shortcutsProfile")}
           </Link>
         </CardContent>
       </Card>
