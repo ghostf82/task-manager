@@ -1,0 +1,125 @@
+"use server";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { revalidatePath } from "next/cache";
+import { requireSession } from "@/lib/dashboard-auth";
+import { createClient } from "@/lib/supabase/server";
+
+async function findSharedTenant(
+  supabase: SupabaseClient,
+  a: string,
+  b: string
+): Promise<string | null> {
+  const [{ data: ma }, { data: mb }] = await Promise.all([
+    supabase
+      .from("tenant_memberships")
+      .select("tenant_id")
+      .eq("user_id", a)
+      .eq("status", "active"),
+    supabase
+      .from("tenant_memberships")
+      .select("tenant_id")
+      .eq("user_id", b)
+      .eq("status", "active"),
+  ]);
+  const setA = new Set((ma ?? []).map((x) => x.tenant_id as string));
+  for (const row of mb ?? []) {
+    const tid = row.tenant_id as string;
+    if (setA.has(tid)) return tid;
+  }
+  return null;
+}
+
+export async function ensureDmConversationAction(otherUserId: string) {
+  const session = await requireSession();
+  if (!otherUserId || otherUserId === session.id) {
+    throw new Error("مستخدم غير صالح");
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("غير مصرّح");
+
+  const { data: meRow } = await supabase
+    .from("users")
+    .select("is_super_admin")
+    .eq("id", user.id)
+    .single();
+  const isSuper = Boolean(meRow?.is_super_admin);
+
+  const dmKey = [user.id, otherUserId].sort().join("_");
+
+  const { data: existing } = await supabase
+    .from("conversations")
+    .select("id")
+    .eq("dm_key", dmKey)
+    .maybeSingle();
+  if (existing?.id) return existing.id as string;
+
+  let tenantId: string | null = null;
+  if (!isSuper) {
+    tenantId = await findSharedTenant(supabase, user.id, otherUserId);
+    if (!tenantId) {
+      throw new Error("يمكنك مراسلة الزملاء في نفس الشركة فقط");
+    }
+  }
+
+  const { data: conv, error: cErr } = await supabase
+    .from("conversations")
+    .insert({
+      kind: "dm",
+      dm_key: dmKey,
+      created_by: user.id,
+      tenant_id: tenantId,
+      title: null,
+    })
+    .select("id")
+    .single();
+
+  if (cErr || !conv) {
+    const { data: again } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("dm_key", dmKey)
+      .maybeSingle();
+    if (again?.id) return again.id as string;
+    throw new Error(cErr?.message ?? "تعذر إنشاء المحادثة");
+  }
+
+  const cid = conv.id as string;
+
+  const { error: p1 } = await supabase.from("conversation_participants").insert({
+    conversation_id: cid,
+    user_id: user.id,
+  });
+  if (p1) throw new Error(p1.message);
+
+  const { error: p2 } = await supabase.from("conversation_participants").insert({
+    conversation_id: cid,
+    user_id: otherUserId,
+  });
+  if (p2) throw new Error(p2.message);
+
+  revalidatePath("/dashboard/chat");
+  return cid;
+}
+
+export async function sendChatMessageAction(
+  conversationId: string,
+  body: string
+) {
+  const session = await requireSession();
+  const text = body.trim();
+  if (!text) throw new Error("الرسالة فارغة");
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("messages").insert({
+    conversation_id: conversationId,
+    user_id: session.id,
+    body: text,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/dashboard/chat");
+}
