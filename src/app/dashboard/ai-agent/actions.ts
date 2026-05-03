@@ -12,6 +12,7 @@ import type { ProposedActionPayload } from "@/lib/ai-agent/proposal-types";
 import { collectLicensedInboundData } from "@/lib/ai-tools/collect-licensed-inbound";
 import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
 import { requireSession } from "@/lib/dashboard-auth";
+import { tAction, tActionFill } from "@/lib/i18n/action-messages";
 import type { OdooTaskRecord } from "@/lib/integrations/odoo-xmlrpc";
 import { createClient } from "@/lib/supabase/server";
 
@@ -51,15 +52,15 @@ function enrichProposalDetailJson(
   };
   const pa = proposed as ProposedActionPayload;
   if (pa.type === "odoo_update_task") {
-    const task = tasks.find((t) => t.id === pa.taskId);
+    const task = tasks.find((tk) => tk.id === pa.taskId);
     const currentName =
       task?.stage_id && Array.isArray(task.stage_id) ? String(task.stage_id[1]) : "—";
     const currentId =
       task?.stage_id && Array.isArray(task.stage_id) ? Number(task.stage_id[0]) : null;
     let targetName = `Stage #${pa.stageId}`;
-    for (const t of tasks) {
-      if (t.stage_id && Array.isArray(t.stage_id) && Number(t.stage_id[0]) === pa.stageId) {
-        targetName = String(t.stage_id[1]);
+    for (const tk of tasks) {
+      if (tk.stage_id && Array.isArray(tk.stage_id) && Number(tk.stage_id[0]) === pa.stageId) {
+        targetName = String(tk.stage_id[1]);
         break;
       }
     }
@@ -124,7 +125,7 @@ export async function analyzePasteAction(formData: FormData) {
     userId: session.id,
     proposalId: ins.id,
     eventType: "proposed",
-    message: `مقترح جديد في انتظار الموافقة: ${analysis.title}`,
+    message: await tActionFill("aiAgentActions.logNewProposal", { title: analysis.title }),
   });
 
   revalidatePath("/dashboard/ai-agent");
@@ -139,7 +140,7 @@ export async function confirmProposalExecutionAction(input: {
   const session = await requireSession();
   const id = input.proposalId.trim();
   if (!id) {
-    return { ok: false, error: "معرّف المقترح غير صالح." };
+    return { ok: false, error: await tAction("aiAgentActions.proposalInvalidId") };
   }
 
   const supabase = await createClient();
@@ -150,10 +151,10 @@ export async function confirmProposalExecutionAction(input: {
     .single();
 
   if (error || !prop || prop.user_id !== session.id) {
-    return { ok: false, error: "المقترح غير موجود أو غير مسموح." };
+    return { ok: false, error: await tAction("aiAgentActions.proposalNotFound") };
   }
   if (prop.status !== "pending") {
-    return { ok: false, error: "هذا المقترح لم يعد قيد الانتظار." };
+    return { ok: false, error: await tAction("aiAgentActions.proposalNotPending") };
   }
 
   const proposedAction = mergeProposedActionWithEmailEdits(
@@ -166,7 +167,7 @@ export async function confirmProposalExecutionAction(input: {
     userId: session.id,
     proposalId: id,
     eventType: "approved",
-    message: "أكد المستخدم التنفيذ بعد المراجعة.",
+    message: await tAction("aiAgentActions.logUserApproved"),
   });
 
   let exec: { ok: true } | { ok: false; error: string };
@@ -178,7 +179,7 @@ export async function confirmProposalExecutionAction(input: {
       detailJson: prop.detail_json,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "خطأ غير معروف أثناء التنفيذ.";
+    const msg = e instanceof Error ? e.message : await tAction("aiAgentActions.execUnknownError");
     exec = { ok: false, error: msg };
   }
 
@@ -196,7 +197,7 @@ export async function confirmProposalExecutionAction(input: {
       .eq("id", id)
       .eq("status", "pending");
     revalidatePath("/dashboard/ai-agent");
-    return { ok: true, message: "تم تنفيذ الإجراء بنجاح." };
+    return { ok: true, message: await tAction("aiAgentActions.execSuccess") };
   }
 
   await supabase
@@ -226,7 +227,7 @@ export async function rejectProposalAsync(
   const session = await requireSession();
   const id = proposalId.trim();
   if (!id) {
-    return { ok: false, error: "معرّف المقترح غير صالح." };
+    return { ok: false, error: await tAction("aiAgentActions.proposalInvalidId") };
   }
 
   const supabase = await createClient();
@@ -241,24 +242,20 @@ export async function rejectProposalAsync(
     .select("id");
 
   if (error || !rows?.length) {
-    return { ok: false, error: "تعذّر الرفض (ربما عُدّل المقترح مسبقاً)." };
+    return { ok: false, error: await tAction("aiAgentActions.rejectFailed") };
   }
 
   await appendAgentActivity(supabase, {
     userId: session.id,
     proposalId: id,
     eventType: "rejected",
-    message: "رفض المستخدم تنفيذ المقترح.",
+    message: await tAction("aiAgentActions.logUserRejected"),
   });
 
   revalidatePath("/dashboard/ai-agent");
   return { ok: true };
 }
 
-/**
- * مسح Odoo + البريد ثم توليد المقترحات عبر LLM.
- * يعمل بالكامل على الخادم (مناسب لـ Netlify Functions / Next server) — تجنّب الاعتماد على اتصالات طويلة من المتصفح.
- */
 export async function runInboundScanAsync(): Promise<ScanResult> {
   const session = await requireSession();
   const supabase = await createClient();
@@ -267,8 +264,7 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
   if (!licensed.length) {
     return {
       ok: false,
-      message:
-        "لا توجد أدوات مفعّلة لحسابك — يحدد مسؤول النظام الأدوات من «حوكمة الذكاء».",
+      message: await tAction("aiAgentActions.scanNoTools"),
       inserted: 0,
       taskCount: 0,
       emailCount: 0,
@@ -282,15 +278,15 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
 
   const allowedStageIds = [
     ...new Set(
-      tasks.flatMap((t) => {
-        if (t.stage_id && Array.isArray(t.stage_id) && typeof t.stage_id[0] === "number") {
-          return [Number(t.stage_id[0])];
+      tasks.flatMap((tk) => {
+        if (tk.stage_id && Array.isArray(tk.stage_id) && typeof tk.stage_id[0] === "number") {
+          return [Number(tk.stage_id[0])];
         }
         return [];
       })
     ),
   ];
-  const odooTaskIds = tasks.map((t) => t.id);
+  const odooTaskIds = tasks.map((tk) => tk.id);
   const replyEmailsRaw = emails.map((e) => e.replyTo.trim()).filter(Boolean);
   const replyEmailsAllowed = [...new Set(replyEmailsRaw.map((e) => e.toLowerCase()))];
 
@@ -306,15 +302,16 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    const logLine = await tActionFill("aiAgentActions.logLlmFail", { msg });
     await appendAgentActivity(supabase, {
       userId: session.id,
       eventType: "scan_llm_error",
-      message: `فشل تحليل LLM: ${msg}`,
+      message: logLine,
     });
     revalidatePath("/dashboard/ai-agent");
     return {
       ok: false,
-      message: msg,
+      message: logLine,
       inserted: 0,
       taskCount,
       emailCount,
@@ -353,7 +350,7 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
         userId: session.id,
         proposalId: ins.id,
         eventType: "proposed",
-        message: `مقترح من المسح الآلي: ${p.title}`,
+        message: await tActionFill("aiAgentActions.logScanProposal", { title: p.title }),
       });
     }
   }
@@ -362,23 +359,30 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
     await appendAgentActivity(supabase, {
       userId: session.id,
       eventType: "scan_llm",
-      message:
-        process.env.OPENAI_API_KEY?.trim()
-          ? "لم يُنشئ النموذج أي مقترحات من بيانات المسح (تحقق من الصلاحيات أو المحتوى)."
-          : "OPENAI_API_KEY غير مضبوط — لم يُحلّل المسح آلياً.",
+      message: process.env.OPENAI_API_KEY?.trim()
+        ? await tAction("aiAgentActions.scanNoModelOutput")
+        : await tAction("aiAgentActions.scanNoOpenAiKey"),
     });
   }
 
   await appendAgentActivity(supabase, {
     userId: session.id,
     eventType: "scan",
-    message: `اكتمل مسح المصادر: Odoo ${taskCount} مهمة، بريد ${emailCount} غير مقروء → ${inserted} مقترحاً جديداً.`,
+    message: await tActionFill("aiAgentActions.logScanComplete", {
+      taskCount: String(taskCount),
+      emailCount: String(emailCount),
+      inserted: String(inserted),
+    }),
   });
 
   revalidatePath("/dashboard/ai-agent");
   return {
     ok: true,
-    message: `تم المسح: ${taskCount} مهمة Odoo، ${emailCount} بريد غير مقروء، ${inserted} مقترحاً جديداً.`,
+    message: await tActionFill("aiAgentActions.scanDoneSummary", {
+      taskCount: String(taskCount),
+      emailCount: String(emailCount),
+      inserted: String(inserted),
+    }),
     inserted,
     taskCount,
     emailCount,

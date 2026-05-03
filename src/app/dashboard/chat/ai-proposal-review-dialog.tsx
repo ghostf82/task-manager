@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { confirmProposalExecutionAction } from "@/app/dashboard/ai-agent/actions";
 import type { PendingProposalRow } from "@/app/dashboard/ai-agent/pending-proposals-panel";
+import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -53,6 +54,7 @@ export function AiProposalReviewDialog({
   onOpenChange: (open: boolean) => void;
   onResolved: () => void;
 }) {
+  const { t } = useDashboardI18n();
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [confirming, startConfirm] = useTransition();
@@ -63,8 +65,8 @@ export function AiProposalReviewDialog({
   useEffect(() => {
     if (!open || !proposal) return;
     const pa = proposal.proposed_action;
-    const t = actionType(pa);
-    if (t === "send_email_reply" && isRecord(pa)) {
+    const kind = actionType(pa);
+    if (kind === "send_email_reply" && isRecord(pa)) {
       setEmailSubject(typeof pa.subject === "string" ? pa.subject : "");
       setEmailBody(typeof pa.body === "string" ? pa.body : "");
     } else {
@@ -76,16 +78,16 @@ export function AiProposalReviewDialog({
   function confirmExecution() {
     if (!proposal) return;
     const id = proposal.id;
-    const t = actionType(proposal.proposed_action);
-    if (t === "send_email_reply" && !emailBody.trim()) {
-      toast.error("نص الرسالة مطلوب قبل الإرسال.");
+    const kind = actionType(proposal.proposed_action);
+    if (kind === "send_email_reply" && !emailBody.trim()) {
+      toast.error(t("proposalReview.bodyRequiredToast"));
       return;
     }
     startConfirm(async () => {
       const res = await confirmProposalExecutionAction({
         proposalId: id,
-        emailBody: t === "send_email_reply" ? emailBody : undefined,
-        emailSubject: t === "send_email_reply" ? emailSubject : undefined,
+        emailBody: kind === "send_email_reply" ? emailBody : undefined,
+        emailSubject: kind === "send_email_reply" ? emailSubject : undefined,
       });
       if (res.ok) {
         toast.success(res.message);
@@ -104,17 +106,17 @@ export function AiProposalReviewDialog({
         className="max-h-[min(90vh,640px)] overflow-y-auto sm:max-w-lg"
       >
         <DialogHeader>
-          <DialogTitle className="text-start leading-snug">مراجعة قبل التنفيذ</DialogTitle>
+          <DialogTitle className="text-start leading-snug">{t("proposalReview.dialogTitle")}</DialogTitle>
           <DialogDescription className="text-start">{proposal?.title}</DialogDescription>
         </DialogHeader>
 
         {proposal && dialogAction === "send_email_reply" ? (
           <div className="grid gap-4 rounded-lg border border-border/60 bg-muted/20 p-4">
             <p className="text-muted-foreground text-xs leading-relaxed">
-              مسودة الرد — عدّل النص أو العنوان ثم أكّد الإرسال عبر SMTP من الخادم.
+              {t("proposalReview.dialogSubtitle")}
             </p>
             <div className="grid gap-2">
-              <Label htmlFor="ai-rev-to">إلى</Label>
+              <Label htmlFor="ai-rev-to">{t("proposalReview.labelTo")}</Label>
               <Input
                 id="ai-rev-to"
                 readOnly
@@ -129,7 +131,7 @@ export function AiProposalReviewDialog({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="ai-rev-subject">الموضوع</Label>
+              <Label htmlFor="ai-rev-subject">{t("proposalReview.labelSubject")}</Label>
               <Input
                 id="ai-rev-subject"
                 dir="ltr"
@@ -139,7 +141,7 @@ export function AiProposalReviewDialog({
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="ai-rev-body">نص الرسالة</Label>
+              <Label htmlFor="ai-rev-body">{t("proposalReview.labelBody")}</Label>
               <Textarea
                 id="ai-rev-body"
                 rows={10}
@@ -154,17 +156,17 @@ export function AiProposalReviewDialog({
         {proposal && dialogAction === "odoo_update_task" ? (
           <div className="grid gap-3 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <div className="flex justify-between gap-4 border-b border-border/50 pb-2">
-              <span className="text-muted-foreground">المهمة</span>
+              <span className="text-muted-foreground">{t("proposalReview.labelTask")}</span>
               <span className="max-w-[60%] text-start font-medium">
                 {odooPreview?.taskName ?? "—"}
               </span>
             </div>
             <div className="flex justify-between gap-4 border-b border-border/50 pb-2">
-              <span className="text-muted-foreground">المرحلة الحالية</span>
+              <span className="text-muted-foreground">{t("proposalReview.labelCurrentStage")}</span>
               <span className="max-w-[60%] text-start">{odooPreview?.currentStageName ?? "—"}</span>
             </div>
             <div className="flex justify-between gap-4">
-              <span className="text-muted-foreground">المرحلة بعد التنفيذ</span>
+              <span className="text-muted-foreground">{t("proposalReview.labelNextStage")}</span>
               <span className="max-w-[60%] text-start font-medium text-emerald-700 dark:text-emerald-300">
                 {odooPreview?.targetStageName ?? "—"}
               </span>
@@ -177,10 +179,10 @@ export function AiProposalReviewDialog({
         dialogAction !== "send_email_reply" &&
         dialogAction !== "odoo_update_task" ? (
           <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm leading-relaxed">
-            <p className="font-medium text-amber-900 dark:text-amber-200">ملخص الإجراء</p>
+            <p className="font-medium text-amber-900 dark:text-amber-200">{t("proposalReview.summaryTitle")}</p>
             <p className="text-muted-foreground mt-1 text-xs">{proposal.summary}</p>
             <p className="mt-2 text-[11px] text-muted-foreground">
-              نوع الإجراء:{" "}
+              {t("proposalReview.actionType")}{" "}
               <span className="font-mono [direction:ltr]">{dialogAction}</span>
             </p>
           </div>
@@ -188,11 +190,11 @@ export function AiProposalReviewDialog({
 
         <DialogFooter className="gap-2 sm:justify-between">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            إلغاء
+            {t("proposalReview.cancel")}
           </Button>
           <Button type="button" disabled={confirming} onClick={confirmExecution} className="gap-2">
             {confirming ? <Loader2Icon className="size-4 animate-spin" /> : null}
-            تأكيد التنفيذ
+            {t("proposalReview.confirmExecute")}
           </Button>
         </DialogFooter>
       </DialogContent>

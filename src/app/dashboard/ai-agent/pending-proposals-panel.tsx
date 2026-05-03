@@ -9,6 +9,7 @@ import {
   confirmProposalExecutionAction,
   rejectProposalAsync,
 } from "@/app/dashboard/ai-agent/actions";
+import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import {
@@ -68,6 +69,7 @@ function readOdooPreview(detail: unknown): {
 }
 
 export function PendingProposalsPanel({ proposals }: { proposals: PendingProposalRow[] }) {
+  const { t, dateLocale } = useDashboardI18n();
   const router = useRouter();
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -85,8 +87,8 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
     setSelected(p);
     setDialogOpen(true);
     const pa = p.proposed_action;
-    const t = actionType(pa);
-    if (t === "send_email_reply" && isRecord(pa)) {
+    const kind = actionType(pa);
+    if (kind === "send_email_reply" && isRecord(pa)) {
       setEmailSubject(typeof pa.subject === "string" ? pa.subject : "");
       setEmailBody(typeof pa.body === "string" ? pa.body : "");
     } else {
@@ -103,16 +105,16 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
   function confirmExecution() {
     if (!selected) return;
     const id = selected.id;
-    const t = actionType(selected.proposed_action);
-    if (t === "send_email_reply" && !emailBody.trim()) {
-      toast.error("نص الرسالة مطلوب قبل الإرسال.");
+    const kind = actionType(selected.proposed_action);
+    if (kind === "send_email_reply" && !emailBody.trim()) {
+      toast.error(t("proposalReview.bodyRequiredToast"));
       return;
     }
     startConfirm(async () => {
       const res = await confirmProposalExecutionAction({
         proposalId: id,
-        emailBody: t === "send_email_reply" ? emailBody : undefined,
-        emailSubject: t === "send_email_reply" ? emailSubject : undefined,
+        emailBody: kind === "send_email_reply" ? emailBody : undefined,
+        emailSubject: kind === "send_email_reply" ? emailSubject : undefined,
       });
       if (res.ok) {
         toast.success(res.message);
@@ -129,7 +131,7 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
     const res = await rejectProposalAsync(id);
     setRejectingId(null);
     if (res.ok) {
-      toast.success("تم رفض المقترح.");
+      toast.success(t("aiAgentPending.toastRejected"));
     } else {
       toast.error(res.error);
     }
@@ -143,20 +145,17 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
     <>
       <Card className="border-border/80 shadow-md ring-1 ring-violet-500/10">
         <CardHeader>
-          <CardTitle>صندوق المقترحات</CardTitle>
-          <CardDescription>
-            راجع التفاصيل في النافذة المنبثقة ثم أكّد التنفيذ — لا يُنفَّذ شيء قبل «تأكيد
-            التنفيذ».
-          </CardDescription>
+          <CardTitle>{t("aiAgentPending.panelTitle")}</CardTitle>
+          <CardDescription>{t("aiAgentPending.panelSubtitle")}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {!sorted.length ? (
             <EmptyState
               icon={Sparkles}
-              title="لا مقترحات في الانتظار"
-              description="عند تشغيل المسح أو تحليل النص أو الدردشة مع المساعد، ستظهر المقترحات هنا لمراجعتها قبل أي تنفيذ."
+              title={t("aiAgentPending.emptyTitle")}
+              description={t("aiAgentPending.emptyDescription")}
               action={{
-                label: "اذهب إلى المساعد الذكي",
+                label: t("aiAgentPending.goToAgent"),
                 href: "/dashboard/ai-agent",
               }}
             />
@@ -174,7 +173,10 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
                     <h3 className="mt-0.5 font-semibold leading-snug">{p.title}</h3>
                   </div>
                   <span className="text-muted-foreground shrink-0 text-[11px]">
-                    {new Date(p.created_at).toLocaleString("ar-SA")}
+                    {new Date(p.created_at).toLocaleString(dateLocale, {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                    })}
                   </span>
                 </div>
                 <p className="text-muted-foreground mt-2 text-sm leading-relaxed">{p.summary}</p>
@@ -183,7 +185,7 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
                 </pre>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button type="button" size="sm" onClick={() => openReview(p)}>
-                    موافقة ومراجعة…
+                    {t("aiAgentPending.reviewing")}
                   </Button>
                   <Button
                     type="button"
@@ -195,7 +197,7 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
                     {rejectingId === p.id ? (
                       <Loader2Icon className="size-4 animate-spin" />
                     ) : null}
-                    رفض
+                    {t("aiAgentPending.reject")}
                   </Button>
                 </div>
               </div>
@@ -219,7 +221,7 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
         >
           <DialogHeader>
             <DialogTitle className="text-start leading-snug">
-              مراجعة قبل التنفيذ
+              {t("proposalReview.dialogTitle")}
             </DialogTitle>
             <DialogDescription className="text-start">
               {selected?.title}
@@ -229,10 +231,10 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
           {selected && dialogAction === "send_email_reply" ? (
             <div className="grid gap-4 border border-border/60 rounded-lg bg-muted/20 p-4">
               <p className="text-muted-foreground text-xs leading-relaxed">
-                مسودة الرد — عدّل النص أو العنوان ثم أكّد الإرسال عبر SMTP من الخادم.
+                {t("proposalReview.dialogSubtitle")}
               </p>
               <div className="grid gap-2">
-                <Label htmlFor="rev-to">إلى</Label>
+                <Label htmlFor="rev-to">{t("proposalReview.labelTo")}</Label>
                 <Input
                   id="rev-to"
                   readOnly
@@ -247,7 +249,7 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="rev-subject">الموضوع</Label>
+                <Label htmlFor="rev-subject">{t("proposalReview.labelSubject")}</Label>
                 <Input
                   id="rev-subject"
                   dir="ltr"
@@ -257,7 +259,7 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="rev-body">نص الرسالة</Label>
+                <Label htmlFor="rev-body">{t("proposalReview.labelBody")}</Label>
                 <Textarea
                   id="rev-body"
                   rows={10}
@@ -272,17 +274,17 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
           {selected && dialogAction === "odoo_update_task" ? (
             <div className="grid gap-3 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
               <div className="flex justify-between gap-4 border-b border-border/50 pb-2">
-                <span className="text-muted-foreground">المهمة</span>
+                <span className="text-muted-foreground">{t("proposalReview.labelTask")}</span>
                 <span className="max-w-[60%] text-start font-medium">
                   {odooPreview?.taskName ?? "—"}
                 </span>
               </div>
               <div className="flex justify-between gap-4 border-b border-border/50 pb-2">
-                <span className="text-muted-foreground">المرحلة الحالية</span>
+                <span className="text-muted-foreground">{t("proposalReview.labelCurrentStage")}</span>
                 <span className="max-w-[60%] text-start">{odooPreview?.currentStageName ?? "—"}</span>
               </div>
               <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">المرحلة بعد التنفيذ</span>
+                <span className="text-muted-foreground">{t("proposalReview.labelNextStage")}</span>
                 <span className="max-w-[60%] text-start font-medium text-emerald-700 dark:text-emerald-300">
                   {odooPreview?.targetStageName ?? "—"}
                 </span>
@@ -301,21 +303,22 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
           dialogAction !== "send_email_reply" &&
           dialogAction !== "odoo_update_task" ? (
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm leading-relaxed">
-              <p className="font-medium text-amber-900 dark:text-amber-200">ملخص الإجراء</p>
+              <p className="font-medium text-amber-900 dark:text-amber-200">{t("proposalReview.summaryTitle")}</p>
               <p className="text-muted-foreground mt-1 text-xs">{selected.summary}</p>
               <p className="mt-2 text-[11px] text-muted-foreground">
-                نوع الإجراء: <span className="font-mono [direction:ltr]">{dialogAction}</span>
+                {t("proposalReview.actionType")}{" "}
+                <span className="font-mono [direction:ltr]">{dialogAction}</span>
               </p>
             </div>
           ) : null}
 
           <DialogFooter className="gap-2 sm:justify-between">
             <Button type="button" variant="outline" onClick={closeDialog}>
-              إلغاء
+              {t("proposalReview.cancel")}
             </Button>
             <Button type="button" disabled={confirming} onClick={confirmExecution} className="gap-2">
               {confirming ? <Loader2Icon className="size-4 animate-spin" /> : null}
-              تأكيد التنفيذ
+              {t("proposalReview.confirmExecute")}
             </Button>
           </DialogFooter>
         </DialogContent>

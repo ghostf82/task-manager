@@ -3,7 +3,7 @@ import type { TaskReportScope } from "@/lib/dashboard-scope";
 import type { TaskStatus } from "@/lib/corporate-tasks";
 
 export type DashboardStats = {
-  chart: { name: string; value: number; fill: string }[];
+  chart: { segment: "completed" | "overdue" | "waiting"; value: number; fill: string }[];
   topActive: { id: string; label: string; count: number }[];
   topLate: { id: string; label: string; count: number }[];
   totals: {
@@ -87,9 +87,9 @@ export async function loadDashboardStats(
   }
 
   const chart = [
-    { name: "مكتمل", value: completed, fill: "#22c55e" },
-    { name: "متأخر", value: overdue, fill: "#ef4444" },
-    { name: "قيد الانتظار", value: waiting, fill: "#f59e0b" },
+    { segment: "completed" as const, value: completed, fill: "#22c55e" },
+    { segment: "overdue" as const, value: overdue, fill: "#ef4444" },
+    { segment: "waiting" as const, value: waiting, fill: "#f59e0b" },
   ];
 
   const userIds = new Set<string>([

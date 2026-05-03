@@ -10,6 +10,7 @@ import {
   sendChatMessageAction,
 } from "@/app/dashboard/chat/actions";
 import type { PendingProposalRow } from "@/app/dashboard/ai-agent/pending-proposals-panel";
+import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -82,6 +83,7 @@ export function ChatClient({
   currentUserName: string;
   colleagues: ChatColleague[];
 }) {
+  const { t, dateLocale } = useDashboardI18n();
   const [pending, startTransition] = useTransition();
   const [peerId, setPeerId] = useState<string | null>(null);
   const [convId, setConvId] = useState<string | null>(null);
@@ -104,9 +106,9 @@ export function ChatClient({
     for (const c of colleagues) {
       m.set(c.id, c.full_name?.trim() || c.email);
     }
-    m.set(AI_AGENT_PEER_ID, "المساعد الذكي");
+    m.set(AI_AGENT_PEER_ID, t("chatClient.aiAssistant"));
     return m;
-  }, [colleagues, currentUserId, currentUserName]);
+  }, [colleagues, currentUserId, currentUserName, t]);
 
   const loadMessages = useCallback(
     async (cid: string) => {
@@ -210,7 +212,7 @@ export function ChatClient({
         const id = await ensureDmConversationAction(other.id);
         setConvId(id);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "تعذر فتح المحادثة");
+        toast.error(e instanceof Error ? e.message : t("chatClient.toastOpenThreadFail"));
       }
     });
   }
@@ -230,7 +232,7 @@ export function ChatClient({
       .eq("id", proposalId)
       .single();
     if (error || !data) {
-      toast.error(error?.message ?? "تعذّر تحميل المقترح");
+      toast.error(error?.message ?? t("chatClient.toastLoadProposalFail"));
       return;
     }
     setReviewProposal(data as PendingProposalRow);
@@ -245,7 +247,7 @@ export function ChatClient({
       try {
         await sendChatMessageAction(convId, text);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "تعذر الإرسال");
+        toast.error(e instanceof Error ? e.message : t("chatClient.toastSendFail"));
       }
     });
   }
@@ -265,12 +267,12 @@ export function ChatClient({
       });
       if (!res.ok) {
         const err = await res.text();
-        toast.error(err || "تعذّر الاتصال بالمساعد");
+        toast.error(err || t("chatClient.toastAiConnectFail"));
         return;
       }
       const reader = res.body?.getReader();
       if (!reader) {
-        toast.error("لا يوجد تدفق استجابة");
+        toast.error(t("chatClient.toastNoResponseStream"));
         return;
       }
       const decoder = new TextDecoder();
@@ -311,7 +313,7 @@ export function ChatClient({
         }
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "فشل الطلب");
+      toast.error(e instanceof Error ? e.message : t("chatClient.toastRequestFail"));
     } finally {
       setAiPending(false);
     }
@@ -323,10 +325,8 @@ export function ChatClient({
     <div className="flex flex-col gap-4 lg:flex-row">
       <Card className="lg:w-72 shrink-0">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">الأعضاء</CardTitle>
-          <CardDescription className="text-xs">
-            محادثة مع الزملاء أو مع المساعد الذكي (سياق شركتك وأدواتك المصرّح بها).
-          </CardDescription>
+          <CardTitle className="text-base">{t("chatClient.membersTitle")}</CardTitle>
+          <CardDescription className="text-xs">{t("chatClient.membersSubtitle")}</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <ScrollArea className="h-[420px]">
@@ -347,9 +347,9 @@ export function ChatClient({
                       <Sparkles className="size-4" />
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate font-medium">المساعد الذكي (AI Agent)</p>
+                      <p className="truncate font-medium">{t("chatClient.aiAssistantCardTitle")}</p>
                       <p className="text-muted-foreground truncate text-[11px]">
-                        أسئلة عن المهام والمستندات ومقترحات تنفيذ
+                        {t("chatClient.aiAssistantCardHint")}
                       </p>
                     </div>
                   </div>
@@ -357,7 +357,7 @@ export function ChatClient({
               </li>
               {colleagues.length === 0 ? (
                 <li className="text-muted-foreground px-4 py-4 text-center text-xs">
-                  لا يوجد زملاء للعرض في نطاق شركتك.
+                  {t("chatClient.noColleagues")}
                 </li>
               ) : (
                 colleagues.map((c) => (
@@ -388,7 +388,7 @@ export function ChatClient({
                       variant="ghost"
                       size="icon-sm"
                       className="shrink-0 text-muted-foreground"
-                      title="اتصال صوتي (قريباً)"
+                      title={t("chatClient.voiceCallSoonTitle")}
                       onClick={() => {
                         setVoiceLabel(c.full_name || c.email);
                         setVoiceOpen(true);
@@ -408,15 +408,16 @@ export function ChatClient({
         <CardHeader className="shrink-0 border-b border-border pb-3">
           <CardTitle className="text-base">
             {isAiThread
-              ? "المساعد الذكي"
+              ? t("chatClient.threadTitleAi")
               : activePeer
-                ? `محادثة مع ${activePeer.full_name || activePeer.email}`
-                : "اختر عضواً"}
+                ? t("chatClient.threadTitleWithPeer").replace(
+                    "{name}",
+                    activePeer.full_name || activePeer.email
+                  )
+                : t("chatClient.pickMember")}
           </CardTitle>
           <CardDescription className="text-xs">
-            {isAiThread
-              ? "ردود تدفقية عبر الخادم — التنفيذ الفعلي يمر دائماً بموافقة المقترحات."
-              : "تحديثات فورية عبر Supabase Realtime"}
+            {isAiThread ? t("chatClient.threadDescAi") : t("chatClient.threadDescRealtime")}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
@@ -438,8 +439,8 @@ export function ChatClient({
                           )}
                         >
                           <p className="text-[10px] opacity-80">
-                            {mine ? "أنت" : "المساعد الذكي"} ·{" "}
-                            {new Date(m.created_at).toLocaleTimeString("ar-SA", {
+                            {mine ? t("chatClient.labelYou") : t("chatClient.aiAssistant")} ·{" "}
+                            {new Date(m.created_at).toLocaleTimeString(dateLocale, {
                               hour: "2-digit",
                               minute: "2-digit",
                             })}
@@ -454,7 +455,7 @@ export function ChatClient({
                                 className="rounded-xl border border-violet-500/25 bg-violet-500/5 p-3 text-sm shadow-sm"
                               >
                                 <p className="text-[10px] font-medium text-violet-700 dark:text-violet-200">
-                                  مقترح يحتاج موافقة
+                                  {t("chatClient.proposalNeedsApproval")}
                                 </p>
                                 <p className="mt-1 font-semibold leading-snug">{p.title}</p>
                                 <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
@@ -467,7 +468,7 @@ export function ChatClient({
                                   variant="secondary"
                                   onClick={() => void openProposalReview(p.id)}
                                 >
-                                  مراجعة وموافقة
+                                  {t("chatClient.reviewAndApprove")}
                                 </Button>
                               </div>
                             ))}
@@ -478,7 +479,7 @@ export function ChatClient({
                   })}
                   {streamingText ? (
                     <div className="max-w-[90%] self-start rounded-2xl bg-background px-3 py-2 text-sm shadow-sm ring-1 ring-violet-500/20">
-                      <p className="text-[10px] text-muted-foreground">المساعد الذكي · يكتب…</p>
+                      <p className="text-[10px] text-muted-foreground">{t("chatClient.aiTyping")}</p>
                       <p className="whitespace-pre-wrap leading-relaxed">{streamingText}</p>
                     </div>
                   ) : null}
@@ -498,7 +499,7 @@ export function ChatClient({
                     >
                       <p className="text-[10px] opacity-80">
                         {nameById.get(m.user_id) ?? "—"} ·{" "}
-                        {new Date(m.created_at).toLocaleTimeString("ar-SA", {
+                        {new Date(m.created_at).toLocaleTimeString(dateLocale, {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
@@ -514,9 +515,7 @@ export function ChatClient({
           <div className="shrink-0 space-y-2 border-t border-border bg-background/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm md:bg-background">
             <div className="flex gap-2">
             <Input
-              placeholder={
-                isAiThread ? "اسأل عن المهام أو المستندات أو طلب إجراء…" : "اكتب رسالتك…"
-              }
+              placeholder={isAiThread ? t("chatClient.placeholderAi") : t("chatClient.placeholderDm")}
               value={draft}
               disabled={
                 (!convId && !isAiThread) || pending || (isAiThread && aiPending)
@@ -547,16 +546,14 @@ export function ChatClient({
       <Dialog open={voiceOpen} onOpenChange={setVoiceOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>اتصال صوتي</DialogTitle>
-            <DialogDescription>
-              الميزة قيد التخطيط: ربط WebRTC أو مزود مثل LiveKit للمكالمات الآمنة بين الأعضاء.
-            </DialogDescription>
+            <DialogTitle>{t("chatClient.voiceTitle")}</DialogTitle>
+            <DialogDescription>{t("chatClient.voiceDescription")}</DialogDescription>
           </DialogHeader>
           <p className="text-muted-foreground text-sm">
-            العضو: <strong>{voiceLabel}</strong>
+            {t("chatClient.voicePeerLabel")} <strong>{voiceLabel}</strong>
           </p>
           <Button type="button" onClick={() => setVoiceOpen(false)}>
-            حسناً
+            {t("chatClient.voiceOk")}
           </Button>
         </DialogContent>
       </Dialog>

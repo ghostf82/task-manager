@@ -1,8 +1,10 @@
-import { requireSession } from "@/lib/dashboard-auth";
-import { createClient } from "@/lib/supabase/server";
 import { ChatClient, type ChatColleague } from "@/app/dashboard/chat/chat-client";
+import { requireSession } from "@/lib/dashboard-auth";
+import { getTranslator } from "@/lib/i18n/get-translator";
+import { createClient } from "@/lib/supabase/server";
 
 export default async function ChatPage() {
+  const { t, locale } = await getTranslator();
   const session = await requireSession();
   const supabase = await createClient();
 
@@ -13,7 +15,7 @@ export default async function ChatPage() {
     .select("full_name,email")
     .eq("id", session.id)
     .single();
-  const currentUserName = meRow?.full_name?.trim() || meRow?.email || "أنت";
+  const currentUserName = meRow?.full_name?.trim() || meRow?.email || t("chatPage.fallbackYou");
 
   if (session.isSuperAdmin) {
     const { data } = await supabase
@@ -65,8 +67,9 @@ export default async function ChatPage() {
           });
         }
       }
+      const collator = locale === "en" ? "en" : "ar";
       colleagues = [...map.values()].sort((a, b) =>
-        (a.full_name || a.email).localeCompare(b.full_name || b.email, "ar")
+        (a.full_name || a.email).localeCompare(b.full_name || b.email, collator)
       );
     }
   }
@@ -74,10 +77,8 @@ export default async function ChatPage() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">مركز التواصل</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          دردشة نصية فورية مع الزملاء. زر الاتصال الصوتي معاين لمزود خدمة لاحق.
-        </p>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("chatPage.title")}</h1>
+        <p className="text-muted-foreground mt-1 text-sm">{t("chatPage.subtitle")}</p>
       </div>
       <ChatClient
         currentUserId={session.id}

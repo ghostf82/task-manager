@@ -7,6 +7,7 @@ import { decryptCredentialSecret, encryptCredentialSecret } from "@/lib/crypto/c
 import { appendAgentActivity } from "@/lib/ai-agent/activity-log";
 import { userHasAiToolLicense } from "@/lib/ai-tools/user-licenses";
 import { requireSession } from "@/lib/dashboard-auth";
+import { tAction } from "@/lib/i18n/action-messages";
 import { testEmailConnectionsPlain } from "@/lib/integrations/email-client";
 import { testOdooLoginPlain } from "@/lib/integrations/odoo-client";
 import { createClient } from "@/lib/supabase/server";
@@ -76,7 +77,7 @@ export async function saveOdooCredentialsAction(formData: FormData) {
   await appendAgentActivity(supabase, {
     userId: session.id,
     eventType: "vault",
-    message: "تم تحديث بيانات ربط Odoo (مشفرة).",
+    message: await tAction("integrationsActions.activityOdooSaved"),
   });
 
   revalidatePath("/dashboard/settings/integrations");
@@ -91,7 +92,7 @@ export async function deleteOdooCredentialsAction() {
   await appendAgentActivity(supabase, {
     userId: session.id,
     eventType: "vault",
-    message: "تم حذف بيانات ربط Odoo من الخزنة.",
+    message: await tAction("integrationsActions.activityOdooDeleted"),
   });
   revalidatePath("/dashboard/settings/integrations");
   revalidatePath("/dashboard/ai-agent");
@@ -178,7 +179,7 @@ export async function saveEmailCredentialsAction(formData: FormData) {
   await appendAgentActivity(supabase, {
     userId: session.id,
     eventType: "vault",
-    message: "تم تحديث إعدادات البريد (كلمات المرور مشفرة).",
+    message: await tAction("integrationsActions.activityEmailSaved"),
   });
 
   revalidatePath("/dashboard/settings/integrations");
@@ -193,7 +194,7 @@ export async function deleteEmailCredentialsAction() {
   await appendAgentActivity(supabase, {
     userId: session.id,
     eventType: "vault",
-    message: "تم حذف إعدادات البريد من الخزنة.",
+    message: await tAction("integrationsActions.activityEmailDeleted"),
   });
   revalidatePath("/dashboard/settings/integrations");
   revalidatePath("/dashboard/ai-agent");
@@ -212,7 +213,7 @@ export async function testOdooConnectionAction(input: {
   const supabase = await createClient();
 
   if (!(await userHasAiToolLicense(supabase, session.id, "odoo"))) {
-    return { ok: false, message: "غير مصرّح لك باستخدام أداة Odoo." };
+    return { ok: false, message: await tAction("integrationsActions.testOdooNoLicense") };
   }
 
   let passwordPlain = String(input.password ?? "").trim();
@@ -225,13 +226,13 @@ export async function testOdooConnectionAction(input: {
     if (!data?.password_encrypted) {
       return {
         ok: false,
-        message: "أدخل كلمة مرور Odoo للفحص، أو احفظ الإعدادات أولاً.",
+        message: await tAction("integrationsActions.testOdooPasswordHint"),
       };
     }
     try {
       passwordPlain = decryptCredentialSecret(data.password_encrypted);
     } catch {
-      return { ok: false, message: "تعذّر فك تشفير كلمة المرور المحفوظة (تحقق من مفتاح الخادم)." };
+      return { ok: false, message: await tAction("integrationsActions.testOdooDecryptFail") };
     }
   }
 
@@ -243,7 +244,7 @@ export async function testOdooConnectionAction(input: {
   });
 
   return r.ok
-    ? { ok: true, message: "نجح فحص Odoo: تمت المصادقة عبر XML-RPC دون جلب بيانات." }
+    ? { ok: true, message: await tAction("integrationsActions.testOdooSuccess") }
     : { ok: false, message: r.message };
 }
 
@@ -263,7 +264,7 @@ export async function testEmailConnectionAction(input: {
   const supabase = await createClient();
 
   if (!(await userHasAiToolLicense(supabase, session.id, "email"))) {
-    return { ok: false, message: "غير مصرّح لك باستخدام أداة البريد." };
+    return { ok: false, message: await tAction("integrationsActions.testEmailNoLicense") };
   }
 
   let imapPass = String(input.imap_password ?? "").trim();
@@ -278,18 +279,18 @@ export async function testEmailConnectionAction(input: {
     try {
       if (!imapPass) {
         if (!data?.imap_password_encrypted) {
-          return { ok: false, message: "أدخل كلمة مرور IMAP للفحص أو احفظ الإعدادات أولاً." };
+          return { ok: false, message: await tAction("integrationsActions.testImapPasswordHint") };
         }
         imapPass = decryptCredentialSecret(data.imap_password_encrypted);
       }
       if (!smtpPass) {
         if (!data?.smtp_password_encrypted) {
-          return { ok: false, message: "أدخل كلمة مرور SMTP للفحص أو احفظ الإعدادات أولاً." };
+          return { ok: false, message: await tAction("integrationsActions.testSmtpPasswordHint") };
         }
         smtpPass = decryptCredentialSecret(data.smtp_password_encrypted);
       }
     } catch {
-      return { ok: false, message: "تعذّر فك تشفير كلمات المرور المحفوظة." };
+      return { ok: false, message: await tAction("integrationsActions.testEmailDecryptFail") };
     }
   }
 

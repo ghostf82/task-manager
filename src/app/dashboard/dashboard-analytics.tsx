@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Bar,
   BarChart,
@@ -14,6 +15,7 @@ import {
   YAxis,
 } from "recharts";
 import type { DashboardStats } from "@/lib/dashboard-stats";
+import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import {
   Card,
   CardContent,
@@ -23,21 +25,30 @@ import {
 } from "@/components/ui/card";
 
 export function DashboardAnalytics({ stats }: { stats: DashboardStats }) {
-  const pieData = stats.chart.filter((c) => c.value > 0);
+  const { t } = useDashboardI18n();
+  const pieData = useMemo(
+    () =>
+      stats.chart
+        .filter((c) => c.value > 0)
+        .map((c) => ({
+          name: t(`dashboardAnalytics.chart.${c.segment}`),
+          value: c.value,
+          fill: c.fill,
+        })),
+    [stats.chart, t]
+  );
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <Card className="lg:col-span-2">
         <CardHeader>
-          <CardTitle>توزيع المهام</CardTitle>
-          <CardDescription>
-            مكتمل / متأخر / قيد الانتظار — حسب نطاق صلاحياتك
-          </CardDescription>
+          <CardTitle>{t("dashboardAnalytics.pieTitle")}</CardTitle>
+          <CardDescription>{t("dashboardAnalytics.pieDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="h-[320px] w-full min-h-[280px]">
           {pieData.length === 0 ? (
             <p className="text-muted-foreground py-16 text-center text-sm">
-              لا توجد بيانات كافية لعرض الرسم بعد.
+              {t("dashboardAnalytics.pieNoData")}
             </p>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -67,13 +78,13 @@ export function DashboardAnalytics({ stats }: { stats: DashboardStats }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>الأكثر إنجازاً</CardTitle>
-          <CardDescription>مهام مكتملة حسب المسؤول</CardDescription>
+          <CardTitle>{t("dashboardAnalytics.topDoneTitle")}</CardTitle>
+          <CardDescription>{t("dashboardAnalytics.topDoneDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="h-[280px]">
           {stats.topActive.length === 0 ? (
             <p className="text-muted-foreground py-12 text-center text-xs">
-              لا بيانات
+              {t("dashboardAnalytics.noData")}
             </p>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
@@ -100,13 +111,13 @@ export function DashboardAnalytics({ stats }: { stats: DashboardStats }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>الأكثر تأخراً</CardTitle>
-          <CardDescription>مهام متأخرة حسب المسؤول</CardDescription>
+          <CardTitle>{t("dashboardAnalytics.topLateTitle")}</CardTitle>
+          <CardDescription>{t("dashboardAnalytics.topLateDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="h-[280px]">
           {stats.topLate.length === 0 ? (
             <p className="text-muted-foreground py-12 text-center text-xs">
-              لا بيانات
+              {t("dashboardAnalytics.noData")}
             </p>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
