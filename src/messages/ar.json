@@ -1,0 +1,171 @@
+{
+  "meta": {
+    "title": "منصة المهام والإنتاجية",
+    "description": "إدارة مهام الشركات والإنتاجية الشخصية"
+  },
+  "nav": {
+    "home": "الرئيسية",
+    "tenants": "الشركات",
+    "users": "المستخدمين",
+    "aiGovernance": "حوكمة أدوات الذكاء",
+    "tasks": "المهام",
+    "documents": "مستندات الشركات",
+    "reminders": "التذكيرات الشخصية",
+    "chat": "التواصل",
+    "aiAgent": "المساعد الذكي",
+    "integrations": "ربط الأنظمة"
+  },
+  "dashboard": {
+    "brand": "ERP المهام",
+    "panelTitle": "لوحة التحكم",
+    "mobileNav": "التنقل",
+    "notifications": "الإشعارات"
+  },
+  "language": {
+    "label": "اللغة",
+    "ar": "العربية",
+    "en": "English"
+  },
+  "footer": {
+    "tagline": "منصة موحّدة لإدارة المهام والامتثال"
+  },
+  "profileBar": {
+    "fallbackName": "مستخدم",
+    "position": "المنصب",
+    "account": "إعدادات الحساب"
+  },
+  "common": {
+    "signOut": "تسجيل الخروج"
+  },
+  "auth": {
+    "loginTitle": "تسجيل الدخول",
+    "loginDescription": "منصة المهام والإنتاجية — تسجيل الدخول بحسابك المؤسسي",
+    "email": "البريد الإلكتروني",
+    "password": "كلمة المرور",
+    "submit": "دخول",
+    "errorMissing": "يرجى إدخال البريد وكلمة المرور.",
+    "errorInvalid": "بيانات الدخول غير صحيحة.",
+    "errorSession": "انتهت الجلسة. سجّل الدخول مجدداً.",
+    "footerNote": "التسجيل يتم من قبل مسؤول النظام فقط.",
+    "backHome": "العودة للرئيسية"
+  },
+  "integrations": {
+    "title": "الخزنة السرية للربط",
+    "subtitle": "تُخزّن كلمات المرور مشفّرة (AES-256-GCM) ولا تُعرض مرة أخرى. تظهر هنا فقط نماذج الأدوات المفعّلة لحسابك من قبل الإدارة. يُفك التشفير على الخادم فقط عند تشغيل المساعد بعد موافقتك.",
+    "aiSpace": "مساحة المساعد الذكي",
+    "noToolsStaff": "لا توجد أدوات ربط مفعّلة لحسابك حالياً. يرجى التواصل مع الإدارة لتفعيل الأدوات المطلوبة.",
+    "noToolsSuper": "لا توجد أدوات ربط مفعّلة لهذا الحساب. يمكنك تفعيل Odoo والبريد من صفحة الحوكمة.",
+    "governanceLink": "فتح حوكمة أدوات الذكاء",
+    "testConnection": "فحص الاتصال",
+    "formMissingOdoo": "تعذّر العثور على نموذج Odoo.",
+    "formMissingEmail": "تعذّر العثور على نموذج البريد.",
+    "footerNote": "يجب أن يبقى مفتاح CREDENTIALS_ENCRYPTION_KEY سرياً في بيئة التشغيل (مثل Netlify Environment Variables) ولا يُرفع إلى المستودع.",
+    "notices": {
+      "odoo": "تم حفظ بيانات Odoo بشكل آمن (كلمة المرور مشفّرة في قاعدة البيانات).",
+      "odoo_clear": "تمت إزالة بيانات Odoo من الخزنة.",
+      "email": "تم حفظ إعدادات البريد بشكل آمن.",
+      "email_clear": "تمت إزالة إعدادات البريد من الخزنة."
+    },
+    "errors": {
+      "odoo_fields": "أكمل عنوان Odoo واسم الدخول.",
+      "odoo_password": "كلمة مرور Odoo مطلوبة عند أول حفظ.",
+      "odoo_encrypt": "تعذّر التشفير: تحقق من متغير CREDENTIALS_ENCRYPTION_KEY على الخادم.",
+      "odoo_save": "تعذّر حفظ بيانات Odoo.",
+      "email_fields": "أكمل حقول خوادم البريد وأسماء المستخدمين.",
+      "email_imap_password": "كلمة مرور IMAP مطلوبة عند أول حفظ.",
+      "email_smtp_password": "كلمة مرور SMTP مطلوبة عند أول حفظ.",
+      "email_encrypt": "تعذّر التشفير: تحقق من CREDENTIALS_ENCRYPTION_KEY.",
+      "email_save": "تعذّر حفظ إعدادات البريد.",
+      "no_license_odoo": "لا تملك ترخيص أداة Odoo — راجع مسؤول النظام في «حوكمة أدوات الذكاء».",
+      "no_license_email": "لا تملك ترخيص أداة البريد — راجع مسؤول النظام في «حوكمة أدوات الذكاء».",
+      "generic": "حدث خطأ غير متوقع."
+    },
+    "odoo": {
+      "title": "Odoo",
+      "desc": "عنوان الخادم، قاعدة البيانات (اختياري)، اسم الدخول وكلمة المرور — تُحفظ المشفّرة فقط.",
+      "updated": "آخر تحديث",
+      "baseUrl": "رابط Odoo (Base URL)",
+      "dbName": "اسم قاعدة البيانات",
+      "username": "اسم المستخدم",
+      "password": "كلمة المرور",
+      "passwordKeep": "اتركها فارغة للإبقاء على المحفوظة",
+      "passwordRequired": "مطلوبة",
+      "save": "حفظ Odoo",
+      "delete": "حذف بيانات Odoo من الخزنة"
+    },
+    "email": {
+      "title": "البريد IMAP / SMTP",
+      "desc": "خوادم الاستلام والإرسال مع التشفير TLS الافتراضي. اترك حقول كلمة المرور فارغة عند التحديث للإبقاء على القيم المشفرة الحالية.",
+      "updated": "آخر تحديث",
+      "imapBlock": "IMAP",
+      "smtpBlock": "SMTP",
+      "imapHost": "خادم IMAP",
+      "port": "المنفذ",
+      "tls": "TLS / SSL",
+      "imapUser": "مستخدم IMAP",
+      "imapPass": "كلمة مرور IMAP",
+      "smtpHost": "خادم SMTP",
+      "smtpUser": "مستخدم SMTP",
+      "smtpPass": "كلمة مرور SMTP",
+      "passKeep": "فارغ = الإبقاء على المحفوظ",
+      "passRequired": "مطلوبة",
+      "save": "حفظ البريد",
+      "delete": "حذف إعدادات البريد من الخزنة"
+    }
+  },
+  "documentsPage": {
+    "title": "مستندات الشركات",
+    "subtitle": "تتبع تواريخ الانتهاء مع مؤشرات امتثال مرئية (مستويات: سليم، قريب الاستحقاق، متأخر) وتصدير إكسل وفق نفس المنطق.",
+    "exportExcel": "تصدير إلى إكسل",
+    "addDocument": "إضافة مستند",
+    "allTenants": "كل الشركات",
+    "loadError": "تعذّر تحميل المستندات",
+    "emptyTitle": "لا مستندات مطابقة",
+    "emptyDescription": "أضف مستندات الشركة مع تواريخ الانتهاء لتفعيل التنبيهات والتقارير التنفيذية.",
+    "linkLabel": "رابط",
+    "edit": "تعديل",
+    "delete": "حذف",
+    "dialogNewTitle": "مستند جديد",
+    "dialogNewDescription": "أدخل بيانات المستند وتاريخ الانتهاء وفترة التنبيه بالأيام.",
+    "dialogEditTitle": "تعديل مستند",
+    "dialogEditDescription": "تحديث الحقول ثم احفظ التغييرات.",
+    "cancel": "إلغاء",
+    "save": "حفظ",
+    "saveChanges": "حفظ التعديلات",
+    "form": {
+      "tenant": "الشركة",
+      "documentName": "اسم المستند",
+      "documentNamePh": "مثال: سجل تجاري",
+      "documentNumber": "رقم المستند",
+      "expiry": "تاريخ الانتهاء",
+      "alertDays": "تنبيه قبل (أيام)",
+      "status": "الحالة",
+      "fileUrl": "رابط المرفق (اختياري)",
+      "fileUrlPh": "https://…"
+    },
+    "status": {
+      "valid": "صالح",
+      "expired": "منتهي",
+      "renewal_pending": "قيد التجديد"
+    },
+    "toast": {
+      "added": "تمت إضافة المستند",
+      "updated": "تم تحديث المستند",
+      "deleted": "تم الحذف",
+      "saveFail": "فشل الحفظ",
+      "deleteFail": "فشل الحذف"
+    },
+    "confirmDelete": "حذف هذا المستند؟",
+    "table": {
+      "company": "الشركة",
+      "document": "المستند",
+      "number": "الرقم",
+      "expiry": "الانتهاء",
+      "alertBefore": "تنبيه قبل",
+      "status": "الحالة",
+      "days": "أيام",
+      "attachment": "مرفق",
+      "actions": ""
+    }
+  }
+}

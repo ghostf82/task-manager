@@ -1,4 +1,5 @@
 import Link from "next/link";
+
 import { loginAction } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,12 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-const errors: Record<string, string> = {
-  missing: "يرجى إدخال البريد وكلمة المرور.",
-  invalid: "بيانات الدخول غير صحيحة.",
-  session: "انتهت الجلسة. سجّل الدخول مجدداً.",
-};
+import { getTranslator } from "@/lib/i18n/get-translator";
 
 export default async function LoginPage({
   searchParams,
@@ -24,6 +20,14 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const sp = await searchParams;
+  const { t } = await getTranslator();
+
+  const errors: Record<string, string> = {
+    missing: t("auth.errorMissing"),
+    invalid: t("auth.errorInvalid"),
+    session: t("auth.errorSession"),
+  };
+
   const msg = sp.error ? errors[sp.error] ?? sp.error : null;
 
   return (
@@ -31,11 +35,9 @@ export default async function LoginPage({
       <Card className="w-full max-w-md shadow-sm">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-semibold tracking-tight">
-            تسجيل الدخول
+            {t("auth.loginTitle")}
           </CardTitle>
-          <CardDescription>
-            منصة المهام والإنتاجية — تسجيل الدخول بحسابك المؤسسي
-          </CardDescription>
+          <CardDescription>{t("auth.loginDescription")}</CardDescription>
         </CardHeader>
         <form action={loginAction}>
           <CardContent className="space-y-4">
@@ -48,7 +50,7 @@ export default async function LoginPage({
               </p>
             ) : null}
             <div className="space-y-2">
-              <Label htmlFor="email">البريد الإلكتروني</Label>
+              <Label htmlFor="email">{t("auth.email")}</Label>
               <Input
                 id="email"
                 name="email"
@@ -59,7 +61,7 @@ export default async function LoginPage({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">كلمة المرور</Label>
+              <Label htmlFor="password">{t("auth.password")}</Label>
               <Input
                 id="password"
                 name="password"
@@ -71,12 +73,12 @@ export default async function LoginPage({
           </CardContent>
           <CardFooter className="flex flex-col gap-3">
             <Button type="submit" className="w-full">
-              دخول
+              {t("auth.submit")}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
-              التسجيل يتم من قبل مسؤول النظام فقط.{" "}
+              {t("auth.footerNote")}{" "}
               <Link href="/" className="underline underline-offset-4">
-                العودة للرئيسية
+                {t("auth.backHome")}
               </Link>
             </p>
           </CardFooter>

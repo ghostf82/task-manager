@@ -1,0 +1,171 @@
+{
+  "meta": {
+    "title": "Enterprise Task & Productivity Platform",
+    "description": "Corporate task management, compliance, and personal productivity in one workspace."
+  },
+  "nav": {
+    "home": "Home",
+    "tenants": "Companies",
+    "users": "Users",
+    "aiGovernance": "AI tool governance",
+    "tasks": "Tasks",
+    "documents": "Company documents",
+    "reminders": "Personal reminders",
+    "chat": "Messaging",
+    "aiAgent": "AI assistant",
+    "integrations": "System connections"
+  },
+  "dashboard": {
+    "brand": "ERP Tasks",
+    "panelTitle": "Dashboard",
+    "mobileNav": "Navigation",
+    "notifications": "Notifications"
+  },
+  "language": {
+    "label": "Language",
+    "ar": "العربية",
+    "en": "English"
+  },
+  "footer": {
+    "tagline": "Unified workspace for tasks and compliance"
+  },
+  "profileBar": {
+    "fallbackName": "User",
+    "position": "Role",
+    "account": "Account settings"
+  },
+  "common": {
+    "signOut": "Sign out"
+  },
+  "auth": {
+    "loginTitle": "Sign in",
+    "loginDescription": "Enterprise task platform — sign in with your corporate account",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Continue",
+    "errorMissing": "Please enter your email and password.",
+    "errorInvalid": "Invalid email or password.",
+    "errorSession": "Your session expired. Please sign in again.",
+    "footerNote": "Accounts are provisioned by an administrator only.",
+    "backHome": "Back to home"
+  },
+  "integrations": {
+    "title": "Secure integration vault",
+    "subtitle": "Secrets are stored with AES-256-GCM and never shown again. Only tools enabled for your account by administrators appear here. Decryption runs on the server only when you run the assistant after approval.",
+    "aiSpace": "AI assistant workspace",
+    "noToolsStaff": "No connection tools are enabled for your account. Please contact your administrator to activate the required integrations.",
+    "noToolsSuper": "No connection tools are enabled for this account. You can activate Odoo and email from AI tool governance.",
+    "governanceLink": "Open AI tool governance",
+    "testConnection": "Test connection",
+    "formMissingOdoo": "Could not find the Odoo form.",
+    "formMissingEmail": "Could not find the mail form.",
+    "footerNote": "Keep CREDENTIALS_ENCRYPTION_KEY secret in your hosting environment (e.g. Netlify) and never commit it to source control.",
+    "notices": {
+      "odoo": "Odoo credentials saved securely (password stored encrypted).",
+      "odoo_clear": "Odoo credentials removed from the vault.",
+      "email": "Mail settings saved securely.",
+      "email_clear": "Mail settings removed from the vault."
+    },
+    "errors": {
+      "odoo_fields": "Complete the Odoo URL and login name.",
+      "odoo_password": "Odoo password is required on first save.",
+      "odoo_encrypt": "Encryption failed: verify CREDENTIALS_ENCRYPTION_KEY on the server.",
+      "odoo_save": "Could not save Odoo credentials.",
+      "email_fields": "Complete mail server fields and usernames.",
+      "email_imap_password": "IMAP password is required on first save.",
+      "email_smtp_password": "SMTP password is required on first save.",
+      "email_encrypt": "Encryption failed: verify CREDENTIALS_ENCRYPTION_KEY.",
+      "email_save": "Could not save mail settings.",
+      "no_license_odoo": "You are not licensed for the Odoo tool — ask a super administrator to assign it in AI tool governance.",
+      "no_license_email": "You are not licensed for the email tool — ask a super administrator to assign it in AI tool governance.",
+      "generic": "An unexpected error occurred."
+    },
+    "odoo": {
+      "title": "Odoo",
+      "desc": "Server URL, database (optional), login and password — only encrypted values are stored.",
+      "updated": "Last updated",
+      "baseUrl": "Odoo base URL",
+      "dbName": "Database name",
+      "username": "Username",
+      "password": "Password",
+      "passwordKeep": "Leave blank to keep the current secret",
+      "passwordRequired": "Required",
+      "save": "Save Odoo",
+      "delete": "Remove Odoo credentials from vault"
+    },
+    "email": {
+      "title": "Email IMAP / SMTP",
+      "desc": "Receive and send servers with TLS by default. Leave password fields blank on update to keep existing encrypted secrets.",
+      "updated": "Last updated",
+      "imapBlock": "IMAP",
+      "smtpBlock": "SMTP",
+      "imapHost": "IMAP host",
+      "port": "Port",
+      "tls": "TLS / SSL",
+      "imapUser": "IMAP username",
+      "imapPass": "IMAP password",
+      "smtpHost": "SMTP host",
+      "smtpUser": "SMTP username",
+      "smtpPass": "SMTP password",
+      "passKeep": "Blank = keep stored secret",
+      "passRequired": "Required",
+      "save": "Save mail",
+      "delete": "Remove mail settings from vault"
+    }
+  },
+  "documentsPage": {
+    "title": "Company documents",
+    "subtitle": "Track expiry dates with structured compliance indicators (on track, due soon, overdue) and export to Excel using the same rules.",
+    "exportExcel": "Export to Excel",
+    "addDocument": "Add document",
+    "allTenants": "All companies",
+    "loadError": "Could not load documents",
+    "emptyTitle": "No matching documents",
+    "emptyDescription": "Add company documents with expiry dates to enable alerts and executive reporting.",
+    "linkLabel": "Link",
+    "edit": "Edit",
+    "delete": "Delete",
+    "dialogNewTitle": "New document",
+    "dialogNewDescription": "Enter document details, expiry date, and alert window in days.",
+    "dialogEditTitle": "Edit document",
+    "dialogEditDescription": "Update fields, then save your changes.",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saveChanges": "Save changes",
+    "form": {
+      "tenant": "Company",
+      "documentName": "Document name",
+      "documentNamePh": "e.g. Commercial registration",
+      "documentNumber": "Reference number",
+      "expiry": "Expiry date",
+      "alertDays": "Alert (days before)",
+      "status": "Status",
+      "fileUrl": "Attachment URL (optional)",
+      "fileUrlPh": "https://…"
+    },
+    "status": {
+      "valid": "Valid",
+      "expired": "Expired",
+      "renewal_pending": "Renewal pending"
+    },
+    "toast": {
+      "added": "Document added",
+      "updated": "Document updated",
+      "deleted": "Document removed",
+      "saveFail": "Save failed",
+      "deleteFail": "Delete failed"
+    },
+    "confirmDelete": "Delete this document?",
+    "table": {
+      "company": "Company",
+      "document": "Document",
+      "number": "Reference",
+      "expiry": "Expiry",
+      "alertBefore": "Alert (days)",
+      "status": "Status",
+      "days": "Days",
+      "attachment": "Attachment",
+      "actions": ""
+    }
+  }
+}

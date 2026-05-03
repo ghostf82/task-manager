@@ -1,19 +1,39 @@
+import { config as loadEnv } from "dotenv";
+import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 
+// Prefer .env.local over inherited shell env (e.g. stale NEXT_PUBLIC_SUPABASE_URL).
+loadEnv({ path: resolve(process.cwd(), ".env.local"), override: true });
+
+/** First super-admin (Auth + public.users.is_super_admin). */
 const email = "fucurl@gmail.com";
 const password = "123456";
 
-async function main() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !serviceKey) {
+function assertEnv(url: string | undefined, serviceKey: string | undefined) {
+  if (!url?.trim() || !serviceKey?.trim()) {
     throw new Error(
-      "Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (e.g. in .env.local)."
+      "Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local (see .env.example)."
     );
   }
+  if (/placeholder|paste_your|your-service-role|example\.supabase/i.test(serviceKey)) {
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY looks like a placeholder. Paste the real service_role secret from Supabase → Settings → API."
+    );
+  }
+  if (/your-project|example\.supabase/i.test(url)) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL must be your real project URL (e.g. https://xxxx.supabase.co)."
+    );
+  }
+}
 
-  const admin = createClient(url, serviceKey, {
+async function main() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  assertEnv(url, serviceKey);
+
+  const admin = createClient(url!, serviceKey!, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
@@ -61,6 +81,7 @@ async function main() {
   const { error: profErr } = await admin
     .from("users")
     .update({
+      email,
       must_change_password: true,
       is_super_admin: true,
       full_name: "Super Admin",

@@ -14,13 +14,21 @@ function readCheckbox(fd: FormData, name: string) {
   return fd.get(name) === "on";
 }
 
-export function OdooConnectionTestButton({ formId }: { formId: string }) {
+export function OdooConnectionTestButton({
+  formId,
+  testLabel,
+  formMissingMessage,
+}: {
+  formId: string;
+  testLabel: string;
+  formMissingMessage: string;
+}) {
   const [pending, start] = useTransition();
 
   function runTest() {
     const el = document.getElementById(formId) as HTMLFormElement | null;
     if (!el) {
-      toast.error("تعذّر العثور على نموذج Odoo.");
+      toast.error(formMissingMessage);
       return;
     }
     const fd = new FormData(el);
@@ -42,18 +50,26 @@ export function OdooConnectionTestButton({ formId }: { formId: string }) {
   return (
     <Button type="button" variant="outline" disabled={pending} onClick={runTest}>
       {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
-      فحص الاتصال
+      {testLabel}
     </Button>
   );
 }
 
-export function EmailConnectionTestButton({ formId }: { formId: string }) {
+export function EmailConnectionTestButton({
+  formId,
+  testLabel,
+  formMissingMessage,
+}: {
+  formId: string;
+  testLabel: string;
+  formMissingMessage: string;
+}) {
   const [pending, start] = useTransition();
 
   function runTest() {
     const el = document.getElementById(formId) as HTMLFormElement | null;
     if (!el) {
-      toast.error("تعذّر العثور على نموذج البريد.");
+      toast.error(formMissingMessage);
       return;
     }
     const fd = new FormData(el);
@@ -83,7 +99,7 @@ export function EmailConnectionTestButton({ formId }: { formId: string }) {
   return (
     <Button type="button" variant="outline" disabled={pending} onClick={runTest}>
       {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
-      فحص الاتصال
+      {testLabel}
     </Button>
   );
 }

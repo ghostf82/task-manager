@@ -15,10 +15,10 @@ import {
 import {
   documentDaysUntilExpiry,
   documentRowTone,
-  documentStatusLabelsAr,
   documentToneRowClasses,
   type CompanyDocumentStatus,
 } from "@/lib/company-documents";
+import type { DocumentsPageCopy } from "@/lib/i18n/documents-copy";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -70,12 +70,12 @@ function tenantNameFromRow(row: CompanyDocumentRow): string {
   return "—";
 }
 
-function emptyPayload(tenantId: string): CompanyDocumentPayload {
+function emptyPayload(tenantId: string, todayIso: string): CompanyDocumentPayload {
   return {
     tenant_id: tenantId,
     document_name: "",
     document_number: "",
-    expiry_date: new Date().toISOString().slice(0, 10),
+    expiry_date: todayIso,
     alert_days_before: 30,
     status: "valid",
     file_url: "",
@@ -87,11 +87,15 @@ export function DocumentsPageClient({
   tenants,
   isSuperAdmin,
   defaultTenantId,
+  copy,
+  serverToday,
 }: {
   documents: CompanyDocumentRow[];
   tenants: TenantOpt[];
   isSuperAdmin: boolean;
   defaultTenantId: string | null;
+  copy: DocumentsPageCopy;
+  serverToday: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -105,7 +109,7 @@ export function DocumentsPageClient({
       : tenants[0]?.id ?? "";
 
   const [form, setForm] = useState<CompanyDocumentPayload>(() =>
-    emptyPayload(initialTenant)
+    emptyPayload(initialTenant, serverToday),
   );
 
   const tenantMap = useMemo(
@@ -113,7 +117,7 @@ export function DocumentsPageClient({
     [tenants]
   );
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = serverToday;
 
   const filtered = useMemo(() => {
     if (!filterTenant) return documents;
@@ -121,7 +125,7 @@ export function DocumentsPageClient({
   }, [documents, filterTenant]);
 
   function openCreateDialog() {
-    setForm(emptyPayload(initialTenant));
+    setForm(emptyPayload(initialTenant, serverToday));
     setOpenCreate(true);
   }
 
@@ -148,9 +152,9 @@ export function DocumentsPageClient({
         await createCompanyDocumentAction(form);
         setOpenCreate(false);
         router.refresh();
-        toast.success("تمت إضافة المستند");
+        toast.success(copy.toast.added);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "فشل الحفظ");
+        toast.error(e instanceof Error ? e.message : copy.toast.saveFail);
       }
     });
   }
@@ -162,22 +166,22 @@ export function DocumentsPageClient({
         await updateCompanyDocumentAction(editRow.id, form);
         setEditRow(null);
         router.refresh();
-        toast.success("تم تحديث المستند");
+        toast.success(copy.toast.updated);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "فشل الحفظ");
+        toast.error(e instanceof Error ? e.message : copy.toast.saveFail);
       }
     });
   }
 
   function remove(id: string) {
-    if (!confirm("حذف هذا المستند؟")) return;
+    if (!confirm(copy.confirmDelete)) return;
     start(async () => {
       try {
         await deleteCompanyDocumentAction(id);
         router.refresh();
-        toast.success("تم الحذف");
+        toast.success(copy.toast.deleted);
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "فشل الحذف");
+        toast.error(e instanceof Error ? e.message : copy.toast.deleteFail);
       }
     });
   }
@@ -186,13 +190,8 @@ export function DocumentsPageClient({
     <div className="mx-auto flex max-w-[1200px] flex-col gap-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            مستندات الشركات
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            تتبع تواريخ الانتهاء مع تلوين تلقائي (أخضر / برتقالي / أحمر) وتصدير إكسل
-            بنفس المنطق للإدارة.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">{copy.title}</h1>
+          <p className="text-muted-foreground text-sm">{copy.subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {isSuperAdmin ? (
@@ -201,7 +200,7 @@ export function DocumentsPageClient({
               value={filterTenant}
               onChange={(e) => setFilterTenant(e.target.value)}
             >
-              <option value="">كل الشركات</option>
+              <option value="">{copy.allTenants}</option>
               {tenants.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
@@ -217,7 +216,7 @@ export function DocumentsPageClient({
             )}
           >
             <FileSpreadsheet className="size-4" />
-            تصدير إلى إكسل
+            {copy.exportExcel}
           </Link>
           <Button
             type="button"
@@ -226,7 +225,7 @@ export function DocumentsPageClient({
             onClick={openCreateDialog}
           >
             <Plus className="size-4" />
-            إضافة مستند
+            {copy.addDocument}
           </Button>
         </div>
       </div>
@@ -236,10 +235,10 @@ export function DocumentsPageClient({
           <div className="p-4 sm:p-6">
             <EmptyState
               icon={FileText}
-              title="لا مستندات مطابقة"
-              description="أضف مستندات الشركة مع تواريخ الانتهاء لتفعيل التنبيهات والتقارير التنفيذية."
+              title={copy.emptyTitle}
+              description={copy.emptyDescription}
               action={{
-                label: "إضافة مستند",
+                label: copy.addDocument,
                 onClick: () => setOpenCreate(true),
               }}
             />
@@ -249,14 +248,14 @@ export function DocumentsPageClient({
             <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="min-w-[120px]">الشركة</TableHead>
-                <TableHead className="min-w-[140px]">المستند</TableHead>
-                <TableHead className="hidden sm:table-cell">الرقم</TableHead>
-                <TableHead>الانتهاء</TableHead>
-                <TableHead className="hidden md:table-cell">تنبيه قبل</TableHead>
-                <TableHead>الحالة</TableHead>
-                <TableHead className="hidden lg:table-cell">أيام</TableHead>
-                <TableHead className="hidden xl:table-cell">مرفق</TableHead>
+                <TableHead className="min-w-[120px]">{copy.table.company}</TableHead>
+                <TableHead className="min-w-[140px]">{copy.table.document}</TableHead>
+                <TableHead className="hidden sm:table-cell">{copy.table.number}</TableHead>
+                <TableHead>{copy.table.expiry}</TableHead>
+                <TableHead className="hidden md:table-cell">{copy.table.alertBefore}</TableHead>
+                <TableHead>{copy.table.status}</TableHead>
+                <TableHead className="hidden lg:table-cell">{copy.table.days}</TableHead>
+                <TableHead className="hidden xl:table-cell">{copy.table.attachment}</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
@@ -292,7 +291,7 @@ export function DocumentsPageClient({
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-[10px] font-normal">
-                          {documentStatusLabelsAr[row.status]}
+                          {copy.status[row.status]}
                         </Badge>
                       </TableCell>
                       <TableCell className="hidden tabular-nums text-xs lg:table-cell">
@@ -306,7 +305,7 @@ export function DocumentsPageClient({
                             rel="noreferrer"
                             className="text-primary underline"
                           >
-                            رابط
+                            {copy.linkLabel}
                           </a>
                         ) : (
                           "—"
@@ -325,14 +324,14 @@ export function DocumentsPageClient({
                               className="gap-2"
                             >
                               <Pencil className="size-3.5" />
-                              تعديل
+                              {copy.edit}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive gap-2"
                               onClick={() => void remove(row.id)}
                             >
                               <Trash2 className="size-3.5" />
-                              حذف
+                              {copy.delete}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -349,18 +348,16 @@ export function DocumentsPageClient({
       <Dialog open={openCreate} onOpenChange={setOpenCreate}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>مستند جديد</DialogTitle>
-            <DialogDescription>
-              أدخل بيانات المستند وتاريخ الانتهاء وفترة التنبيه بالأيام.
-            </DialogDescription>
+            <DialogTitle>{copy.dialogNewTitle}</DialogTitle>
+            <DialogDescription>{copy.dialogNewDescription}</DialogDescription>
           </DialogHeader>
-          <DocumentFormFields form={form} setForm={setForm} tenants={tenants} />
+          <DocumentFormFields form={form} setForm={setForm} tenants={tenants} copy={copy} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOpenCreate(false)}>
-              إلغاء
+              {copy.cancel}
             </Button>
             <Button type="button" disabled={pending} onClick={submitCreate}>
-              حفظ
+              {copy.save}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -369,16 +366,16 @@ export function DocumentsPageClient({
       <Dialog open={Boolean(editRow)} onOpenChange={(o) => !o && setEditRow(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>تعديل مستند</DialogTitle>
-            <DialogDescription>تحديث الحقول ثم احفظ التغييرات.</DialogDescription>
+            <DialogTitle>{copy.dialogEditTitle}</DialogTitle>
+            <DialogDescription>{copy.dialogEditDescription}</DialogDescription>
           </DialogHeader>
-          <DocumentFormFields form={form} setForm={setForm} tenants={tenants} />
+          <DocumentFormFields form={form} setForm={setForm} tenants={tenants} copy={copy} />
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setEditRow(null)}>
-              إلغاء
+              {copy.cancel}
             </Button>
             <Button type="button" disabled={pending} onClick={submitEdit}>
-              حفظ التعديلات
+              {copy.saveChanges}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -391,15 +388,17 @@ function DocumentFormFields({
   form,
   setForm,
   tenants,
+  copy,
 }: {
   form: CompanyDocumentPayload;
   setForm: (f: CompanyDocumentPayload) => void;
   tenants: TenantOpt[];
+  copy: DocumentsPageCopy;
 }) {
   return (
     <div className="grid gap-4 py-2">
       <div className="grid gap-2">
-        <Label htmlFor="doc-tenant">الشركة</Label>
+        <Label htmlFor="doc-tenant">{copy.form.tenant}</Label>
         <select
           id="doc-tenant"
           className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
@@ -414,16 +413,16 @@ function DocumentFormFields({
         </select>
       </div>
       <div className="grid gap-2">
-        <Label htmlFor="doc-name">اسم المستند</Label>
+        <Label htmlFor="doc-name">{copy.form.documentName}</Label>
         <Input
           id="doc-name"
           value={form.document_name}
           onChange={(e) => setForm({ ...form, document_name: e.target.value })}
-          placeholder="مثال: سجل تجاري"
+          placeholder={copy.form.documentNamePh}
         />
       </div>
       <div className="grid gap-2">
-        <Label htmlFor="doc-num">رقم المستند</Label>
+        <Label htmlFor="doc-num">{copy.form.documentNumber}</Label>
         <Input
           id="doc-num"
           value={form.document_number ?? ""}
@@ -432,7 +431,7 @@ function DocumentFormFields({
       </div>
       <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
         <div className="grid gap-2">
-          <Label htmlFor="doc-exp">تاريخ الانتهاء</Label>
+          <Label htmlFor="doc-exp">{copy.form.expiry}</Label>
           <Input
             id="doc-exp"
             type="date"
@@ -441,7 +440,7 @@ function DocumentFormFields({
           />
         </div>
         <div className="grid gap-2">
-          <Label htmlFor="doc-alert">تنبيه قبل (أيام)</Label>
+          <Label htmlFor="doc-alert">{copy.form.alertDays}</Label>
           <Input
             id="doc-alert"
             type="number"
@@ -458,7 +457,7 @@ function DocumentFormFields({
         </div>
       </div>
       <div className="grid gap-2">
-        <Label htmlFor="doc-status">الحالة</Label>
+        <Label htmlFor="doc-status">{copy.form.status}</Label>
         <select
           id="doc-status"
           className="border-input bg-background h-9 w-full rounded-md border px-2 text-sm"
@@ -470,20 +469,20 @@ function DocumentFormFields({
             })
           }
         >
-          <option value="valid">صالح</option>
-          <option value="expired">منتهي</option>
-          <option value="renewal_pending">قيد التجديد</option>
+          <option value="valid">{copy.status.valid}</option>
+          <option value="expired">{copy.status.expired}</option>
+          <option value="renewal_pending">{copy.status.renewal_pending}</option>
         </select>
       </div>
       <div className="grid gap-2">
-        <Label htmlFor="doc-url">رابط المرفق (اختياري)</Label>
+        <Label htmlFor="doc-url">{copy.form.fileUrl}</Label>
         <Input
           id="doc-url"
           dir="ltr"
           className="font-mono text-xs"
           value={form.file_url ?? ""}
           onChange={(e) => setForm({ ...form, file_url: e.target.value })}
-          placeholder="https://…"
+          placeholder={copy.form.fileUrlPh}
         />
       </div>
     </div>

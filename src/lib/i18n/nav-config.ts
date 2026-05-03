@@ -1,0 +1,40 @@
+/** Stable nav definition; labels resolved via i18n keys at runtime. */
+export const DASHBOARD_NAV_LINKS = [
+  { href: "/dashboard", labelKey: "nav.home", iconKey: "Home", superOnly: false },
+  { href: "/dashboard/tenants", labelKey: "nav.tenants", iconKey: "Building2", superOnly: true },
+  { href: "/dashboard/users", labelKey: "nav.users", iconKey: "Users", superOnly: true },
+  {
+    href: "/dashboard/ai-governance",
+    labelKey: "nav.aiGovernance",
+    iconKey: "SlidersHorizontal",
+    superOnly: true,
+  },
+  { href: "/dashboard/tasks", labelKey: "nav.tasks", iconKey: "ClipboardList", superOnly: false },
+  {
+    href: "/dashboard/documents",
+    labelKey: "nav.documents",
+    iconKey: "FileText",
+    superOnly: false,
+  },
+  {
+    href: "/dashboard/reminders",
+    labelKey: "nav.reminders",
+    iconKey: "BellRing",
+    superOnly: false,
+  },
+  { href: "/dashboard/chat", labelKey: "nav.chat", iconKey: "MessageCircle", superOnly: false },
+  {
+    href: "/dashboard/ai-agent",
+    labelKey: "nav.aiAgent",
+    iconKey: "Sparkles",
+    superOnly: false,
+  },
+  {
+    href: "/dashboard/settings/integrations",
+    labelKey: "nav.integrations",
+    iconKey: "Shield",
+    superOnly: false,
+  },
+] as const;
+
+export type DashboardNavIconKey = (typeof DASHBOARD_NAV_LINKS)[number]["iconKey"];

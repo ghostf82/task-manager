@@ -26,8 +26,11 @@ export type NotificationItem = {
 
 export function NotificationsMenu({
   initialItems,
+  label = "الإشعارات",
 }: {
   initialItems: NotificationItem[];
+  /** Visible next to the bell (desktop); defaults Arabic for backwards compatibility */
+  label?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -71,7 +74,7 @@ export function NotificationsMenu({
       <DropdownMenuTrigger className="inline-flex">
         <Button variant="outline" size="sm" className="relative gap-1.5" type="button">
           <Bell className="size-4" />
-          <span className="hidden sm:inline">الإشعارات</span>
+          <span className="hidden sm:inline">{label}</span>
           {unread.length > 0 ? (
             <span className="absolute -top-1 -end-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
               {unread.length > 9 ? "9+" : unread.length}

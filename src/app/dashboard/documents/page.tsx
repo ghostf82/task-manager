@@ -3,11 +3,16 @@ import {
   type CompanyDocumentRow,
 } from "@/app/dashboard/documents/documents-page-client";
 import { requireSession } from "@/lib/dashboard-auth";
+import { buildDocumentsCopy } from "@/lib/i18n/documents-copy";
+import { getTranslator } from "@/lib/i18n/get-translator";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function DocumentsPage() {
   const session = await requireSession();
   const supabase = await createClient();
+  const { t } = await getTranslator();
+  const copy = buildDocumentsCopy(t);
+  const serverToday = new Date().toISOString().slice(0, 10);
 
   const [{ data: rows, error }, { data: tenants }] = await Promise.all([
     supabase
@@ -22,7 +27,7 @@ export default async function DocumentsPage() {
   if (error) {
     return (
       <p className="text-destructive text-sm">
-        تعذّر تحميل المستندات: {error.message}
+        {copy.loadError}: {error.message}
       </p>
     );
   }
@@ -46,6 +51,8 @@ export default async function DocumentsPage() {
       tenants={tenants ?? []}
       isSuperAdmin={session.isSuperAdmin}
       defaultTenantId={defaultTenantId}
+      copy={copy}
+      serverToday={serverToday}
     />
   );
 }
