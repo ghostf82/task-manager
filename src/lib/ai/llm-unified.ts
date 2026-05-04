@@ -31,6 +31,17 @@ function anyApiKeyConfigured(): boolean {
   );
 }
 
+/** When only Gemini is configured, Groq/OpenAI never run — tell ops to add fallbacks on Netlify etc. */
+function fallbackKeysHint(): string {
+  const gemini = !!trimHeaderSafeSecret(process.env.GEMINI_API_KEY);
+  const groq = !!trimHeaderSafeSecret(process.env.GROQ_API_KEY);
+  const openai = !!trimHeaderSafeSecret(process.env.OPENAI_API_KEY);
+  if (gemini && !groq && !openai) {
+    return " لم يُضبط GROQ_API_KEY أو OPENAI_API_KEY على الخادم — أضف أحدهما في متغيرات البيئة (مثل Netlify) كنسخة احتياطية عند حدّ Gemini أو رفضه.";
+  }
+  return "";
+}
+
 /** Short Arabic hints from "Provider HTTP nnn: …" without appending raw JSON bodies */
 function summarizeProviderFailures(errors: string[]): string {
   if (!errors.length) return "";
@@ -184,8 +195,9 @@ export async function callLLM(opts: CallLLMOptions): Promise<CallLLMResult> {
   }
 
   const summary = summarizeProviderFailures(errors);
+  const hint = fallbackKeysHint();
   return {
-    text: `${ALL_PROVIDERS_FAILED_AR}${summary} يمكنك تجربة مزود آخر (Groq أو OpenAI) إن كان المفتاح الحالي يواجه حداً أو رفضاً.`,
+    text: `${ALL_PROVIDERS_FAILED_AR}${summary}${hint || " يمكنك تجربة مزود آخر (Groq أو OpenAI) إن كان المفتاح الحالي يواجه حداً أو رفضاً."}`,
     provider: "gemini",
   };
 }

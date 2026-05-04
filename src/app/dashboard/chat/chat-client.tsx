@@ -664,7 +664,13 @@ export function ChatClient({
                       </div>
                     );
                   })}
-                  {streamingText ? (
+                  {streamingText &&
+                  !(() => {
+                    const last = aiMessages.at(-1);
+                    return (
+                      last?.role === "assistant" && last.body === streamingText
+                    );
+                  })() ? (
                     <div className="max-w-[90%] self-start rounded-2xl bg-background px-3 py-2 text-sm shadow-sm ring-1 ring-violet-500/20">
                       <p className="text-[10px] text-muted-foreground">{t("chatClient.aiTyping")}</p>
                       <p className="whitespace-pre-wrap leading-relaxed">{streamingText}</p>
