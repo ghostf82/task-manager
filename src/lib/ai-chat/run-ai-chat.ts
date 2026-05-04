@@ -40,7 +40,7 @@ function createChatToolClient(): OpenAI | null {
 
 function chatToolModel(): string {
   if (trimHeaderSafeSecret(process.env.GROQ_API_KEY)) {
-    return process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile";
+    return process.env.GROQ_MODEL?.trim() || "llama-3.1-8b-instant";
   }
   return process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
 }
@@ -151,6 +151,22 @@ function gracefulProviderFailure(err: unknown): string {
     return "المزوّد وصل إلى حدّ المعدل/الحصة حالياً. أعد المحاولة بعد لحظات أو فعّل مزوداً احتياطياً (Groq/OpenAI) لتقليل الانقطاع.";
   }
   return "حدث تعثر مؤقت أثناء الاتصال بالمزوّد. أعد المحاولة، وإن تكرر الأمر سأحوّل المسار إلى بديل أكثر استقراراً.";
+}
+
+async function runOpenAiToolFallback(
+  messages: ChatCompletionMessageParam[]
+): Promise<string | null> {
+  const oa = trimHeaderSafeSecret(process.env.OPENAI_API_KEY);
+  if (!oa) return null;
+  const backup = new OpenAI({ apiKey: oa, timeout: 20_000 });
+  const completion = await backup.chat.completions.create({
+    model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
+    messages,
+    tools: AI_CHAT_TOOLS_OPENAI,
+    tool_choice: "auto",
+    temperature: 0.3,
+  });
+  return (completion.choices[0]?.message?.content ?? "").trim() || null;
 }
 
 function normalizeDateToIso(input: string): string | null {
@@ -567,7 +583,30 @@ export async function handleAiChatPost(params: {
           : "لم أستطع صياغة إجابة واضحة. صِغ طلبك بمزيد من التفصيل أو جرّب سؤالاً عن المستندات أو المهام.";
       }
     } catch (e) {
-      finalContent = gracefulProviderFailure(e);
+      const msg = e instanceof Error ? e.message : String(e);
+      const isRateOrTimeout =
+        /429|timeout|timed out|504/i.test(msg);
+      if (isRateOrTimeout) {
+        try {
+          const backup = await runOpenAiToolFallback(messages);
+          if (backup) {
+            finalContent = backup;
+          } else {
+            const fast = await callLLM({
+              systemPrompt: system,
+              userPrompt: text,
+              jsonMode: false,
+              maxTokens: 1024,
+              mode: "fast_text",
+            });
+            finalContent = fast.text;
+          }
+        } catch (fallbackErr) {
+          finalContent = gracefulProviderFailure(fallbackErr);
+        }
+      } else {
+        finalContent = gracefulProviderFailure(e);
+      }
     }
   }
 
