@@ -313,8 +313,12 @@ export function ChatClient({
         while ((idx = carry.indexOf("\n\n")) !== -1) {
           const block = carry.slice(0, idx);
           carry = carry.slice(idx + 2);
-          if (!block.startsWith("data:")) continue;
-          const jsonPayload = block.slice(5).replace(/^\s/, "");
+          const dataLines = block
+            .split("\n")
+            .filter((line) => line.startsWith("data:"))
+            .map((line) => line.slice(5).trimStart());
+          if (!dataLines.length) continue;
+          const jsonPayload = dataLines.join("\n").replace(/^\uFEFF/, "");
           let parsed: {
             type?: string;
             text?: string;

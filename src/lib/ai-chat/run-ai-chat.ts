@@ -503,6 +503,7 @@ export async function handleAiChatPost(params: {
       userPrompt: text,
       jsonMode: false,
       maxTokens: 2048,
+      mode: "fast_text",
     });
     finalContent =
       reply.trim() ||

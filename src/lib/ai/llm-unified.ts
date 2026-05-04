@@ -10,6 +10,8 @@ export type CallLLMOptions = {
   /** Prefer JSON object responses when the provider supports it */
   jsonMode?: boolean;
   maxTokens?: number;
+  /** fast_text = favor low-latency generation, analysis = favor deeper reasoning first */
+  mode?: "fast_text" | "analysis";
 };
 
 export type CallLLMResult = {
@@ -22,6 +24,7 @@ const NO_KEYS_AR =
 
 const ALL_PROVIDERS_FAILED_AR =
   "تعذّر الحصول على رد من المزودين المتاحين. راجع المفاتيح في إعدادات النشر (مثل Netlify) أو البيئة المحلية.";
+let groqLogged = false;
 
 function anyApiKeyConfigured(): boolean {
   return !!(
@@ -109,6 +112,10 @@ async function geminiGenerate(opts: CallLLMOptions): Promise<string | null> {
 async function groqChat(opts: CallLLMOptions): Promise<string | null> {
   const key = trimHeaderSafeSecret(process.env.GROQ_API_KEY);
   if (!key) return null;
+  if (process.env.NODE_ENV !== "production" && !groqLogged) {
+    console.info("[ai] Groq fallback enabled (GROQ_API_KEY detected).");
+    groqLogged = true;
+  }
 
   const model = process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile";
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -142,6 +149,18 @@ async function groqChat(opts: CallLLMOptions): Promise<string | null> {
   return text.trim() || null;
 }
 
+function providerFromError(msg: string): "gemini" | "groq" | "openai" | null {
+  if (msg.startsWith("Gemini HTTP")) return "gemini";
+  if (msg.startsWith("Groq HTTP")) return "groq";
+  if (msg.startsWith("OpenAI HTTP")) return "openai";
+  return null;
+}
+
+function codeFromError(msg: string): number | null {
+  const m = msg.match(/HTTP (\d{3})/);
+  return m ? Number(m[1]) : null;
+}
+
 async function openaiChat(opts: CallLLMOptions): Promise<string | null> {
   const key = trimHeaderSafeSecret(process.env.OPENAI_API_KEY);
   if (!key) return null;
@@ -163,31 +182,40 @@ async function openaiChat(opts: CallLLMOptions): Promise<string | null> {
 }
 
 /**
- * Multi-provider text completion: Gemini → Groq → OpenAI.
+ * Multi-provider text completion with smart failover.
+ * - fast_text: Groq → Gemini → OpenAI
+ * - analysis: Gemini → Groq → OpenAI
+ * Any Gemini 429 auto-fails over silently to Groq.
  * Used by analysis flows; chat tool-loop may use Groq/OpenAI SDK separately.
  */
 export async function callLLM(opts: CallLLMOptions): Promise<CallLLMResult> {
   const errors: string[] = [];
+  const selectedMode = opts.mode ?? (opts.jsonMode ? "analysis" : "fast_text");
+  const order: Array<"gemini" | "groq" | "openai"> =
+    selectedMode === "analysis" ? ["gemini", "groq", "openai"] : ["groq", "gemini", "openai"];
 
-  try {
-    const g = await geminiGenerate(opts);
-    if (g) return { text: g, provider: "gemini" };
-  } catch (e) {
-    errors.push(e instanceof Error ? e.message : String(e));
-  }
-
-  try {
-    const gq = await groqChat(opts);
-    if (gq) return { text: gq, provider: "groq" };
-  } catch (e) {
-    errors.push(e instanceof Error ? e.message : String(e));
-  }
-
-  try {
-    const o = await openaiChat(opts);
-    if (o) return { text: o, provider: "openai" };
-  } catch (e) {
-    errors.push(e instanceof Error ? e.message : String(e));
+  for (const provider of order) {
+    try {
+      if (provider === "gemini") {
+        const out = await geminiGenerate(opts);
+        if (out) return { text: out, provider: "gemini" };
+        continue;
+      }
+      if (provider === "groq") {
+        const out = await groqChat(opts);
+        if (out) return { text: out, provider: "groq" };
+        continue;
+      }
+      const out = await openaiChat(opts);
+      if (out) return { text: out, provider: "openai" };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(msg);
+      const p = providerFromError(msg);
+      const code = codeFromError(msg);
+      // Keep this silent for end users: immediately continue to Groq fallback on Gemini 429.
+      if (p === "gemini" && code === 429) continue;
+    }
   }
 
   if (!anyApiKeyConfigured()) {
@@ -197,7 +225,7 @@ export async function callLLM(opts: CallLLMOptions): Promise<CallLLMResult> {
   const summary = summarizeProviderFailures(errors);
   const hint = fallbackKeysHint();
   return {
-    text: `${ALL_PROVIDERS_FAILED_AR}${summary}${hint || " يمكنك تجربة مزود آخر (Groq أو OpenAI) إن كان المفتاح الحالي يواجه حداً أو رفضاً."}`,
+    text: `${ALL_PROVIDERS_FAILED_AR}${summary}${hint || " تحقّق من مفاتيح Gemini/Groq/OpenAI في Netlify أو البيئة المحلية ثم أعد المحاولة."}`,
     provider: "gemini",
   };
 }
