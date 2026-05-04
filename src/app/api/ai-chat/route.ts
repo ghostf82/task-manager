@@ -3,6 +3,10 @@ import { NextRequest } from "next/server";
 import { handleAiChatPost } from "@/lib/ai-chat/run-ai-chat";
 import { createRouteSupabaseClient } from "@/lib/supabase/route-handler";
 
+/** Avoid Edge quirks with streaming bodies and binary chunk coercion (ByteString). */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const JSON_UTF8 = { "Content-Type": "application/json; charset=utf-8" } as const;
 
 function jsonResponse(body: unknown, status: number) {

@@ -284,13 +284,15 @@ export function ChatClient({
     setAiPending(true);
     try {
       const endpoint = new URL("/api/ai-chat", window.location.origin).href;
-      const body = new Blob([JSON.stringify({ content: text })], {
-        type: "application/json;charset=utf-8",
-      });
+      const payload = JSON.stringify({ content: text });
       const res = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
-        body,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          Accept: "text/event-stream",
+        },
+        body: payload,
       });
       if (!res.ok) {
         const err = await res.text();

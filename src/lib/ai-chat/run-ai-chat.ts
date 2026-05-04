@@ -80,9 +80,39 @@ ${reg}
 - كن مختصراً ومفيداً في الدردشة.`;
 }
 
+const sseEncoder = new TextEncoder();
+
+/** SSE line as strict UTF-8 bytes (never pass raw strings into byte stream controllers). */
 function encodeSse(obj: unknown): Uint8Array {
   const line = `data: ${JSON.stringify(obj)}\n\n`;
-  return new TextEncoder().encode(line);
+  return sseEncoder.encode(line);
+}
+
+/**
+ * Split assistant text so each chunk is ≤ maxUtf8Bytes when encoded as UTF-8,
+ * without splitting a single Unicode scalar value (avoids lone surrogates / broken UTF-8 edges).
+ */
+function utf8SafeTextChunks(text: string, maxUtf8Bytes: number): string[] {
+  const enc = new TextEncoder();
+  const out: string[] = [];
+  let buf = "";
+  for (const ch of text) {
+    const trial = buf + ch;
+    if (enc.encode(trial).length <= maxUtf8Bytes) {
+      buf = trial;
+      continue;
+    }
+    if (buf) {
+      out.push(buf);
+    }
+    buf = ch;
+    if (enc.encode(buf).length > maxUtf8Bytes) {
+      out.push(buf);
+      buf = "";
+    }
+  }
+  if (buf) out.push(buf);
+  return out;
 }
 
 export async function handleAiChatPost(params: {
@@ -334,9 +364,7 @@ function streamAssistantResponse(
       for (const ev of streamOpts?.preludeEvents ?? []) {
         controller.enqueue(encodeSse(ev));
       }
-      const chunkSize = 48;
-      for (let i = 0; i < finalContent.length; i += chunkSize) {
-        const part = finalContent.slice(i, i + chunkSize);
+      for (const part of utf8SafeTextChunks(finalContent, 2048)) {
         controller.enqueue(encodeSse({ type: "text", text: part }));
       }
       await supabase.from("ai_chat_messages").insert({
@@ -367,7 +395,6 @@ function streamAssistantResponse(
     headers: {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
     },
   });
 }
