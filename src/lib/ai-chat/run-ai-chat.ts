@@ -18,7 +18,7 @@ import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
 import { normalizeProposedAction } from "@/lib/ai/llm-proposal-normalize";
 import { trimHeaderSafeSecret } from "@/lib/env/bearer-key";
 
-const MAX_TOOL_ROUNDS = 8;
+const MAX_TOOL_ROUNDS = 4;
 const HISTORY_LIMIT = 28;
 
 function createChatToolClient(): OpenAI | null {
@@ -27,11 +27,12 @@ function createChatToolClient(): OpenAI | null {
     return new OpenAI({
       apiKey: gq,
       baseURL: "https://api.groq.com/openai/v1",
+      timeout: 20_000,
     });
   }
   const oa = trimHeaderSafeSecret(process.env.OPENAI_API_KEY);
   if (oa) {
-    return new OpenAI({ apiKey: oa });
+    return new OpenAI({ apiKey: oa, timeout: 20_000 });
   }
   return null;
 }
@@ -47,6 +48,8 @@ function buildSystemPrompt(input: {
   todayStr: string;
   licensedSlugs: string[];
   tenantNames: string[];
+  intentHint: string;
+  proactiveContext: string;
 }): string {
   const reg = getRegisteredAiTools()
     .map(
@@ -65,20 +68,88 @@ function buildSystemPrompt(input: {
       ? input.tenantNames.join("، ")
       : "لا شركات مرتبطة بالحساب";
 
-  return `أنت «المساعد الذكي» لنظام ERP مهام الشركات بالعربية.
+  return `أنت «الوكيل التنفيذي لشركة المديفر» داخل نظام ERP مهام الشركات بالعربية.
 تاريخ اليوم (UTC): ${input.todayStr}
 الشركات ضمن نطاق صلاحية المستخدم: ${tenants}
 الأدوات الخارجية المصرّح بها لهذا المستخدم: ${tools}
+تصنيف النية الحالي: ${input.intentHint}
+سياق استباقي موجز: ${input.proactiveContext}
 الأدوات المسجّلة في النظام (للمرجعية فقط — التنفيذ الفعلي يمر عبر مقترحات):
 ${reg}
 
 قواعد:
-- تجاوب بالعربية الفصحى المبسطة ما لم يطلب المستخدم غير ذلك.
-- لقراءة المستندات أو المهام استخدم أدوات الدالة list_company_documents أو list_corporate_tasks — لا تخترع بيانات.
+- ابدأ دائماً بفهم القصد قبل التنفيذ: حدّد هل الطلب (سؤال عام / تحليل / تنفيذ) ثم قرر إن كانت الأداة مطلوبة.
+- إذا كان السؤال عاماً أو تحية (مثل: كيف حالك؟ ماذا تفعل؟) أجب مباشرة بأسلوب تنفيذي لبق دون أي استدعاء أدوات.
+- لقراءة المستندات استخدم list_company_documents فقط عندما يكون الطلب عن تراخيص/مستندات/انتهاء.
+- لقراءة المهام استخدم list_corporate_tasks فقط عندما يكون الطلب عن مهام/أعمال/متابعة.
+- لا تستدعِ أدوات متعددة بلا حاجة. اختر أقل عدد أدوات يحقق الدقة.
 - أي إجراء تنفيذي (بريد، Odoo، إنشاء مهمة شركة) يجب أن يمر عبر دالة create_pending_proposal فقط — لا تدّعي التنفيذ الفوري.
 - أبلغ المستخدم بخطوات التنفيذ قبل أي إجراء حساس واطلب الموافقة عبر المقترحات في الواجهة.
 - احترم نطاق الشركات: لا تفترض بيانات خارج ما يعيده النظام (RLS).
-- كن مختصراً ومفيداً في الدردشة.`;
+- عند عرض نتائج فعلية، صِغ العبارة بهذه الروح: "بناءً على صلاحياتك..." أو "ضمن نطاق صلاحياتك...".
+- نسّق الردود باحتراف باستخدام Markdown (عناوين قصيرة، قوائم، جدول عند مقارنة عناصر متعددة).
+- اجعل كل رد يبدأ بتمهيد لبق قصير وينتهي بخطوة تالية مقترحة أو سؤال متابعة واضح.`;
+}
+
+function isGeneralConversation(text: string): boolean {
+  const t = text.toLowerCase();
+  const patterns = [
+    "كيف حالك",
+    "شلونك",
+    "هلا",
+    "مرحبا",
+    "السلام",
+    "من انت",
+    "ماذا تفعل",
+    "ايش تسوي",
+    "what can you do",
+    "who are you",
+    "hello",
+    "hi",
+  ];
+  return patterns.some((p) => t.includes(p));
+}
+
+function pickToolsByIntent(intent: string, userText: string): typeof AI_CHAT_TOOLS_OPENAI {
+  const low = userText.toLowerCase();
+  const aboutDocuments =
+    low.includes("مستند") ||
+    low.includes("ترخيص") ||
+    low.includes("وثيقة") ||
+    low.includes("انتهاء") ||
+    low.includes("expiry") ||
+    low.includes("document");
+  const aboutTasks =
+    low.includes("مهمة") ||
+    low.includes("مهام") ||
+    low.includes("task") ||
+    low.includes("tasks") ||
+    low.includes("متابعة");
+
+  if (aboutDocuments && !aboutTasks) {
+    return AI_CHAT_TOOLS_OPENAI.filter((t) => t.function.name !== "list_corporate_tasks");
+  }
+  if (aboutTasks && !aboutDocuments) {
+    return AI_CHAT_TOOLS_OPENAI.filter((t) => t.function.name !== "list_company_documents");
+  }
+  if (intent === "check_odoo_tasks" || intent === "create_task" || intent === "update_task") {
+    return AI_CHAT_TOOLS_OPENAI.filter((t) => t.function.name !== "list_company_documents");
+  }
+  if (intent === "read_excel" || intent === "write_excel" || intent === "read_email" || intent === "reply_email") {
+    return AI_CHAT_TOOLS_OPENAI;
+  }
+  return AI_CHAT_TOOLS_OPENAI;
+}
+
+function gracefulProviderFailure(err: unknown): string {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  if (msg.includes("timeout") || msg.includes("timed out") || msg.includes("504")) {
+    return "تعذّر إكمال الطلب في الوقت المحدد بسبب ازدحام الشبكة أو المزود. يمكنك إعادة المحاولة الآن، وسأتابع بأسرع مسار ممكن.";
+  }
+  if (msg.includes("429")) {
+    return "المزوّد وصل إلى حدّ المعدل/الحصة حالياً. أعد المحاولة بعد لحظات أو فعّل مزوداً احتياطياً (Groq/OpenAI) لتقليل الانقطاع.";
+  }
+  return "حدث تعثر مؤقت أثناء الاتصال بالمزوّد. أعد المحاولة، وإن تكرر الأمر سأحوّل المسار إلى بديل أكثر استقراراً.";
 }
 
 const sseEncoder = new TextEncoder();
@@ -166,13 +237,35 @@ export async function handleAiChatPost(params: {
   }
 
   const todayStr = new Date().toISOString().slice(0, 10);
-  const system = buildSystemPrompt({ todayStr, licensedSlugs, tenantNames });
-
   const memRows = await getRecentMemory(params.supabase, params.userId, "ai_chat", 10);
   const plan = analyzeIntent(text, {
     recentUserPhrases: memRows.filter((r) => r.role === "user").map((r) => r.content),
     licensedToolSlugs: licensedSlugs,
     tenantNames,
+  });
+  const generalMode = isGeneralConversation(text);
+
+  const { data: expiringDocs } = await params.supabase
+    .from("company_documents")
+    .select("document_name, expiry_date, tenants ( name )")
+    .order("expiry_date", { ascending: true })
+    .limit(3);
+  const proactiveContext =
+    (expiringDocs ?? [])
+      .map((d) => {
+        const tenant = Array.isArray(d.tenants)
+          ? d.tenants[0]?.name
+          : (d.tenants as { name?: string } | null)?.name;
+        return `${d.document_name} لدى ${tenant ?? "شركة غير محددة"} ينتهي في ${d.expiry_date}`;
+      })
+      .join(" | ") || "لا يوجد تنبيه قريب.";
+
+  const system = buildSystemPrompt({
+    todayStr,
+    licensedSlugs,
+    tenantNames,
+    intentHint: generalMode ? "general_chat" : plan.intent,
+    proactiveContext,
   });
 
   const showPlanCard =
@@ -278,11 +371,21 @@ export async function handleAiChatPost(params: {
     ];
 
     try {
-      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      if (generalMode) {
         const completion = await client.chat.completions.create({
           model: chatToolModel(),
           messages,
-          tools: AI_CHAT_TOOLS_OPENAI,
+          tool_choice: "none",
+          temperature: 0.35,
+        });
+        finalContent = (completion.choices[0]?.message?.content ?? "").trim();
+      }
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        if (generalMode && finalContent) break;
+        const completion = await client.chat.completions.create({
+          model: chatToolModel(),
+          messages,
+          tools: pickToolsByIntent(plan.intent, text),
           tool_choice: "auto",
           temperature: 0.35,
         });
@@ -320,8 +423,7 @@ export async function handleAiChatPost(params: {
           : "لم أستطع صياغة إجابة واضحة. صِغ طلبك بمزيد من التفصيل أو جرّب سؤالاً عن المستندات أو المهام.";
       }
     } catch (e) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      finalContent = `عذراً، حدث خطأ أثناء الاتصال بالنموذج: ${errMsg}`;
+      finalContent = gracefulProviderFailure(e);
     }
   }
 
