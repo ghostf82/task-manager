@@ -88,6 +88,7 @@ ${reg}
 - أبلغ المستخدم بخطوات التنفيذ قبل أي إجراء حساس واطلب الموافقة عبر المقترحات في الواجهة.
 - احترم نطاق الشركات: لا تفترض بيانات خارج ما يعيده النظام (RLS).
 - عند عرض نتائج فعلية، صِغ العبارة بهذه الروح: "بناءً على صلاحياتك..." أو "ضمن نطاق صلاحياتك...".
+- بعد أي تنفيذ ناجح/تحديث بيانات: أعطِ تأكيداً تنفيذياً واضحاً في سطر قصير، واذكر النتيجة النهائية فقط (لا تُعد سرد كل البيانات إلا عند الطلب).
 - نسّق الردود باحتراف باستخدام Markdown (عناوين قصيرة، قوائم، جدول عند مقارنة عناصر متعددة).
 - اجعل كل رد يبدأ بتمهيد لبق قصير وينتهي بخطوة تالية مقترحة أو سؤال متابعة واضح.`;
 }
@@ -198,12 +199,28 @@ function requestedExpiryIso(userText: string): string | null {
   return normalizeDateToIso(match[1]);
 }
 
+function addDaysIso(baseIso: string, days: number): string {
+  const d = new Date(`${baseIso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function requestedRelativeDays(userText: string): number | null {
+  const m = userText.match(/بعد\s+(\d{1,3})\s*(?:يوم|ايام|أيام|day|days)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0 || n > 3650) return null;
+  return n;
+}
+
 function isDocumentExpiryChangeIntent(userText: string): boolean {
   const t = userText.toLowerCase();
   const asksChange =
     t.includes("تمديد") ||
     t.includes("جدد") ||
     t.includes("تجديد") ||
+    t.includes("حدث") ||
+    t.includes("تحديث") ||
     t.includes("update") ||
     t.includes("extend");
   const isDocument =
@@ -304,20 +321,8 @@ export async function handleAiChatPost(params: {
   }
 
   const todayStr = new Date().toISOString().slice(0, 10);
-  const fastTrackDocumentChange = isDocumentExpiryChangeIntent(text);
+  const fastTrackDocumentChange = isDocumentExpiryChangeIntent(text) || requestedRelativeDays(text) !== null;
   if (fastTrackDocumentChange) {
-    const newExpiry = requestedExpiryIso(text);
-    if (!newExpiry) {
-      return streamAssistantResponse(
-        params.supabase,
-        params.userId,
-        "أفهم أنك تريد تمديد صلاحية مستند، لكن تاريخ الانتهاء الجديد غير واضح. رجاءً اكتب التاريخ بصيغة `YYYY-MM-DD` أو `DD-MM-YYYY` ثم أعيد تجهيز الطلب فوراً.",
-        [],
-        [],
-        { source: "chat", fast_track: "document_expiry_missing_date" }
-      );
-    }
-
     const { data: docs, error: docsErr } = await params.supabase
       .from("company_documents")
       .select("id, tenant_id, document_name, document_number, expiry_date, tenants ( name )")
@@ -330,6 +335,19 @@ export async function handleAiChatPost(params: {
         docs.find((d) => hay.includes(normalizedForMatch(String(d.document_number ?? "")))) ||
         docs[0];
       if (matched?.id && matched.tenant_id) {
+        const absolute = requestedExpiryIso(text);
+        const relDays = requestedRelativeDays(text);
+        const newExpiry = absolute ?? (relDays !== null ? addDaysIso(todayStr, relDays) : null);
+        if (!newExpiry) {
+          return streamAssistantResponse(
+            params.supabase,
+            params.userId,
+            "أفهم طلب التحديث، لكن التاريخ الجديد غير واضح بعد. اكتب التاريخ بصيغة `YYYY-MM-DD` أو حدده بصيغة `بعد 7 أيام` لأجهّز المقترح فوراً.",
+            [],
+            [],
+            { source: "chat", fast_track: "document_expiry_missing_date" }
+          );
+        }
         const title = `تمديد صلاحية مستند: ${String(matched.document_name)}`;
         const summary = `طلب تحديث تاريخ الانتهاء من ${String(matched.expiry_date)} إلى ${newExpiry}.`;
         const proposedAction = normalizeProposedAction({
@@ -374,14 +392,13 @@ export async function handleAiChatPost(params: {
               summary,
             };
             const final =
-              `تم استلام طلبك بشكل تنفيذي، وبناءً على صلاحياتك جهّزت مقترحاً آمناً للتنفيذ بعد الموافقة.\n\n` +
+              `تم، جهّزت لك مقترح تحديث احترافي وجاهز للموافقة.\n\n` +
+              `- **المستند:** ${String(matched.document_name)} (${String(matched.document_number ?? "—")})\n` +
               `- **الشركة:** ${tenant ?? "—"}\n` +
-              `- **المستند:** ${String(matched.document_name)}\n` +
-              `- **الرقم:** ${String(matched.document_number ?? "—")}\n` +
-              `- **التاريخ الحالي:** ${String(matched.expiry_date)}\n` +
-              `- **التاريخ المطلوب:** ${newExpiry}\n` +
-              `- **المهام المفتوحة المرتبطة بنفس الشركة:** ${relatedOpenTasks ?? 0}\n\n` +
-              `هل تريد مني بعد الموافقة أن أجهّز أيضاً **تنبيه متابعة** للفريق المسؤول عن هذا المستند؟`;
+              `- **من:** ${String(matched.expiry_date)}\n` +
+              `- **إلى:** ${newExpiry}${relDays !== null ? ` (بعد ${relDays} أيام من اليوم)` : ""}\n` +
+              `- **مهام مفتوحة بنفس الشركة:** ${relatedOpenTasks ?? 0}\n\n` +
+              `بعد اعتمادك للمقترح سأؤكد لك التنفيذ بجملة واضحة ومباشرة دون إعادة سرد مطوّل.`;
             return streamAssistantResponse(
               params.supabase,
               params.userId,

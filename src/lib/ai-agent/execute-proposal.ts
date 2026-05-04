@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { appendAgentActivity } from "@/lib/ai-agent/activity-log";
+import { appendConversationMemory } from "@/lib/ai-agent/conversation-memory";
 import { loadEmailCredentialBundle, loadOdooCredentialBundle } from "@/lib/ai-agent/load-user-integrations";
 import type { ProposedActionPayload } from "@/lib/ai-agent/proposal-types";
 import { odooAuthenticateUid, odooUpdateTaskStage, odooVerifyTaskAssigned } from "@/lib/integrations/odoo-client";
@@ -36,6 +37,27 @@ function parseProposalDetail(detailJson: unknown): {
         .filter(Boolean)
     : [];
   return { allowedStageIds, odooTaskIds, replyEmailsAllowed };
+}
+
+async function postExecutionAssistantNote(
+  supabase: SupabaseClient,
+  userId: string,
+  text: string,
+  meta?: Record<string, unknown>
+) {
+  await supabase.from("ai_chat_messages").insert({
+    user_id: userId,
+    role: "assistant",
+    body: text,
+    metadata: { source: "proposal_execution", ...(meta ?? {}) },
+  });
+  await appendConversationMemory(supabase, {
+    userId,
+    sessionId: "ai_chat",
+    role: "assistant",
+    content: text,
+    metadata: { source: "proposal_execution", ...(meta ?? {}) },
+  });
 }
 
 export async function executeApprovedProposal(
@@ -122,6 +144,12 @@ export async function executeApprovedProposal(
         message: `تم إنشاء مهمة شركة: ${title.trim()}`,
         meta: { tenantId, dueOn: dueOn.trim() },
       });
+      await postExecutionAssistantNote(
+        supabase,
+        opts.userId,
+        `تم بنجاح إنشاء المهمة «${title.trim()}» وتحديد موعدها ${dueOn.trim()}.\nهل ترغب أن أضيف تذكيراً تلقائياً قبل موعد الاستحقاق؟`,
+        { proposal_id: opts.proposalId, action: "create_corporate_task" }
+      );
       return { ok: true };
     }
 
@@ -249,6 +277,12 @@ export async function executeApprovedProposal(
         eventType: "executed",
         message: `تم تحديث مهمة Odoo #${action.taskId} إلى المرحلة ${action.stageId}.`,
       });
+      await postExecutionAssistantNote(
+        supabase,
+        opts.userId,
+        `تم تنفيذ التحديث بنجاح: مهمة Odoo رقم ${action.taskId} انتقلت إلى المرحلة ${action.stageId}.`,
+        { proposal_id: opts.proposalId, action: "odoo_update_task" }
+      );
       return { ok: true };
     }
 
@@ -289,6 +323,12 @@ export async function executeApprovedProposal(
         eventType: "executed",
         message: `تم تحديث صلاحية المستند ${action.documentName || docRow.document_name} من ${action.oldExpiry} إلى ${action.newExpiry}.`,
       });
+      await postExecutionAssistantNote(
+        supabase,
+        opts.userId,
+        `تم بنجاح تحديث تاريخ انتهاء المستند «${action.documentName || docRow.document_name}» إلى ${action.newExpiry}.`,
+        { proposal_id: opts.proposalId, action: "update_company_document_expiry" }
+      );
       return { ok: true };
     }
 
