@@ -36,6 +36,14 @@ export type ProposedActionPayload =
       stageId: number;
     }
   | {
+      type: "update_company_document_expiry";
+      documentId: string;
+      tenantId: string;
+      documentName: string;
+      oldExpiry: string;
+      newExpiry: string;
+    }
+  | {
       type: "execution_plan";
       intent: string;
       steps: Array<{

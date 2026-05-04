@@ -252,6 +252,46 @@ export async function executeApprovedProposal(
       return { ok: true };
     }
 
+    case "update_company_document_expiry": {
+      const { data: membership, error: memErr } = await supabase
+        .from("tenant_memberships")
+        .select("id")
+        .eq("user_id", opts.userId)
+        .eq("tenant_id", action.tenantId)
+        .eq("status", "active")
+        .maybeSingle();
+      if (memErr || !membership) {
+        return { ok: false, error: "لا تملك صلاحية تعديل مستندات هذه الشركة." };
+      }
+
+      const { data: docRow, error: docErr } = await supabase
+        .from("company_documents")
+        .select("id, expiry_date, document_name")
+        .eq("id", action.documentId)
+        .eq("tenant_id", action.tenantId)
+        .maybeSingle();
+      if (docErr || !docRow) {
+        return { ok: false, error: "المستند غير موجود أو خارج نطاق صلاحياتك." };
+      }
+
+      const { error: updErr } = await supabase
+        .from("company_documents")
+        .update({ expiry_date: action.newExpiry })
+        .eq("id", action.documentId)
+        .eq("tenant_id", action.tenantId);
+      if (updErr) {
+        return { ok: false, error: `تعذّر تحديث تاريخ الانتهاء: ${updErr.message}` };
+      }
+
+      await appendAgentActivity(supabase, {
+        userId: opts.userId,
+        proposalId: opts.proposalId,
+        eventType: "executed",
+        message: `تم تحديث صلاحية المستند ${action.documentName || docRow.document_name} من ${action.oldExpiry} إلى ${action.newExpiry}.`,
+      });
+      return { ok: true };
+    }
+
     default:
       return { ok: false, error: "نوع إجراء غير مدعوم." };
   }

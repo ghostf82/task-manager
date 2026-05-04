@@ -138,6 +138,11 @@ export async function executeAiChatTool(
           return { text: "رفض: شركة المهمة غير مسموحة للمستخدم." };
         }
       }
+      if (proposed.type === "update_company_document_expiry") {
+        if (!ctx.tenantIds.includes(proposed.tenantId)) {
+          return { text: "رفض: شركة المستند غير مسموحة للمستخدم." };
+        }
+      }
 
       const detail_json: Record<string, unknown> = {
         source: "ai_chat",

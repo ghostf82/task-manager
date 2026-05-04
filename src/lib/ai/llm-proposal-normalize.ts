@@ -79,6 +79,24 @@ export function normalizeProposedAction(a: unknown): ProposedActionPayload {
       }
       return { type: "odoo_update_task", taskId, stageId };
     }
+    case "update_company_document_expiry": {
+      const documentId = typeof a.documentId === "string" ? a.documentId.trim() : "";
+      const tenantId = typeof a.tenantId === "string" ? a.tenantId.trim() : "";
+      const documentName = typeof a.documentName === "string" ? a.documentName.trim() : "";
+      const oldExpiry = typeof a.oldExpiry === "string" ? a.oldExpiry.trim() : "";
+      const newExpiry = typeof a.newExpiry === "string" ? a.newExpiry.trim() : "";
+      if (!documentId || !tenantId || !documentName || !oldExpiry || !newExpiry) {
+        return { type: "noop" };
+      }
+      return {
+        type: "update_company_document_expiry",
+        documentId,
+        tenantId,
+        documentName,
+        oldExpiry,
+        newExpiry,
+      };
+    }
     case "execution_plan": {
       const intent = typeof a.intent === "string" ? a.intent : "combined";
       const rawSteps = Array.isArray(a.steps) ? a.steps : [];

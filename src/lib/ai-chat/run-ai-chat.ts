@@ -20,6 +20,7 @@ import { trimHeaderSafeSecret } from "@/lib/env/bearer-key";
 
 const MAX_TOOL_ROUNDS = 4;
 const HISTORY_LIMIT = 28;
+const OPEN_TASK_STATUSES = ["not_started", "in_progress", "on_hold"] as const;
 
 function createChatToolClient(): OpenAI | null {
   const gq = trimHeaderSafeSecret(process.env.GROQ_API_KEY);
@@ -152,6 +153,56 @@ function gracefulProviderFailure(err: unknown): string {
   return "حدث تعثر مؤقت أثناء الاتصال بالمزوّد. أعد المحاولة، وإن تكرر الأمر سأحوّل المسار إلى بديل أكثر استقراراً.";
 }
 
+function normalizeDateToIso(input: string): string | null {
+  const raw = input.trim();
+  const ymd = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (ymd) {
+    const y = Number(ymd[1]);
+    const m = Number(ymd[2]);
+    const d = Number(ymd[3]);
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return `${y.toString().padStart(4, "0")}-${m.toString().padStart(2, "0")}-${d.toString().padStart(2, "0")}`;
+    }
+  }
+  const dmy = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (dmy) {
+    const d = Number(dmy[1]);
+    const m = Number(dmy[2]);
+    const y = Number(dmy[3]);
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return `${y.toString().padStart(4, "0")}-${m.toString().padStart(2, "0")}-${d.toString().padStart(2, "0")}`;
+    }
+  }
+  return null;
+}
+
+function requestedExpiryIso(userText: string): string | null {
+  const match = userText.match(/(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4})/);
+  if (!match) return null;
+  return normalizeDateToIso(match[1]);
+}
+
+function isDocumentExpiryChangeIntent(userText: string): boolean {
+  const t = userText.toLowerCase();
+  const asksChange =
+    t.includes("تمديد") ||
+    t.includes("جدد") ||
+    t.includes("تجديد") ||
+    t.includes("update") ||
+    t.includes("extend");
+  const isDocument =
+    t.includes("مستند") ||
+    t.includes("سجل") ||
+    t.includes("وثيقة") ||
+    t.includes("document");
+  const mentionsExpiry = t.includes("انتهاء") || t.includes("صلاحية") || t.includes("expiry");
+  return asksChange && isDocument && mentionsExpiry;
+}
+
+function normalizedForMatch(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, "").replace(/[^\p{L}\p{N}]/gu, "");
+}
+
 const sseEncoder = new TextEncoder();
 
 /** SSE line as strict UTF-8 bytes (never pass raw strings into byte stream controllers). */
@@ -237,6 +288,98 @@ export async function handleAiChatPost(params: {
   }
 
   const todayStr = new Date().toISOString().slice(0, 10);
+  const fastTrackDocumentChange = isDocumentExpiryChangeIntent(text);
+  if (fastTrackDocumentChange) {
+    const newExpiry = requestedExpiryIso(text);
+    if (!newExpiry) {
+      return streamAssistantResponse(
+        params.supabase,
+        params.userId,
+        "أفهم أنك تريد تمديد صلاحية مستند، لكن تاريخ الانتهاء الجديد غير واضح. رجاءً اكتب التاريخ بصيغة `YYYY-MM-DD` أو `DD-MM-YYYY` ثم أعيد تجهيز الطلب فوراً.",
+        [],
+        [],
+        { source: "chat", fast_track: "document_expiry_missing_date" }
+      );
+    }
+
+    const { data: docs, error: docsErr } = await params.supabase
+      .from("company_documents")
+      .select("id, tenant_id, document_name, document_number, expiry_date, tenants ( name )")
+      .order("expiry_date", { ascending: true })
+      .limit(40);
+    if (!docsErr && docs?.length) {
+      const hay = normalizedForMatch(text);
+      const matched =
+        docs.find((d) => hay.includes(normalizedForMatch(String(d.document_name ?? "")))) ||
+        docs.find((d) => hay.includes(normalizedForMatch(String(d.document_number ?? "")))) ||
+        docs[0];
+      if (matched?.id && matched.tenant_id) {
+        const title = `تمديد صلاحية مستند: ${String(matched.document_name)}`;
+        const summary = `طلب تحديث تاريخ الانتهاء من ${String(matched.expiry_date)} إلى ${newExpiry}.`;
+        const proposedAction = normalizeProposedAction({
+          type: "update_company_document_expiry",
+          documentId: String(matched.id),
+          tenantId: String(matched.tenant_id),
+          documentName: String(matched.document_name),
+          oldExpiry: String(matched.expiry_date),
+          newExpiry,
+        });
+        if (proposedAction.type === "update_company_document_expiry") {
+          const { data: ins, error: insErr } = await params.supabase
+            .from("ai_agent_proposals")
+            .insert({
+              user_id: params.userId,
+              tenant_id: matched.tenant_id as string,
+              kind: "generic",
+              title,
+              summary,
+              detail_json: {
+                source: "chat_fast_track",
+                created_via: "document_expiry_request",
+              },
+              proposed_action: proposedAction as unknown as Record<string, unknown>,
+              status: "pending",
+            })
+            .select("id")
+            .single();
+
+          if (!insErr && ins?.id) {
+            const { count: relatedOpenTasks } = await params.supabase
+              .from("corporate_tasks")
+              .select("id", { count: "exact", head: true })
+              .eq("tenant_id", matched.tenant_id as string)
+              .in("status", [...OPEN_TASK_STATUSES]);
+            const tenant = Array.isArray(matched.tenants)
+              ? matched.tenants[0]?.name
+              : (matched.tenants as { name?: string } | null)?.name;
+            const proposal: CreatedProposalInfo = {
+              id: ins.id as string,
+              title,
+              summary,
+            };
+            const final =
+              `تم استلام طلبك بشكل تنفيذي، وبناءً على صلاحياتك جهّزت مقترحاً آمناً للتنفيذ بعد الموافقة.\n\n` +
+              `- **الشركة:** ${tenant ?? "—"}\n` +
+              `- **المستند:** ${String(matched.document_name)}\n` +
+              `- **الرقم:** ${String(matched.document_number ?? "—")}\n` +
+              `- **التاريخ الحالي:** ${String(matched.expiry_date)}\n` +
+              `- **التاريخ المطلوب:** ${newExpiry}\n` +
+              `- **المهام المفتوحة المرتبطة بنفس الشركة:** ${relatedOpenTasks ?? 0}\n\n` +
+              `هل تريد مني بعد الموافقة أن أجهّز أيضاً **تنبيه متابعة** للفريق المسؤول عن هذا المستند؟`;
+            return streamAssistantResponse(
+              params.supabase,
+              params.userId,
+              final,
+              [proposal.id],
+              [proposal],
+              { source: "chat", fast_track: "document_expiry_proposal" }
+            );
+          }
+        }
+      }
+    }
+  }
+
   const memRows = await getRecentMemory(params.supabase, params.userId, "ai_chat", 10);
   const plan = analyzeIntent(text, {
     recentUserPhrases: memRows.filter((r) => r.role === "user").map((r) => r.content),
