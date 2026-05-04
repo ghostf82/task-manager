@@ -340,9 +340,8 @@ export function ChatClient({
           if (parsed.type === "text" && typeof parsed.text === "string") {
             setStreamingText((s) => s + parsed.text);
           }
-          if (parsed.type === "done") {
-            setStreamingText("");
-          }
+          /* Do not clear on "done" here: the same tick would wipe streamed text before
+           * the assistant row is readable from Supabase. Clear after loadAiMessages(). */
         }
       };
 
@@ -369,6 +368,7 @@ export function ChatClient({
 
       drainSse();
       await loadAiMessages();
+      setStreamingText("");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("chatClient.toastRequestFail"));
     } finally {
@@ -549,6 +549,7 @@ export function ChatClient({
                       {t("chatClient.planApprove")}
                     </Button>
                     <Link
+                      prefetch={false}
                       href="/dashboard/ai-agent"
                       className={buttonVariants({ variant: "outline", size: "sm" })}
                     >
@@ -593,6 +594,7 @@ export function ChatClient({
                       {t("chatClient.planNextStep")}
                     </Button>
                     <Link
+                      prefetch={false}
                       href="/dashboard/ai-agent"
                       className={buttonVariants({ variant: "outline", size: "sm" })}
                     >

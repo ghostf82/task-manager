@@ -16,19 +16,20 @@ import { callLLM, buildExecutiveSystemPrompt } from "@/lib/ai/llm-unified";
 import { getRegisteredAiTools } from "@/lib/ai-tools/registry";
 import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
 import { normalizeProposedAction } from "@/lib/ai/llm-proposal-normalize";
+import { trimHeaderSafeSecret } from "@/lib/env/bearer-key";
 
 const MAX_TOOL_ROUNDS = 8;
 const HISTORY_LIMIT = 28;
 
 function createChatToolClient(): OpenAI | null {
-  const gq = process.env.GROQ_API_KEY?.trim();
+  const gq = trimHeaderSafeSecret(process.env.GROQ_API_KEY);
   if (gq) {
     return new OpenAI({
       apiKey: gq,
       baseURL: "https://api.groq.com/openai/v1",
     });
   }
-  const oa = process.env.OPENAI_API_KEY?.trim();
+  const oa = trimHeaderSafeSecret(process.env.OPENAI_API_KEY);
   if (oa) {
     return new OpenAI({ apiKey: oa });
   }
@@ -36,7 +37,7 @@ function createChatToolClient(): OpenAI | null {
 }
 
 function chatToolModel(): string {
-  if (process.env.GROQ_API_KEY?.trim()) {
+  if (trimHeaderSafeSecret(process.env.GROQ_API_KEY)) {
     return process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile";
   }
   return process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";

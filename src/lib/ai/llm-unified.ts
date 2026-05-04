@@ -2,6 +2,8 @@ import "server-only";
 
 import OpenAI from "openai";
 
+import { trimHeaderSafeSecret } from "@/lib/env/bearer-key";
+
 export type CallLLMOptions = {
   systemPrompt: string;
   userPrompt: string;
@@ -16,10 +18,10 @@ export type CallLLMResult = {
 };
 
 const NO_KEYS_AR =
-  "يرجى إضافة مفتاح Gemini المجاني من الإعدادات (GEMINI_API_KEY)، أو مفتاح Groq (GROQ_API_KEY)، أو مفتاح OpenAI (OPENAI_API_KEY) لتمكين التحليل الذكي.";
+  "يرجى إضافة مفتاح Gemini المجاني من الإعدادات (GEMINI_API_KEY)، أو مفتاح Groq (GROQ_API_KEY)، أو مفتاح OpenAI (OPENAI_API_KEY) لتمكين التحليل الذكي. يجب أن تكون المفاتيح نصاً إنجليزياً/رموزاً فقط (ASCII) — لا تضع نصاً عربياً من قوالب التوثيق داخل المتغيرات.";
 
 async function geminiGenerate(opts: CallLLMOptions): Promise<string | null> {
-  const key = process.env.GEMINI_API_KEY?.trim();
+  const key = trimHeaderSafeSecret(process.env.GEMINI_API_KEY);
   if (!key) return null;
 
   const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash";
@@ -59,7 +61,7 @@ async function geminiGenerate(opts: CallLLMOptions): Promise<string | null> {
 }
 
 async function groqChat(opts: CallLLMOptions): Promise<string | null> {
-  const key = process.env.GROQ_API_KEY?.trim();
+  const key = trimHeaderSafeSecret(process.env.GROQ_API_KEY);
   if (!key) return null;
 
   const model = process.env.GROQ_MODEL?.trim() || "llama-3.3-70b-versatile";
@@ -95,7 +97,7 @@ async function groqChat(opts: CallLLMOptions): Promise<string | null> {
 }
 
 async function openaiChat(opts: CallLLMOptions): Promise<string | null> {
-  const key = process.env.OPENAI_API_KEY?.trim();
+  const key = trimHeaderSafeSecret(process.env.OPENAI_API_KEY);
   if (!key) return null;
 
   const openai = new OpenAI({ apiKey: key });

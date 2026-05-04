@@ -42,6 +42,7 @@ export function SidebarUserFooter({
   return (
     <div className="mt-auto border-t border-border/80 bg-muted/20 p-2">
       <Link
+        prefetch={false}
         href="/dashboard/profile"
         className={cn(
           "flex items-center gap-2.5 rounded-lg px-2 py-2 text-start transition-colors",

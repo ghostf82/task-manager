@@ -104,7 +104,11 @@ function SummaryCard({
 
   if (href) {
     return (
-      <Link href={href} className="block h-full transition-opacity hover:opacity-95">
+      <Link
+        href={href}
+        prefetch={false}
+        className="block h-full transition-opacity hover:opacity-95"
+      >
         {inner}
       </Link>
     );
@@ -224,6 +228,7 @@ export function ExecutiveDashboard({
             <CardContent>
               <p className="text-3xl font-semibold tabular-nums">{tenantCount}</p>
               <Link
+                prefetch={false}
                 href="/dashboard/tenants"
                 className="text-primary mt-2 inline-block text-xs font-medium underline-offset-4 hover:underline"
               >
@@ -241,6 +246,7 @@ export function ExecutiveDashboard({
             <CardContent>
               <p className="text-3xl font-semibold tabular-nums">{userCount}</p>
               <Link
+                prefetch={false}
                 href="/dashboard/users"
                 className="text-primary mt-2 inline-block text-xs font-medium underline-offset-4 hover:underline"
               >
@@ -375,24 +381,28 @@ export function ExecutiveDashboard({
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Link
+            prefetch={false}
             href="/dashboard/tasks"
             className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
           >
             {t("executiveDashboard.shortcutsTasks")}
           </Link>
           <Link
+            prefetch={false}
             href="/dashboard/documents"
             className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
           >
             {t("executiveDashboard.shortcutsDocs")}
           </Link>
           <Link
+            prefetch={false}
             href="/dashboard/chat"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
             {t("executiveDashboard.shortcutsChat")}
           </Link>
           <Link
+            prefetch={false}
             href="/dashboard/ai-agent"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
@@ -401,18 +411,21 @@ export function ExecutiveDashboard({
           {isSuperAdmin ? (
             <>
               <Link
+                prefetch={false}
                 href="/dashboard/tenants"
                 className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
               >
                 {t("executiveDashboard.shortcutsAdminTenants")}
               </Link>
               <Link
+                prefetch={false}
                 href="/dashboard/users"
                 className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
               >
                 {t("executiveDashboard.shortcutsAdminUsers")}
               </Link>
               <Link
+                prefetch={false}
                 href="/dashboard/ai-governance"
                 className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
               >
@@ -421,12 +434,14 @@ export function ExecutiveDashboard({
             </>
           ) : null}
           <Link
+            prefetch={false}
             href="/dashboard/reminders"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
             {t("executiveDashboard.shortcutsReminders")}
           </Link>
           <Link
+            prefetch={false}
             href="/dashboard/profile"
             className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
           >
