@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { FileSpreadsheet, FileText, Pencil, Plus, Trash2 } from "lucide-react";
@@ -208,7 +207,7 @@ export function DocumentsPageClient({
               ))}
             </select>
           ) : null}
-          <Link
+          <a
             href={exportHref}
             className={cn(
               buttonVariants({ variant: "secondary", size: "sm" }),
@@ -217,7 +216,7 @@ export function DocumentsPageClient({
           >
             <FileSpreadsheet className="size-4" />
             {copy.exportExcel}
-          </Link>
+          </a>
           <Button
             type="button"
             size="sm"

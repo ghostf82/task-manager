@@ -7,8 +7,15 @@ import { analyzeFreeTextWithLlm } from "@/lib/ai/llm-analyze";
 import { analyzeInboundSourcesWithLlm } from "@/lib/ai/llm-inbound";
 import type { LlmAnalysisResult } from "@/lib/ai/llm-analyze";
 import { appendAgentActivity } from "@/lib/ai-agent/activity-log";
+import {
+  advanceExecutionPlanStep,
+  approveExecutionPlanState,
+} from "@/lib/ai-agent/execute-execution-plan";
+import { appendConversationMemory, getRecentMemory } from "@/lib/ai-agent/conversation-memory";
+import { analyzeIntent } from "@/lib/ai-agent/planning-engine";
 import { executeApprovedProposal } from "@/lib/ai-agent/execute-proposal";
 import type { ProposedActionPayload } from "@/lib/ai-agent/proposal-types";
+import { normalizeProposedAction } from "@/lib/ai/llm-proposal-normalize";
 import { collectLicensedInboundData } from "@/lib/ai-tools/collect-licensed-inbound";
 import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
 import { requireSession } from "@/lib/dashboard-auth";
@@ -92,6 +99,87 @@ export async function analyzePasteAction(formData: FormData) {
     redirect("/dashboard/ai-agent?err=text");
   }
 
+  const supabase = await createClient();
+  await appendConversationMemory(supabase, {
+    userId: session.id,
+    sessionId: "paste",
+    role: "user",
+    content: text,
+  });
+
+  const licensedSlugs = await getLicensedActiveToolSlugs(supabase, session.id);
+  const { data: memberships } = await supabase
+    .from("tenant_memberships")
+    .select("tenants(name)")
+    .eq("user_id", session.id)
+    .eq("status", "active");
+
+  const tenantNames: string[] = [];
+  for (const m of memberships ?? []) {
+    const tn = m.tenants;
+    if (tn && typeof tn === "object" && !Array.isArray(tn) && "name" in tn) {
+      tenantNames.push(String((tn as { name: string }).name));
+    } else if (Array.isArray(tn) && tn[0] && typeof tn[0] === "object" && "name" in tn[0]) {
+      tenantNames.push(String((tn[0] as { name: string }).name));
+    }
+  }
+
+  const mem = await getRecentMemory(supabase, session.id, "paste", 10);
+  const plan = analyzeIntent(text, {
+    recentUserPhrases: mem.filter((r) => r.role === "user").map((r) => r.content),
+    licensedToolSlugs: licensedSlugs,
+    tenantNames,
+  });
+
+  if (plan.steps.length > 3) {
+    const proposed = normalizeProposedAction({
+      type: "execution_plan",
+      intent: plan.intent,
+      steps: plan.steps,
+    });
+    if (proposed.type !== "execution_plan") {
+      redirect("/dashboard/ai-agent?err=proposal");
+    }
+
+    const { data: ins, error } = await supabase
+      .from("ai_agent_proposals")
+      .insert({
+        user_id: session.id,
+        tenant_id: tenantId,
+        kind: "generic",
+        title: `خطة تنفيذ (${plan.intent})`,
+        summary: plan.steps.map((s) => s.description).join(" — "),
+        detail_json: {
+          source: "paste",
+          phase: "plan_review",
+          skippedStepIndexes: [],
+          currentStepIndex: 0,
+          stepLog: [],
+        },
+        proposed_action: proposed as unknown as ProposedActionPayload,
+        status: "pending",
+      })
+      .select("id")
+      .single();
+
+    if (error || !ins) {
+      console.error("proposal insert", error);
+      redirect("/dashboard/ai-agent?err=insert");
+    }
+
+    await appendAgentActivity(supabase, {
+      userId: session.id,
+      proposalId: ins.id,
+      eventType: "proposed",
+      message: await tActionFill("aiAgentActions.logNewProposal", {
+        title: `خطة (${plan.intent})`,
+      }),
+    });
+
+    revalidatePath("/dashboard/ai-agent");
+    redirect("/dashboard/ai-agent?ok=analysis");
+  }
+
   let analysis;
   try {
     analysis = await analyzeFreeTextWithLlm({ text, tenantId });
@@ -100,7 +188,6 @@ export async function analyzePasteAction(formData: FormData) {
     redirect("/dashboard/ai-agent?err=llm");
   }
 
-  const supabase = await createClient();
   const { data: ins, error } = await supabase
     .from("ai_agent_proposals")
     .insert({
@@ -155,6 +242,15 @@ export async function confirmProposalExecutionAction(input: {
   }
   if (prop.status !== "pending") {
     return { ok: false, error: await tAction("aiAgentActions.proposalNotPending") };
+  }
+
+  const paRaw = prop.proposed_action;
+  const paType =
+    paRaw && typeof paRaw === "object" && !Array.isArray(paRaw) && "type" in paRaw
+      ? String((paRaw as Record<string, unknown>).type)
+      : "";
+  if (paType === "execution_plan") {
+    return { ok: false, error: await tAction("aiAgentActions.usePlanFlow") };
   }
 
   const proposedAction = mergeProposedActionWithEmailEdits(
@@ -356,10 +452,14 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
   }
 
   if (!inserted && (tasks.length > 0 || emails.length > 0)) {
+    const hasAnyLlm =
+      Boolean(process.env.GEMINI_API_KEY?.trim()) ||
+      Boolean(process.env.GROQ_API_KEY?.trim()) ||
+      Boolean(process.env.OPENAI_API_KEY?.trim());
     await appendAgentActivity(supabase, {
       userId: session.id,
       eventType: "scan_llm",
-      message: process.env.OPENAI_API_KEY?.trim()
+      message: hasAnyLlm
         ? await tAction("aiAgentActions.scanNoModelOutput")
         : await tAction("aiAgentActions.scanNoOpenAiKey"),
     });
@@ -387,4 +487,40 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
     taskCount,
     emailCount,
   };
+}
+
+export async function approveExecutionPlanAction(input: {
+  proposalId: string;
+  skippedStepIndexes: number[];
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const res = await approveExecutionPlanState(supabase, {
+    userId: session.id,
+    proposalId: input.proposalId.trim(),
+    skippedStepIndexes: input.skippedStepIndexes,
+  });
+  if (!res.ok) {
+    return { ok: false, error: res.error };
+  }
+  revalidatePath("/dashboard/ai-agent");
+  revalidatePath("/dashboard/chat");
+  return { ok: true, message: await tAction("aiAgentActions.planApproved") };
+}
+
+export async function advanceExecutionPlanStepAction(
+  proposalId: string
+): Promise<{ ok: true; message: string; done: boolean } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const res = await advanceExecutionPlanStep(supabase, {
+    userId: session.id,
+    proposalId: proposalId.trim(),
+  });
+  if (!res.ok) {
+    return { ok: false, error: res.error };
+  }
+  revalidatePath("/dashboard/ai-agent");
+  revalidatePath("/dashboard/chat");
+  return { ok: true, message: res.message, done: res.done };
 }

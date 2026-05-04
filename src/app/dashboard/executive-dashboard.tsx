@@ -39,6 +39,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { SizedChartHost } from "@/components/ui/sized-chart-host";
 import { buttonVariants } from "@/components/ui/button";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { cn } from "@/lib/utils";
@@ -160,18 +161,18 @@ export function ExecutiveDashboard({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link
+            <a
               href="/api/reports/tasks?format=xlsx"
               className={cn(buttonVariants({ variant: "default", size: "sm" }), "shadow-sm")}
             >
               {t("executiveDashboard.excelTasks")}
-            </Link>
-            <Link
+            </a>
+            <a
               href="/api/reports/documents"
               className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
             >
               {t("executiveDashboard.excelDocuments")}
-            </Link>
+            </a>
           </div>
         </div>
       </div>
@@ -285,33 +286,37 @@ export function ExecutiveDashboard({
             </CardTitle>
             <CardDescription>{t("executiveDashboard.taskDistributionDesc")}</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] w-full min-h-[260px]">
+          <CardContent className="h-[300px] w-full min-h-[260px] min-w-0">
             {pieSum === 0 ? (
               <p className="text-muted-foreground flex h-full items-center justify-center text-sm">
                 {t("executiveDashboard.taskDistributionEmpty")}
               </p>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieChartData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={52}
-                    outerRadius={88}
-                    paddingAngle={2}
-                    label
-                  >
-                    {pieChartData.map((e, i) => (
-                      <Cell key={i} fill={e.fill} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
+              <SizedChartHost className="h-full w-full min-h-[260px] min-w-0">
+                {({ width, height }) => (
+                  <ResponsiveContainer width={width} height={height}>
+                    <PieChart>
+                      <Pie
+                        data={pieChartData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={52}
+                        outerRadius={88}
+                        paddingAngle={2}
+                        label
+                      >
+                        {pieChartData.map((e, i) => (
+                          <Cell key={i} fill={e.fill} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </SizedChartHost>
             )}
           </CardContent>
         </Card>
@@ -324,36 +329,40 @@ export function ExecutiveDashboard({
             </CardTitle>
             <CardDescription>{t("executiveDashboard.docsByTenantDesc")}</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] w-full min-h-[260px]">
+          <CardContent className="h-[300px] w-full min-h-[260px] min-w-0">
             {!docBar.length ? (
               <p className="text-muted-foreground flex h-full items-center justify-center text-sm">
                 {t("executiveDashboard.docsByTenantEmpty")}
               </p>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={docBar}
-                  layout="vertical"
-                  margin={{ left: 4, right: 12, top: 8, bottom: 8 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis type="number" allowDecimals={false} />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={88}
-                    tick={{ fontSize: 10 }}
-                    interval={0}
-                  />
-                  <Tooltip />
-                  <Bar
-                    dataKey="count"
-                    fill="#f59e0b"
-                    radius={[0, 6, 6, 0]}
-                    name={t("executiveDashboard.chartDocsSeries")}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <SizedChartHost className="h-full w-full min-h-[260px] min-w-0">
+                {({ width, height }) => (
+                  <ResponsiveContainer width={width} height={height}>
+                    <BarChart
+                      data={docBar}
+                      layout="vertical"
+                      margin={{ left: 4, right: 12, top: 8, bottom: 8 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis type="number" allowDecimals={false} />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        width={88}
+                        tick={{ fontSize: 10 }}
+                        interval={0}
+                      />
+                      <Tooltip />
+                      <Bar
+                        dataKey="count"
+                        fill="#f59e0b"
+                        radius={[0, 6, 6, 0]}
+                        name={t("executiveDashboard.chartDocsSeries")}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </SizedChartHost>
             )}
           </CardContent>
         </Card>

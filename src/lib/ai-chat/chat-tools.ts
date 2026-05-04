@@ -119,6 +119,9 @@ export async function executeAiChatTool(
       if (proposed.type === "noop") {
         return { text: "رفض: proposed_action غير صالح أو مفقود." };
       }
+      if (proposed.type === "execution_plan") {
+        return { text: "رفض: خطط التنفيذ متعددة الخطوات تُنشأ من محرك التخطيط فقط، وليس عبر هذه الأداة." };
+      }
 
       if (proposed.type === "send_email_reply") {
         if (!ctx.licensedToolSlugs.includes("email")) {

@@ -542,7 +542,13 @@
     "voiceTitle": "Voice call",
     "voiceDescription": "Planned feature: WebRTC or a provider such as LiveKit for secure calls between members.",
     "voicePeerLabel": "Member:",
-    "voiceOk": "OK"
+    "voiceOk": "OK",
+    "planCardTitle": "Proposed execution plan — review steps, then approve or adjust on the AI Agent page.",
+    "planApprove": "Approve plan",
+    "planEdit": "Edit in AI Agent",
+    "planCancel": "Dismiss card",
+    "planNextStep": "Run next step",
+    "planOpenAgent": "Open AI Agent panel"
   },
   "proposalReview": {
     "bodyRequiredToast": "Message body is required before sending.",
@@ -567,7 +573,14 @@
     "emptyDescription": "When you run a scan, analyse text, or chat with the assistant, proposals appear here for review before any execution.",
     "goToAgent": "Go to AI assistant",
     "reviewing": "Reviewing…",
-    "reject": "Reject"
+    "reject": "Reject",
+    "executionPlanIntro": "Review each step. Uncheck any step you want to skip, then approve the plan. After that, run steps one by one from this dialog.",
+    "executionProgress": "Execution progress",
+    "requiresApproval": "Requires later approval",
+    "approvePlan": "Approve plan",
+    "runNextStep": "Run next step",
+    "executionPlanDoneClose": "Close",
+    "executionPlanStepCount": "steps in plan"
   },
   "aiAgentPage": {
     "phaseLabel": "Phase 5",
@@ -576,18 +589,18 @@
     "vaultLink": "Secure integration vault",
     "bannerNoTools": "No AI tools are enabled for your account — ask your administrator in AI tool governance.",
     "bannerVaultNeeded": "Licensed tools: {tools}. Add vault credentials from System connections to enable scanning and execution.",
-    "bannerReady": "You can run “Source scan” for enabled tools ({tools}) after configuring the vault (OPENAI_API_KEY required for proposals). Execution happens from the server only after your approval.",
+    "bannerReady": "You can run “Source scan” for enabled tools ({tools}) after configuring the vault. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY for proposal analysis. Execution happens from the server only after your approval.",
     "okAnalysis": "A new proposal was added to the pending inbox.",
     "okExecuted": "Your approval was processed and the action executed (or status recorded) successfully.",
     "okRejected": "The proposal was rejected and logged.",
     "errText": "Paste text to analyse first.",
-    "errLlm": "Could not reach the model or parse the response. Check OPENAI_API_KEY.",
+    "errLlm": "Could not reach the model or parse the response. Check GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY.",
     "errInsert": "Could not save the proposal to the database.",
     "errProposal": "Invalid proposal.",
     "errNotPending": "This proposal is no longer pending.",
     "errGeneric": "Something went wrong.",
     "analyzeTitle": "Analyse text and create a proposal",
-    "analyzeDesc": "Paste a message, meeting note, or any text — analysed on the server (OpenAI when the key exists, otherwise a local fallback).",
+    "analyzeDesc": "Paste a message or note — analysed on the server via Gemini, then Groq, then OpenAI. If the plan has more than three steps, an execution plan is shown for step-by-step approval.",
     "labelTenant": "Company (for task proposals)",
     "tenantNone": "— No specific company context —",
     "labelText": "Text",
@@ -630,8 +643,10 @@
     "logLlmFail": "LLM analysis failed: {msg}",
     "logScanProposal": "Auto-scan proposal: {title}",
     "scanNoModelOutput": "The model produced no proposals from scan data (check permissions or content).",
-    "scanNoOpenAiKey": "OPENAI_API_KEY is not set — scan was not analysed automatically.",
+    "scanNoOpenAiKey": "No LLM key (Gemini / Groq / OpenAI) — scan was not analysed automatically.",
     "logScanComplete": "Source scan complete: Odoo {taskCount} tasks, {emailCount} unread emails → {inserted} new proposals.",
-    "scanDoneSummary": "Scan done: {taskCount} Odoo tasks, {emailCount} unread emails, {inserted} new proposals."
+    "scanDoneSummary": "Scan done: {taskCount} Odoo tasks, {emailCount} unread emails, {inserted} new proposals.",
+    "usePlanFlow": "This proposal is a multi-step plan — use “Approve plan” then “Run next step” in the dialog, not the generic “Confirm execution”.",
+    "planApproved": "Plan approved — you can now run steps in sequence."
   }
 }

@@ -185,6 +185,14 @@ export async function executeApprovedProposal(
       return { ok: true };
     }
 
+    case "execution_plan": {
+      return {
+        ok: false,
+        error:
+          "مقترحات «خطة العمل» تُنفَّذ خطوة بخطوة من لوحة المقترحات — استخدم «موافقة على الخطة» ثم «تنفيذ الخطوة التالية».",
+      };
+    }
+
     case "odoo_update_task": {
       const bundle = await loadOdooCredentialBundle(supabase, opts.userId);
       if (!bundle) {

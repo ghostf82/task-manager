@@ -79,6 +79,31 @@ export function normalizeProposedAction(a: unknown): ProposedActionPayload {
       }
       return { type: "odoo_update_task", taskId, stageId };
     }
+    case "execution_plan": {
+      const intent = typeof a.intent === "string" ? a.intent : "combined";
+      const rawSteps = Array.isArray(a.steps) ? a.steps : [];
+      const steps: Array<{
+        tool: string;
+        description: string;
+        requiresApproval: boolean;
+        fallback: string;
+      }> = [];
+      for (const s of rawSteps) {
+        if (!isRecord(s)) continue;
+        const tool = typeof s.tool === "string" ? s.tool : "";
+        const description = typeof s.description === "string" ? s.description : "";
+        const fallback = typeof s.fallback === "string" ? s.fallback : "";
+        if (!tool || !description) continue;
+        steps.push({
+          tool,
+          description,
+          requiresApproval: Boolean(s.requiresApproval),
+          fallback,
+        });
+      }
+      if (!steps.length) return { type: "noop" };
+      return { type: "execution_plan", intent, steps };
+    }
     default:
       return { type: "noop" };
   }

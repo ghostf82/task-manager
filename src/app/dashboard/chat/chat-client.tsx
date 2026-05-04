@@ -1,9 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Phone, Send, Sparkles } from "lucide-react";
 
+import {
+  advanceExecutionPlanStepAction,
+  approveExecutionPlanAction,
+} from "@/app/dashboard/ai-agent/actions";
 import { AiProposalReviewDialog } from "@/app/dashboard/chat/ai-proposal-review-dialog";
 import {
   ensureDmConversationAction,
@@ -12,7 +18,7 @@ import {
 import type { PendingProposalRow } from "@/app/dashboard/ai-agent/pending-proposals-panel";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -27,6 +33,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -84,6 +91,7 @@ export function ChatClient({
   colleagues: ChatColleague[];
 }) {
   const { t, dateLocale } = useDashboardI18n();
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [peerId, setPeerId] = useState<string | null>(null);
   const [convId, setConvId] = useState<string | null>(null);
@@ -97,6 +105,14 @@ export function ChatClient({
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewProposal, setReviewProposal] = useState<PendingProposalRow | null>(null);
   const [aiPending, setAiPending] = useState(false);
+  const [planCard, setPlanCard] = useState<{
+    proposalId: string;
+    intent: string;
+    steps: { tool: string; description: string; requiresApproval: boolean }[];
+  } | null>(null);
+  const [planIncludeChat, setPlanIncludeChat] = useState<boolean[]>([]);
+  const [planPhaseChat, setPlanPhaseChat] = useState<"plan_review" | "running">("plan_review");
+  const [planBusy, startPlanChat] = useTransition();
 
   const isAiThread = peerId === AI_AGENT_PEER_ID;
 
@@ -181,7 +197,12 @@ export function ChatClient({
   }, [convId, isAiThread, loadMessages]);
 
   useEffect(() => {
-    if (!isAiThread) return;
+    if (!isAiThread) {
+      setPlanCard(null);
+      setPlanIncludeChat([]);
+      setPlanPhaseChat("plan_review");
+      return;
+    }
     void loadAiMessages();
     const supabase = createClient();
     const channel = supabase
@@ -257,13 +278,19 @@ export function ChatClient({
     if (!text) return;
     setDraft("");
     setStreamingText("");
+    setPlanCard(null);
+    setPlanIncludeChat([]);
+    setPlanPhaseChat("plan_review");
     setAiPending(true);
     try {
-      const res = await fetch("/api/ai-chat", {
+      const endpoint = new URL("/api/ai-chat", window.location.origin).href;
+      const body = new Blob([JSON.stringify({ content: text })], {
+        type: "application/json;charset=utf-8",
+      });
+      const res = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ content: text }),
+        body,
       });
       if (!res.ok) {
         const err = await res.text();
@@ -286,11 +313,28 @@ export function ChatClient({
           const block = carry.slice(0, idx);
           carry = carry.slice(idx + 2);
           if (!block.startsWith("data: ")) continue;
-          let parsed: { type?: string; text?: string };
+          let parsed: {
+            type?: string;
+            text?: string;
+            proposalId?: string;
+            plan?: {
+              intent: string;
+              steps: { tool: string; description: string; requiresApproval: boolean }[];
+            };
+          };
           try {
-            parsed = JSON.parse(block.slice(6)) as { type?: string; text?: string };
+            parsed = JSON.parse(block.slice(6)) as typeof parsed;
           } catch {
             continue;
+          }
+          if (parsed.type === "plan_proposal" && parsed.proposalId && parsed.plan?.steps) {
+            setPlanCard({
+              proposalId: parsed.proposalId,
+              intent: parsed.plan.intent,
+              steps: parsed.plan.steps,
+            });
+            setPlanIncludeChat(parsed.plan.steps.map(() => true));
+            setPlanPhaseChat("plan_review");
           }
           if (parsed.type === "text" && typeof parsed.text === "string") {
             setStreamingText((s) => s + parsed.text);
@@ -421,6 +465,131 @@ export function ChatClient({
           </CardDescription>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
+          {isAiThread && planCard ? (
+            <div className="border-border/80 bg-muted/30 shrink-0 space-y-3 border-b p-3">
+              <p className="text-xs font-medium text-violet-800 dark:text-violet-100">
+                {t("chatClient.planCardTitle")}{" "}
+                <span className="font-mono text-[10px] [direction:ltr]">({planCard.intent})</span>
+              </p>
+              <ul className="max-h-40 space-y-2 overflow-auto text-sm">
+                {planCard.steps.map((step, i) => (
+                  <li
+                    key={i}
+                    className="border-border/60 flex items-start gap-2 rounded-md border bg-background/80 p-2"
+                  >
+                    {planPhaseChat === "plan_review" ? (
+                      <Checkbox
+                        checked={planIncludeChat[i] ?? true}
+                        onCheckedChange={(v) => {
+                          setPlanIncludeChat((prev) => {
+                            const next = [...prev];
+                            next[i] = v === true;
+                            return next;
+                          });
+                        }}
+                      />
+                    ) : (
+                      <span className="text-muted-foreground w-5 text-center font-mono text-[10px]">
+                        {i + 1}
+                      </span>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-[10px] text-violet-700 dark:text-violet-200">
+                        {step.tool}
+                      </p>
+                      <p className="leading-relaxed">{step.description}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              {planPhaseChat === "running" ? (
+                <div className="bg-muted h-1.5 w-full overflow-hidden rounded-full">
+                  <div className="h-full w-1/3 animate-pulse rounded-full bg-violet-500/70" />
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {planPhaseChat === "plan_review" ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={planBusy}
+                      onClick={() => {
+                        startPlanChat(async () => {
+                          const skipped = planCard.steps
+                            .map((_, i) => i)
+                            .filter((i) => !planIncludeChat[i]);
+                          const res = await approveExecutionPlanAction({
+                            proposalId: planCard.proposalId,
+                            skippedStepIndexes: skipped,
+                          });
+                          if (res.ok) {
+                            toast.success(res.message);
+                            setPlanPhaseChat("running");
+                          } else {
+                            toast.error(res.error);
+                          }
+                          router.refresh();
+                        });
+                      }}
+                    >
+                      {t("chatClient.planApprove")}
+                    </Button>
+                    <Link
+                      href="/dashboard/ai-agent"
+                      className={buttonVariants({ variant: "outline", size: "sm" })}
+                    >
+                      {t("chatClient.planEdit")}
+                    </Link>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setPlanCard(null);
+                        setPlanIncludeChat([]);
+                        setPlanPhaseChat("plan_review");
+                      }}
+                    >
+                      {t("chatClient.planCancel")}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={planBusy}
+                      onClick={() => {
+                        startPlanChat(async () => {
+                          const res = await advanceExecutionPlanStepAction(planCard.proposalId);
+                          if (res.ok) {
+                            toast.success(res.message.slice(0, 120));
+                            if (res.done) {
+                              setPlanCard(null);
+                              setPlanPhaseChat("plan_review");
+                            }
+                          } else {
+                            toast.error(res.error);
+                          }
+                          router.refresh();
+                          void loadAiMessages();
+                        });
+                      }}
+                    >
+                      {t("chatClient.planNextStep")}
+                    </Button>
+                    <Link
+                      href="/dashboard/ai-agent"
+                      className={buttonVariants({ variant: "outline", size: "sm" })}
+                    >
+                      {t("chatClient.planOpenAgent")}
+                    </Link>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : null}
           <ScrollArea className="min-h-0 flex-1 rounded-none border-x-0 border-t-0 border-b border-border bg-muted/20 p-3">
             <div className="flex flex-col gap-2">
               {isAiThread ? (

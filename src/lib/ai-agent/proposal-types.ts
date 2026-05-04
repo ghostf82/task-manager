@@ -34,6 +34,16 @@ export type ProposedActionPayload =
       type: "odoo_update_task";
       taskId: number;
       stageId: number;
+    }
+  | {
+      type: "execution_plan";
+      intent: string;
+      steps: Array<{
+        tool: string;
+        description: string;
+        requiresApproval: boolean;
+        fallback: string;
+      }>;
     };
 
 export type ProposalKind =

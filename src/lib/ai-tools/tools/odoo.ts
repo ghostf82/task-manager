@@ -11,6 +11,9 @@ export const odooAiTool: AIToolModule = {
   displayNameAr: "Odoo",
   displayNameEn: "Odoo",
   descriptionAr: "مهام المشروع و XML-RPC",
+  descriptionEn: "Project tasks via Odoo XML-RPC.",
+  requiredCredentials: ["odoo"],
+  functions: ["fetchOpenTasks", "updateTaskStage"],
   async collectInbound(supabase: SupabaseClient, userId: string) {
     const bundle = await loadOdooCredentialBundle(supabase, userId);
     if (!bundle) {

@@ -12,6 +12,13 @@ export type InboundScanContribution = {
   scanErrors?: { kind: InboundScanErrorKind; message: string }[];
 };
 
+export type AiToolCredential =
+  | "none"
+  | "imap_smtp"
+  | "odoo"
+  | "google_calendar"
+  | "storage_upload";
+
 /**
  * Pluggable AI tool: implement collectInbound only; registry wires scan & governance UI.
  */
@@ -20,6 +27,12 @@ export type AIToolModule = {
   displayNameAr: string;
   displayNameEn: string;
   descriptionAr: string;
+  /** English blurb for unified LLM / docs */
+  descriptionEn?: string;
+  /** Credentials required for full functionality */
+  requiredCredentials?: AiToolCredential[];
+  /** Logical operations exposed by this module (documentation / planning). */
+  functions?: string[];
   /** Pulls data for inbound LLM scan (no UI). */
   collectInbound: (
     supabase: SupabaseClient,

@@ -11,6 +11,9 @@ export const emailAiTool: AIToolModule = {
   displayNameAr: "البريد الإلكتروني",
   displayNameEn: "Email",
   descriptionAr: "IMAP / SMTP",
+  descriptionEn: "Read inbox summaries and send SMTP replies after approval.",
+  requiredCredentials: ["imap_smtp"],
+  functions: ["fetchUnread", "sendReply", "readThread"],
   async collectInbound(supabase: SupabaseClient, userId: string) {
     const bundle = await loadEmailCredentialBundle(supabase, userId);
     if (!bundle) {

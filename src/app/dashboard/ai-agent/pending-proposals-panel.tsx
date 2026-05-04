@@ -6,12 +6,15 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import {
+  advanceExecutionPlanStepAction,
+  approveExecutionPlanAction,
   confirmProposalExecutionAction,
   rejectProposalAsync,
 } from "@/app/dashboard/ai-agent/actions";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -50,6 +53,34 @@ function actionType(pa: unknown): string {
   return "";
 }
 
+function readPlanPhase(detail: unknown): "plan_review" | "running" | "completed" | undefined {
+  if (!isRecord(detail)) return undefined;
+  const p = detail.phase;
+  if (p === "plan_review" || p === "running" || p === "completed") return p;
+  return undefined;
+}
+
+function readExecutionSteps(pa: unknown): {
+  tool: string;
+  description: string;
+  requiresApproval: boolean;
+}[] {
+  if (!isRecord(pa) || pa.type !== "execution_plan" || !Array.isArray(pa.steps)) return [];
+  const out: { tool: string; description: string; requiresApproval: boolean }[] = [];
+  for (const s of pa.steps) {
+    if (!isRecord(s)) continue;
+    const tool = typeof s.tool === "string" ? s.tool : "";
+    const description = typeof s.description === "string" ? s.description : "";
+    if (!tool) continue;
+    out.push({
+      tool,
+      description,
+      requiresApproval: Boolean(s.requiresApproval),
+    });
+  }
+  return out;
+}
+
 function readOdooPreview(detail: unknown): {
   taskName: string;
   currentStageName: string;
@@ -77,6 +108,8 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [confirming, startConfirm] = useTransition();
+  const [planInclude, setPlanInclude] = useState<boolean[]>([]);
+  const [planBusy, startPlan] = useTransition();
 
   const sorted = useMemo(
     () => [...proposals].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
@@ -94,6 +127,11 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
     } else {
       setEmailSubject("");
       setEmailBody("");
+    }
+    if (kind === "execution_plan" && isRecord(pa) && Array.isArray(pa.steps)) {
+      setPlanInclude((pa.steps as unknown[]).map(() => true));
+    } else {
+      setPlanInclude([]);
     }
   }
 
@@ -126,6 +164,39 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
     });
   }
 
+  function confirmExecutionPlan() {
+    if (!selected) return;
+    const steps = readExecutionSteps(selected.proposed_action);
+    const skipped = steps.map((_, i) => i).filter((i) => !planInclude[i]);
+    startPlan(async () => {
+      const res = await approveExecutionPlanAction({
+        proposalId: selected.id,
+        skippedStepIndexes: skipped,
+      });
+      if (res.ok) {
+        toast.success(res.message);
+        closeDialog();
+      } else {
+        toast.error(res.error);
+      }
+      router.refresh();
+    });
+  }
+
+  function runNextPlanStep() {
+    if (!selected) return;
+    startPlan(async () => {
+      const res = await advanceExecutionPlanStepAction(selected.id);
+      if (res.ok) {
+        toast.success(res.message.slice(0, 160));
+        if (res.done) closeDialog();
+      } else {
+        toast.error(res.error);
+      }
+      router.refresh();
+    });
+  }
+
   async function reject(id: string) {
     setRejectingId(id);
     const res = await rejectProposalAsync(id);
@@ -140,6 +211,16 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
 
   const dialogAction = selected ? actionType(selected.proposed_action) : "";
   const odooPreview = selected ? readOdooPreview(selected.detail_json) : null;
+  const planSteps = selected ? readExecutionSteps(selected.proposed_action) : [];
+  const planPhase = selected ? readPlanPhase(selected.detail_json) : undefined;
+  const stepLogLen =
+    selected && isRecord(selected.detail_json) && Array.isArray(selected.detail_json.stepLog)
+      ? (selected.detail_json.stepLog as unknown[]).length
+      : 0;
+  const planProgressPct =
+    planSteps.length > 0
+      ? Math.min(100, Math.round((stepLogLen / planSteps.length) * 100))
+      : 0;
 
   return (
     <>
@@ -180,9 +261,16 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
                   </span>
                 </div>
                 <p className="text-muted-foreground mt-2 text-sm leading-relaxed">{p.summary}</p>
-                <pre className="mt-3 max-h-32 overflow-auto rounded-lg border border-border/80 bg-background/80 p-3 text-[11px] leading-relaxed [direction:ltr]">
-                  {JSON.stringify(p.proposed_action, null, 2)}
-                </pre>
+                {actionType(p.proposed_action) === "execution_plan" ? (
+                  <p className="text-muted-foreground mt-2 text-[11px]">
+                    {readExecutionSteps(p.proposed_action).length}{" "}
+                    {t("aiAgentPending.executionPlanStepCount")}
+                  </p>
+                ) : (
+                  <pre className="mt-3 max-h-32 overflow-auto rounded-lg border border-border/80 bg-background/80 p-3 text-[11px] leading-relaxed [direction:ltr]">
+                    {JSON.stringify(p.proposed_action, null, 2)}
+                  </pre>
+                )}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button type="button" size="sm" onClick={() => openReview(p)}>
                     {t("aiAgentPending.reviewing")}
@@ -298,10 +386,68 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
             </div>
           ) : null}
 
+          {selected && dialogAction === "execution_plan" ? (
+            <div className="grid gap-4">
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                {t("aiAgentPending.executionPlanIntro")}
+              </p>
+              {planPhase === "running" || planPhase === "completed" ? (
+                <div>
+                  <div className="mb-2 flex justify-between text-xs">
+                    <span>{t("aiAgentPending.executionProgress")}</span>
+                    <span>{planProgressPct}%</span>
+                  </div>
+                  <div className="bg-muted h-2 w-full overflow-hidden rounded-full">
+                    <div
+                      className="h-full bg-violet-600 transition-all"
+                      style={{ width: `${planProgressPct}%` }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              <ul className="max-h-56 space-y-2 overflow-auto text-sm">
+                {planSteps.map((step, i) => (
+                  <li key={i} className="border-border/80 bg-muted/20 rounded-md border p-2">
+                    <div className="flex items-start gap-2">
+                      {planPhase === "plan_review" ? (
+                        <Checkbox
+                          checked={planInclude[i] ?? true}
+                          onCheckedChange={(v) => {
+                            setPlanInclude((prev) => {
+                              const next = [...prev];
+                              next[i] = v === true;
+                              return next;
+                            });
+                          }}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground w-6 text-center font-mono text-xs">
+                          {i + 1}
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-[10px] text-violet-700 dark:text-violet-200">
+                          {step.tool}
+                        </p>
+                        <p className="leading-relaxed">{step.description}</p>
+                        {step.requiresApproval ? (
+                          <p className="text-muted-foreground mt-1 text-[10px]">
+                            {t("aiAgentPending.requiresApproval")}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           {selected &&
           dialogAction &&
           dialogAction !== "send_email_reply" &&
-          dialogAction !== "odoo_update_task" ? (
+          dialogAction !== "odoo_update_task" &&
+          dialogAction !== "execution_plan" ? (
             <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm leading-relaxed">
               <p className="font-medium text-amber-900 dark:text-amber-200">{t("proposalReview.summaryTitle")}</p>
               <p className="text-muted-foreground mt-1 text-xs">{selected.summary}</p>
@@ -312,15 +458,48 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
             </div>
           ) : null}
 
-          <DialogFooter className="gap-2 sm:justify-between">
-            <Button type="button" variant="outline" onClick={closeDialog}>
-              {t("proposalReview.cancel")}
-            </Button>
-            <Button type="button" disabled={confirming} onClick={confirmExecution} className="gap-2">
-              {confirming ? <Loader2Icon className="size-4 animate-spin" /> : null}
-              {t("proposalReview.confirmExecute")}
-            </Button>
-          </DialogFooter>
+          {selected && dialogAction === "execution_plan" ? (
+            <DialogFooter className="gap-2 sm:justify-between">
+              <Button type="button" variant="outline" onClick={closeDialog}>
+                {t("proposalReview.cancel")}
+              </Button>
+              {planPhase === "plan_review" ? (
+                <Button
+                  type="button"
+                  disabled={planBusy}
+                  onClick={() => confirmExecutionPlan()}
+                  className="gap-2"
+                >
+                  {planBusy ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                  {t("aiAgentPending.approvePlan")}
+                </Button>
+              ) : planPhase === "running" ? (
+                <Button
+                  type="button"
+                  disabled={planBusy}
+                  onClick={() => runNextPlanStep()}
+                  className="gap-2"
+                >
+                  {planBusy ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                  {t("aiAgentPending.runNextStep")}
+                </Button>
+              ) : (
+                <Button type="button" variant="secondary" onClick={closeDialog}>
+                  {t("aiAgentPending.executionPlanDoneClose")}
+                </Button>
+              )}
+            </DialogFooter>
+          ) : (
+            <DialogFooter className="gap-2 sm:justify-between">
+              <Button type="button" variant="outline" onClick={closeDialog}>
+                {t("proposalReview.cancel")}
+              </Button>
+              <Button type="button" disabled={confirming} onClick={confirmExecution} className="gap-2">
+                {confirming ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                {t("proposalReview.confirmExecute")}
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
     </>

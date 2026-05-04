@@ -1,9 +1,8 @@
 import "server-only";
 
-import OpenAI from "openai";
-
 import type { ProposalKind, ProposedActionPayload } from "@/lib/ai-agent/proposal-types";
 import { coerceKind, normalizeProposedAction } from "@/lib/ai/llm-proposal-normalize";
+import { callLLM } from "@/lib/ai/llm-unified";
 
 export type LlmAnalysisResult = {
   title: string;
@@ -26,48 +25,31 @@ export async function analyzeFreeTextWithLlm(input: {
   text: string;
   tenantId: string | null;
 }): Promise<LlmAnalysisResult> {
-  const key = process.env.OPENAI_API_KEY?.trim();
   const text = input.text.trim();
 
-  if (!key) {
-    return {
-      title: "تحليل بدون نموذج خارجي",
-      summary:
-        text.length > 400
-          ? `${text.slice(0, 400)}…`
-          : text || "لم يُرسل نص للتحليل.",
-      kind: "analysis",
-      proposed_action: { type: "noop" },
-    };
-  }
-
-  const openai = new OpenAI({ apiKey: key });
   const userPayload =
     (input.tenantId
       ? `tenantId للسياق: ${input.tenantId}\n\n`
       : "لا يوجد tenantId في السياق — لا تقترح create_corporate_task إلا إذا كان النص يطلب مهمة بدون شركة محددة (استخدم noop).\n\n") +
     `النص:\n${text}`;
 
-  const completion = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: SYSTEM },
-      { role: "user", content: userPayload },
-    ],
-    temperature: 0.2,
+  const { text: raw } = await callLLM({
+    systemPrompt: SYSTEM,
+    userPrompt: userPayload,
+    jsonMode: true,
+    maxTokens: 2048,
   });
-
-  const raw = completion.choices[0]?.message?.content;
-  if (!raw) {
-    throw new Error("Empty LLM response");
-  }
 
   let parsed: Partial<LlmAnalysisResult>;
   try {
     parsed = JSON.parse(raw) as Partial<LlmAnalysisResult>;
   } catch {
-    throw new Error("LLM returned non-JSON");
+    return {
+      title: "تحليل نصي",
+      summary: raw.length > 500 ? `${raw.slice(0, 500)}…` : raw,
+      kind: "analysis",
+      proposed_action: { type: "noop" },
+    };
   }
 
   const title = typeof parsed.title === "string" ? parsed.title : "مقترح";
@@ -77,7 +59,8 @@ export async function analyzeFreeTextWithLlm(input: {
 
   if (
     proposed_action.type === "send_email_reply" ||
-    proposed_action.type === "odoo_update_task"
+    proposed_action.type === "odoo_update_task" ||
+    proposed_action.type === "execution_plan"
   ) {
     proposed_action = { type: "noop" };
   }

@@ -1,11 +1,10 @@
 import "server-only";
 
-import OpenAI from "openai";
-
 import type { OdooTaskRecord } from "@/lib/integrations/odoo-xmlrpc";
 import type { InboundEmailSummary } from "@/lib/integrations/email-client";
 import type { LlmAnalysisResult } from "@/lib/ai/llm-analyze";
 import { coerceKind, normalizeProposedAction } from "@/lib/ai/llm-proposal-normalize";
+import { callLLM } from "@/lib/ai/llm-unified";
 
 const INBOUND_SYSTEM = `أنت مساعد داخل نظام ERP مهام بالعربية.
 ستستلم JSON يصف مهام Odoo المفتوحة ورسائل بريد غير مقروءة.
@@ -78,11 +77,6 @@ export async function analyzeInboundSourcesWithLlm(input: {
   odooTaskIds: number[];
   replyEmailsAllowed: string[];
 }): Promise<LlmAnalysisResult[]> {
-  const key = process.env.OPENAI_API_KEY?.trim();
-  if (!key) {
-    return [];
-  }
-
   const messageIdByEmail = new Map<string, string>();
   for (const e of input.emails) {
     const k = e.replyTo.trim().toLowerCase();
@@ -125,23 +119,13 @@ export async function analyzeInboundSourcesWithLlm(input: {
     replyEmailsAllowed: input.replyEmailsAllowed,
   };
 
-  const openai = new OpenAI({ apiKey: key });
-  const completion = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: INBOUND_SYSTEM },
-      {
-        role: "user",
-        content: `السياق:\n${JSON.stringify(payload, null, 2)}`,
-      },
-    ],
-    temperature: 0.15,
-    max_tokens: 4096,
+  const { text: raw } = await callLLM({
+    systemPrompt: INBOUND_SYSTEM,
+    userPrompt: `السياق:\n${JSON.stringify(payload, null, 2)}`,
+    jsonMode: true,
+    maxTokens: 4096,
   });
-
-  const raw = completion.choices[0]?.message?.content;
-  if (!raw) return [];
+  if (!raw.trim()) return [];
 
   let parsed: unknown;
   try {
