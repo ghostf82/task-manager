@@ -313,7 +313,8 @@ export function ChatClient({
         while ((idx = carry.indexOf("\n\n")) !== -1) {
           const block = carry.slice(0, idx);
           carry = carry.slice(idx + 2);
-          if (!block.startsWith("data: ")) continue;
+          if (!block.startsWith("data:")) continue;
+          const jsonPayload = block.slice(5).replace(/^\s/, "");
           let parsed: {
             type?: string;
             text?: string;
@@ -324,7 +325,7 @@ export function ChatClient({
             };
           };
           try {
-            parsed = JSON.parse(block.slice(6)) as typeof parsed;
+            parsed = JSON.parse(jsonPayload) as typeof parsed;
           } catch {
             continue;
           }
