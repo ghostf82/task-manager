@@ -132,10 +132,12 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
             </CardTitle>
             <CardDescription>
               {nextLabel.title} —{" "}
-              {new Date(nextLabel.remind_at).toLocaleString(dateLocale, {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}{" "}
+              <span suppressHydrationWarning>
+                {new Date(nextLabel.remind_at).toLocaleString(dateLocale, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </span>{" "}
               ({t(recurrenceKey(nextLabel.recurrence))})
             </CardDescription>
           </CardHeader>
@@ -159,10 +161,12 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
                 <div className="min-w-0 space-y-1">
                   <CardTitle className="truncate text-base">{r.title}</CardTitle>
                   <CardDescription>
-                    {new Date(r.remind_at).toLocaleString(dateLocale, {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}{" "}
+                    <span suppressHydrationWarning>
+                      {new Date(r.remind_at).toLocaleString(dateLocale, {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </span>{" "}
                     · {t(recurrenceKey(r.recurrence))}
                   </CardDescription>
                 </div>

@@ -253,7 +253,10 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
                     </p>
                     <h3 className="mt-0.5 font-semibold leading-snug">{p.title}</h3>
                   </div>
-                  <span className="text-muted-foreground shrink-0 text-[11px]">
+                  <span
+                    className="text-muted-foreground shrink-0 text-[11px]"
+                    suppressHydrationWarning
+                  >
                     {new Date(p.created_at).toLocaleString(dateLocale, {
                       dateStyle: "short",
                       timeStyle: "short",

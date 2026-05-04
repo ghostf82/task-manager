@@ -306,10 +306,9 @@ export function ChatClient({
       }
       const decoder = new TextDecoder();
       let carry = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        carry += decoder.decode(value, { stream: true });
+
+      const drainSse = () => {
+        carry = carry.replace(/\r\n/g, "\n");
         let idx: number;
         while ((idx = carry.indexOf("\n\n")) !== -1) {
           const block = carry.slice(0, idx);
@@ -343,21 +342,33 @@ export function ChatClient({
           }
           if (parsed.type === "done") {
             setStreamingText("");
-            await loadAiMessages();
           }
         }
-      }
-      if (carry.startsWith("data: ")) {
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (value) {
+            carry += decoder.decode(value, { stream: !done });
+          }
+          if (done) {
+            carry += decoder.decode();
+            drainSse();
+            break;
+          }
+          drainSse();
+        }
+      } finally {
         try {
-          const parsed = JSON.parse(carry.slice(6)) as { type?: string };
-          if (parsed.type === "done") {
-            setStreamingText("");
-            await loadAiMessages();
-          }
+          reader.releaseLock();
         } catch {
-          /* ignore */
+          /* stream may already be closed */
         }
       }
+
+      drainSse();
+      await loadAiMessages();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("chatClient.toastRequestFail"));
     } finally {
@@ -611,10 +622,12 @@ export function ChatClient({
                         >
                           <p className="text-[10px] opacity-80">
                             {mine ? t("chatClient.labelYou") : t("chatClient.aiAssistant")} ·{" "}
-                            {new Date(m.created_at).toLocaleTimeString(dateLocale, {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            <span suppressHydrationWarning>
+                              {new Date(m.created_at).toLocaleTimeString(dateLocale, {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </span>
                           </p>
                           <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
                         </div>
@@ -670,10 +683,12 @@ export function ChatClient({
                     >
                       <p className="text-[10px] opacity-80">
                         {nameById.get(m.user_id) ?? "—"} ·{" "}
-                        {new Date(m.created_at).toLocaleTimeString(dateLocale, {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        <span suppressHydrationWarning>
+                          {new Date(m.created_at).toLocaleTimeString(dateLocale, {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
                       </p>
                       <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
                     </div>

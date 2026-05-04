@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 
+import { DashboardToasterHost } from "@/components/dashboard/dashboard-toaster-host";
 import { DashboardI18nProvider } from "@/contexts/dashboard-i18n";
 import { createClient } from "@/lib/supabase/server";
 import { AppFooter } from "@/components/dashboard/app-footer";
@@ -11,10 +12,9 @@ import {
 } from "@/components/dashboard/app-sidebar";
 import { DashboardPageSkeleton } from "@/components/dashboard/dashboard-page-skeleton";
 import { NotificationsMenu } from "@/components/dashboard/notifications-menu";
-import { Toaster } from "@/components/ui/sonner";
 import { requireSession } from "@/lib/dashboard-auth";
 import { DASHBOARD_NAV_LINKS } from "@/lib/i18n/nav-config";
-import { getCatalog, getTranslator } from "@/lib/i18n/get-translator";
+import { getTranslator } from "@/lib/i18n/get-translator";
 
 export default async function DashboardLayout({
   children,
@@ -23,23 +23,30 @@ export default async function DashboardLayout({
 }) {
   const session = await requireSession();
   const supabase = await createClient();
-  const { t, locale } = await getTranslator();
-  const catalog = getCatalog(locale);
-
-  const { data: profile } = await supabase
-    .from("users")
-    .select("full_name, email, avatar_url")
-    .eq("id", session.id)
-    .single();
-
-  const { data: membership } = await supabase
-    .from("tenant_memberships")
-    .select("job_title, tenants(name)")
-    .eq("user_id", session.id)
-    .eq("status", "active")
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  const [{ t, locale, catalog }, profileRes, membershipRes, notifsRes] = await Promise.all([
+    getTranslator(),
+    supabase
+      .from("users")
+      .select("full_name, email, avatar_url")
+      .eq("id", session.id)
+      .single(),
+    supabase
+      .from("tenant_memberships")
+      .select("job_title, tenants(name)")
+      .eq("user_id", session.id)
+      .eq("status", "active")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("notifications")
+      .select("id,title,body,created_at,read_at")
+      .order("created_at", { ascending: false })
+      .limit(12),
+  ]);
+  const profile = profileRes.data;
+  const membership = membershipRes.data;
+  const notifs = notifsRes.data;
 
   const rawT = membership?.tenants;
   const tenantName =
@@ -52,12 +59,6 @@ export default async function DashboardLayout({
           ? String((rawT as { name: string }).name)
           : null
       : null;
-
-  const { data: notifs } = await supabase
-    .from("notifications")
-    .select("id,title,body,created_at,read_at")
-    .order("created_at", { ascending: false })
-    .limit(12);
 
   const shell: DashboardShellClientProps = {
     isSuperAdmin: session.isSuperAdmin,
@@ -99,6 +100,7 @@ export default async function DashboardLayout({
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <MobileDashboardNav {...shell} />
               <Link
+                prefetch={false}
                 href="/dashboard"
                 className="truncate text-sm font-semibold tracking-tight"
               >
@@ -116,7 +118,7 @@ export default async function DashboardLayout({
         </div>
       </div>
       <AppFooter tagline={t("footer.tagline")} />
-      <Toaster richColors position="top-center" />
+      <DashboardToasterHost />
     </div>
     </DashboardI18nProvider>
   );

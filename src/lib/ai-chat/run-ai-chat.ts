@@ -395,6 +395,8 @@ function streamAssistantResponse(
     headers: {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
+      /** Hint reverse proxies (e.g. nginx) not to buffer SSE; harmless if ignored. */
+      "X-Accel-Buffering": "no",
     },
   });
 }

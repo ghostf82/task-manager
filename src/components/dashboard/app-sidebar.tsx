@@ -94,6 +94,7 @@ function NavLinks({
         return (
           <Link
             key={item.href}
+            prefetch={false}
             href={item.href}
             onClick={onPick}
             className={cn(

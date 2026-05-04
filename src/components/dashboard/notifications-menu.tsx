@@ -134,7 +134,10 @@ export function NotificationsMenu({
                     {n.body}
                   </p>
                 ) : null}
-                <span className="text-muted-foreground text-[10px]">
+                <span
+                  className="text-muted-foreground text-[10px]"
+                  suppressHydrationWarning
+                >
                   {new Date(n.created_at).toLocaleString(dateLocale, {
                     dateStyle: "short",
                     timeStyle: "short",
