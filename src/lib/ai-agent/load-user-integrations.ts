@@ -8,7 +8,8 @@ import { sanitizeOdooBaseUrl } from "@/lib/integrations/odoo-xmlrpc";
 
 const ODOO_SETTINGS_HINT =
   "تحقق من ربط Odoo في صفحة الإعدادات > التكاملات (/dashboard/settings/integrations).";
-const ODOO_BROWSER_MODE_DB = "__browser_session__";
+export const ODOO_BROWSER_MODE_DB = "__browser_session__";
+type OdooConnectionMode = "none" | "api" | "browser_session";
 
 function normalizeBaseUrl(url: string): string {
   const v = sanitizeOdooBaseUrl(url.trim());
@@ -42,6 +43,25 @@ export async function loadOdooCredentialBundle(
     username,
     passwordEncrypted,
   };
+}
+
+export async function loadOdooConnectionState(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<{ mode: OdooConnectionMode; baseUrl: string }> {
+  const { data } = await supabase
+    .from("user_odoo_credentials")
+    .select("base_url, database_name")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!data) return { mode: "none", baseUrl: "" };
+  const baseUrl = normalizeBaseUrl(String(data.base_url ?? ""));
+  const databaseName = String(data.database_name ?? "").trim();
+  if (!baseUrl) return { mode: "none", baseUrl: "" };
+  if (databaseName === ODOO_BROWSER_MODE_DB) {
+    return { mode: "browser_session", baseUrl };
+  }
+  return { mode: "api", baseUrl };
 }
 
 export function odooCredentialsMissingMessage(): string {

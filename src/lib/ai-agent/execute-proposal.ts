@@ -6,6 +6,7 @@ import { appendAgentActivity } from "@/lib/ai-agent/activity-log";
 import { appendConversationMemory } from "@/lib/ai-agent/conversation-memory";
 import {
   loadEmailCredentialBundle,
+  loadOdooConnectionState,
   loadOdooCredentialBundle,
   odooCredentialsMissingMessage,
 } from "@/lib/ai-agent/load-user-integrations";
@@ -228,6 +229,26 @@ export async function executeApprovedProposal(
     case "odoo_update_task": {
       const bundle = await loadOdooCredentialBundle(supabase, opts.userId);
       if (!bundle) {
+        const odooState = await loadOdooConnectionState(supabase, opts.userId);
+        if (odooState.mode === "browser_session") {
+          const openUrl = `${odooState.baseUrl.replace(/\/+$/g, "")}/odoo`;
+          await appendAgentActivity(supabase, {
+            userId: opts.userId,
+            proposalId: opts.proposalId,
+            eventType: "executed",
+            message: `تم تجهيز إجراء Odoo عبر Browser Session: مهمة #${action.taskId} إلى المرحلة ${action.stageId}.`,
+            meta: { mode: "browser_session", taskId: action.taskId, stageId: action.stageId, openUrl },
+          });
+          await postExecutionAssistantNote(
+            supabase,
+            opts.userId,
+            `تم تجهيز إجراء التحديث لحسابك عبر **Browser Session Mode** بدون الحاجة إلى اسم قاعدة البيانات.\n` +
+              `الخطوة التالية السريعة: افتح Odoo من هذا الرابط ${openUrl} ثم نفّذ تحديث المهمة #${action.taskId} إلى المرحلة ${action.stageId}.\n` +
+              `إذا رغبت، أقدر أجهز لك الآن خطوات تنفيذ مختصرة دقيقة حسب شاشة Odoo الحالية.`,
+            { proposal_id: opts.proposalId, action: "odoo_update_task", mode: "browser_session" }
+          );
+          return { ok: true };
+        }
         return { ok: false, error: odooCredentialsMissingMessage() };
       }
       if (detail.odooTaskIds.length && !detail.odooTaskIds.includes(action.taskId)) {

@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { loadOdooCredentialBundle } from "@/lib/ai-agent/load-user-integrations";
+import { loadOdooConnectionState, loadOdooCredentialBundle } from "@/lib/ai-agent/load-user-integrations";
 import { fetchOdooOpenTasksForUser } from "@/lib/integrations/odoo-client";
 import type { AIToolModule } from "@/lib/ai-tools/types";
 
@@ -15,6 +15,19 @@ export const odooAiTool: AIToolModule = {
   requiredCredentials: ["odoo"],
   functions: ["fetchOpenTasks", "updateTaskStage"],
   async collectInbound(supabase: SupabaseClient, userId: string) {
+    const connection = await loadOdooConnectionState(supabase, userId);
+    if (connection.mode === "browser_session") {
+      return {
+        tasks: [],
+        scanErrors: [
+          {
+            kind: "scan_odoo_error" as const,
+            message:
+              "Odoo يعمل حالياً بوضع Browser Session لهذا الحساب. القراءة التلقائية عبر API متوقفة، لكن إدارة الحساب متاحة عبر جلسة المتصفح.",
+          },
+        ],
+      };
+    }
     const bundle = await loadOdooCredentialBundle(supabase, userId);
     if (!bundle) {
       return {};
