@@ -35,6 +35,30 @@ const TASK_FIELDS = [
   "description",
 ] as const;
 
+function readSetCookies(res: Response): string[] {
+  const h = res.headers as Headers & { getSetCookie?: () => string[] };
+  if (typeof h.getSetCookie === "function") return h.getSetCookie();
+  const raw = res.headers.get("set-cookie");
+  return raw ? [raw] : [];
+}
+
+function mergeCookieHeaders(...cookieGroups: string[][]): string {
+  const pairs = new Map<string, string>();
+  for (const group of cookieGroups) {
+    for (const c of group) {
+      const kv = c.split(";")[0]?.trim();
+      if (!kv) continue;
+      const eq = kv.indexOf("=");
+      if (eq <= 0) continue;
+      const k = kv.slice(0, eq).trim();
+      const v = kv.slice(eq + 1).trim();
+      if (!k) continue;
+      pairs.set(k, v);
+    }
+  }
+  return [...pairs.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+}
+
 function resolveDatabase(bundle: OdooCredentialBundle): string {
   return bundle.databaseName?.trim() ?? "";
 }
@@ -558,6 +582,128 @@ export async function fetchOdooOpenTasksForUser(
       user_ids: Array.isArray(r.user_ids) ? r.user_ids.map(Number) : [],
     }));
 
+    return { tasks };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { tasks: [], error: humanizeOdooError(msg) };
+  }
+}
+
+export async function fetchOdooOpenTasksViaWebLogin(
+  bundle: OdooCredentialBundle
+): Promise<{ tasks: OdooTaskRecord[]; error?: string }> {
+  try {
+    const baseUrl = sanitizeOdooBaseUrl(bundle.baseUrl);
+    const login = bundle.username.trim();
+    const password = decryptCredentialSecret(bundle.passwordEncrypted);
+
+    const loginPage = await withTimeout(
+      fetch(`${baseUrl}/web/login`, { method: "GET", cache: "no-store" }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_web_login_page"
+    );
+    const loginHtml = await loginPage.text();
+    const csrfToken =
+      loginHtml.match(/name=["']csrf_token["'][^>]*value=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
+    const dbFromPage =
+      loginHtml.match(/name=["']db["'][^>]*value=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
+
+    const body = new URLSearchParams();
+    body.set("login", login);
+    body.set("password", password);
+    if (csrfToken) body.set("csrf_token", csrfToken);
+    if (dbFromPage) body.set("db", dbFromPage);
+
+    const pageCookies = readSetCookies(loginPage);
+    const authRes = await withTimeout(
+      fetch(`${baseUrl}/web/login`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          cookie: mergeCookieHeaders(pageCookies),
+        },
+        body: body.toString(),
+        redirect: "manual",
+        cache: "no-store",
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_web_login_submit"
+    );
+    const authCookies = readSetCookies(authRes);
+    const cookieHeader = mergeCookieHeaders(pageCookies, authCookies);
+    if (!cookieHeader.includes("session_id=")) {
+      return {
+        tasks: [],
+        error:
+          "تعذر إنشاء جلسة Odoo عبر المتصفح. تحقق من اسم المستخدم/كلمة المرور أو أعد الحفظ من صفحة الربط.",
+      };
+    }
+
+    const sessionInfoRes = await withTimeout(
+      fetch(`${baseUrl}/web/session/get_session_info`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-requested-with": "XMLHttpRequest",
+          cookie: cookieHeader,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "call", params: {}, id: Date.now() }),
+        cache: "no-store",
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_web_session_info"
+    );
+    const sessionInfoRaw = await sessionInfoRes.text();
+    const sessionInfo = sessionInfoRaw ? (JSON.parse(sessionInfoRaw) as Record<string, unknown>) : {};
+    const resultObj =
+      sessionInfo.result && typeof sessionInfo.result === "object"
+        ? (sessionInfo.result as Record<string, unknown>)
+        : null;
+    const uid = Number(resultObj?.uid ?? 0);
+    if (!uid) {
+      return { tasks: [], error: "جلسة Odoo لا تحتوي على مستخدم فعّال بعد تسجيل الدخول." };
+    }
+
+    const payload = {
+      jsonrpc: "2.0",
+      method: "call",
+      params: {
+        model: TASK_MODEL,
+        method: "search_read",
+        args: [defaultOpenTaskDomain(uid)],
+        kwargs: {
+          fields: [...TASK_FIELDS],
+          limit: 60,
+        },
+      },
+      id: Date.now(),
+    };
+
+    const tasksRes = await withTimeout(
+      fetch(`${baseUrl}/web/dataset/call_kw/${TASK_MODEL}/search_read`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-requested-with": "XMLHttpRequest",
+          cookie: cookieHeader,
+        },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_web_tasks_search_read"
+    );
+    const tasksRaw = await tasksRes.text();
+    const tasksJson = tasksRaw ? (JSON.parse(tasksRaw) as Record<string, unknown>) : {};
+    const result = Array.isArray(tasksJson.result) ? tasksJson.result : [];
+    const tasks = result
+      .filter((x) => x && typeof x === "object")
+      .map((r) => r as OdooTaskRecord)
+      .map((r) => ({
+        ...r,
+        id: Number(r.id),
+        user_ids: Array.isArray(r.user_ids) ? r.user_ids.map(Number) : [],
+      }));
     return { tasks };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

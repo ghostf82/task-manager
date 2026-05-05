@@ -64,6 +64,30 @@ export async function loadOdooConnectionState(
   return { mode: "api", baseUrl };
 }
 
+export async function loadOdooBrowserSessionBundle(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<OdooCredentialBundle | null> {
+  const { data } = await supabase
+    .from("user_odoo_credentials")
+    .select("base_url, database_name, login_username, password_encrypted")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!data) return null;
+  const baseUrl = normalizeBaseUrl(String(data.base_url ?? ""));
+  const databaseName = String(data.database_name ?? "").trim();
+  const username = String(data.login_username ?? "").trim();
+  const passwordEncrypted = String(data.password_encrypted ?? "").trim();
+  if (databaseName !== ODOO_BROWSER_MODE_DB) return null;
+  if (!baseUrl || !username || !passwordEncrypted) return null;
+  return {
+    baseUrl,
+    databaseName,
+    username,
+    passwordEncrypted,
+  };
+}
+
 export function odooCredentialsMissingMessage(): string {
   return `بيانات ربط Odoo غير مكتملة أو غير محفوظة. ${ODOO_SETTINGS_HINT}`;
 }

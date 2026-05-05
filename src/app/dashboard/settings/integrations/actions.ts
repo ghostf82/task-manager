@@ -15,8 +15,6 @@ import { createClient } from "@/lib/supabase/server";
 
 const ODOO_DEBUG_BUILD = "odoo-jsonrpc-debug-v2";
 const ODOO_BROWSER_MODE_DB = "__browser_session__";
-const ODOO_BROWSER_MODE_USER = "__browser_session__";
-const ODOO_BROWSER_MODE_SECRET = "__browser_session__";
 
 function num(v: FormDataEntryValue | null, fallback: number) {
   const n = Number(typeof v === "string" ? v.trim() : "");
@@ -42,7 +40,7 @@ export async function saveOdooCredentialsAction(formData: FormData) {
   const loginUsername = String(formData.get("login_username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
-  if (!baseUrl || (!browserMode && !loginUsername)) {
+  if (!baseUrl || !loginUsername) {
     redirect("/dashboard/settings/integrations?err=odoo_fields");
   }
 
@@ -53,9 +51,7 @@ export async function saveOdooCredentialsAction(formData: FormData) {
     .maybeSingle();
 
   let passwordEncrypted: string;
-  if (browserMode) {
-    passwordEncrypted = encryptCredentialSecret(ODOO_BROWSER_MODE_SECRET);
-  } else if (!password) {
+  if (!password) {
     if (!existing?.password_encrypted) {
       redirect("/dashboard/settings/integrations?err=odoo_password");
     }
@@ -73,7 +69,7 @@ export async function saveOdooCredentialsAction(formData: FormData) {
       user_id: session.id,
       base_url: baseUrl,
       database_name: browserMode ? ODOO_BROWSER_MODE_DB : databaseName || null,
-      login_username: browserMode ? ODOO_BROWSER_MODE_USER : loginUsername,
+      login_username: loginUsername,
       password_encrypted: passwordEncrypted,
     },
     { onConflict: "user_id" }

@@ -176,12 +176,11 @@ export default async function IntegrationsSettingsPage({
                   <Input
                     id="login_username"
                     name="login_username"
-                    required={!isOdooBrowserMode}
+                    required
                     dir="ltr"
                     className="font-mono text-sm"
-                    defaultValue={isOdooBrowserMode ? "" : (odoo?.login_username ?? "")}
+                    defaultValue={odoo?.login_username ?? ""}
                     autoComplete="username"
-                    disabled={isOdooBrowserMode}
                   />
                 </div>
                 <div className="grid gap-2 sm:col-span-2">
@@ -194,11 +193,10 @@ export default async function IntegrationsSettingsPage({
                     className="font-mono text-sm"
                     placeholder={
                       isOdooBrowserMode
-                        ? "غير مطلوب في وضع Browser Session"
+                        ? "يوصى بإدخال كلمة المرور/مفتاح API لتفعيل قراءة المهام عبر الجلسة"
                         : (odoo ? t("integrations.odoo.passwordKeep") : t("integrations.odoo.passwordRequired"))
                     }
                     autoComplete="current-password"
-                    disabled={isOdooBrowserMode}
                   />
                 </div>
               </div>

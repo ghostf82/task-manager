@@ -2,8 +2,12 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { loadOdooConnectionState, loadOdooCredentialBundle } from "@/lib/ai-agent/load-user-integrations";
-import { fetchOdooOpenTasksForUser } from "@/lib/integrations/odoo-client";
+import {
+  loadOdooBrowserSessionBundle,
+  loadOdooConnectionState,
+  loadOdooCredentialBundle,
+} from "@/lib/ai-agent/load-user-integrations";
+import { fetchOdooOpenTasksForUser, fetchOdooOpenTasksViaWebLogin } from "@/lib/integrations/odoo-client";
 import type { AIToolModule } from "@/lib/ai-tools/types";
 
 export const odooAiTool: AIToolModule = {
@@ -17,6 +21,18 @@ export const odooAiTool: AIToolModule = {
   async collectInbound(supabase: SupabaseClient, userId: string) {
     const connection = await loadOdooConnectionState(supabase, userId);
     if (connection.mode === "browser_session") {
+      const browserBundle = await loadOdooBrowserSessionBundle(supabase, userId);
+      if (browserBundle) {
+        const viaSession = await fetchOdooOpenTasksViaWebLogin(browserBundle);
+        const scanErrors =
+          viaSession.error != null && viaSession.error !== ""
+            ? [{ kind: "scan_odoo_error" as const, message: viaSession.error }]
+            : undefined;
+        return {
+          tasks: viaSession.tasks,
+          scanErrors,
+        };
+      }
       return {
         tasks: [],
         scanErrors: [
