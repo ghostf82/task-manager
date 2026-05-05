@@ -8,6 +8,7 @@ import { sanitizeOdooBaseUrl } from "@/lib/integrations/odoo-xmlrpc";
 
 const ODOO_SETTINGS_HINT =
   "تحقق من ربط Odoo في صفحة الإعدادات > التكاملات (/dashboard/settings/integrations).";
+const ODOO_BROWSER_MODE_DB = "__browser_session__";
 
 function normalizeBaseUrl(url: string): string {
   const v = sanitizeOdooBaseUrl(url.trim());
@@ -29,6 +30,9 @@ export async function loadOdooCredentialBundle(
   const databaseName = String(data.database_name ?? "").trim();
   const username = String(data.login_username ?? "").trim();
   const passwordEncrypted = String(data.password_encrypted ?? "").trim();
+  if (databaseName === ODOO_BROWSER_MODE_DB) {
+    return null;
+  }
   if (!baseUrl || !username || !passwordEncrypted) {
     return null;
   }

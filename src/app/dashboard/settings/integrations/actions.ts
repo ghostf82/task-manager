@@ -13,6 +13,11 @@ import { testOdooLoginPlain } from "@/lib/integrations/odoo-client";
 import { sanitizeOdooBaseUrl } from "@/lib/integrations/odoo-xmlrpc";
 import { createClient } from "@/lib/supabase/server";
 
+const ODOO_DEBUG_BUILD = "odoo-jsonrpc-debug-v2";
+const ODOO_BROWSER_MODE_DB = "__browser_session__";
+const ODOO_BROWSER_MODE_USER = "__browser_session__";
+const ODOO_BROWSER_MODE_SECRET = "__browser_session__";
+
 function num(v: FormDataEntryValue | null, fallback: number) {
   const n = Number(typeof v === "string" ? v.trim() : "");
   return Number.isFinite(n) ? n : fallback;
@@ -32,11 +37,12 @@ export async function saveOdooCredentialsAction(formData: FormData) {
   }
 
   const baseUrl = sanitizeOdooBaseUrl(String(formData.get("base_url") ?? "").trim());
+  const browserMode = String(formData.get("connection_mode") ?? "").trim() === "browser_session";
   const databaseName = String(formData.get("database_name") ?? "").trim();
   const loginUsername = String(formData.get("login_username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
-  if (!baseUrl || !loginUsername) {
+  if (!baseUrl || (!browserMode && !loginUsername)) {
     redirect("/dashboard/settings/integrations?err=odoo_fields");
   }
 
@@ -47,7 +53,9 @@ export async function saveOdooCredentialsAction(formData: FormData) {
     .maybeSingle();
 
   let passwordEncrypted: string;
-  if (!password) {
+  if (browserMode) {
+    passwordEncrypted = encryptCredentialSecret(ODOO_BROWSER_MODE_SECRET);
+  } else if (!password) {
     if (!existing?.password_encrypted) {
       redirect("/dashboard/settings/integrations?err=odoo_password");
     }
@@ -64,8 +72,8 @@ export async function saveOdooCredentialsAction(formData: FormData) {
     {
       user_id: session.id,
       base_url: baseUrl,
-      database_name: databaseName || null,
-      login_username: loginUsername,
+      database_name: browserMode ? ODOO_BROWSER_MODE_DB : databaseName || null,
+      login_username: browserMode ? ODOO_BROWSER_MODE_USER : loginUsername,
       password_encrypted: passwordEncrypted,
     },
     { onConflict: "user_id" }
@@ -212,9 +220,21 @@ export async function testOdooConnectionAction(input: {
 }): Promise<ConnectionTestResult> {
   const session = await requireSession();
   const supabase = await createClient();
-  // #region agent log
-  fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H5',location:'integrations/actions.ts:testOdooConnectionAction:start',message:'test odoo connection action invoked',data:{baseUrl:String(input.base_url??'').trim(),databaseName:String(input.database_name??'').trim(),login:String(input.login_username??'').trim(),hasPassword:Boolean(String(input.password??'').trim())},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  console.error("[odoo-debug] action start", {
+    build: ODOO_DEBUG_BUILD,
+    baseUrl: String(input.base_url ?? "").trim(),
+    databaseName: String(input.database_name ?? "").trim(),
+    loginUsername: String(input.login_username ?? "").trim(),
+    hasPassword: Boolean(String(input.password ?? "").trim()),
+  });
+
+  if (String(input.database_name ?? "").trim() === ODOO_BROWSER_MODE_DB) {
+    return {
+      ok: true,
+      message:
+        "Browser Session Mode مفعل: سيتم الاعتماد على جلسة المتصفح بعد تسجيل دخولك في Odoo، وليس على اتصال API مباشر.",
+    };
+  }
 
   if (!(await userHasAiToolLicense(supabase, session.id, "odoo"))) {
     return { ok: false, message: await tAction("integrationsActions.testOdooNoLicense") };
@@ -235,9 +255,6 @@ export async function testOdooConnectionAction(input: {
     }
     try {
       passwordPlain = decryptCredentialSecret(data.password_encrypted);
-      // #region agent log
-      fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H5',location:'integrations/actions.ts:testOdooConnectionAction:passwordFromVault',message:'using encrypted password from vault for test',data:{usedVaultPassword:true},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
     } catch {
       return { ok: false, message: await tAction("integrationsActions.testOdooDecryptFail") };
     }
@@ -249,6 +266,7 @@ export async function testOdooConnectionAction(input: {
     loginUsername: input.login_username.trim(),
     passwordPlain,
   });
+  console.error("[odoo-debug] action result", r);
 
   return r.ok
     ? { ok: true, message: await tAction("integrationsActions.testOdooSuccess") }

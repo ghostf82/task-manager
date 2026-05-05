@@ -60,17 +60,11 @@ function candidateDatabases(baseUrl: string, preferred: string): string[] {
 }
 
 async function discoverDatabaseFromLoginPage(baseUrl: string): Promise<string | null> {
-  // #region agent log
-  fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H1',location:'odoo-client.ts:discoverDatabaseFromLoginPage:start',message:'login page db discovery started',data:{baseUrl},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   try {
     const url = `${baseUrl}/web/login`;
     const res = await fetch(url, { method: "GET", cache: "no-store" });
     if (!res.ok) return null;
     const html = await res.text();
-    // #region agent log
-    fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H1',location:'odoo-client.ts:discoverDatabaseFromLoginPage:response',message:'login page fetched',data:{ok:res.ok,status:res.status,hasHtml:Boolean(html)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (!html) return null;
 
     // Odoo often embeds current db in a hidden login input.
@@ -92,6 +86,143 @@ async function discoverDatabaseFromLoginPage(baseUrl: string): Promise<string | 
   }
 }
 
+async function discoverDatabasesFromWebList(baseUrl: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${baseUrl}/web/database/list`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "call",
+        params: {},
+        id: Date.now(),
+      }),
+    });
+    const raw = await res.text();
+    const payload = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    const result = payload?.result;
+    if (!Array.isArray(result)) return [];
+    return result.map((x) => String(x).trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function jsonRpcCall(baseUrl: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const res = await fetch(`${baseUrl}/jsonrpc`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify(payload),
+  });
+  const raw = await res.text();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error(raw.slice(0, 220));
+  }
+}
+
+async function discoverDatabasesFromJsonRpc(baseUrl: string): Promise<string[]> {
+  try {
+    const payload = await jsonRpcCall(baseUrl, {
+      jsonrpc: "2.0",
+      method: "call",
+      params: {
+        service: "db",
+        method: "list",
+        args: [],
+      },
+      id: Date.now(),
+    });
+    const result = payload.result;
+    if (!Array.isArray(result)) return [];
+    return result.map((x) => String(x).trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+async function authenticateViaJsonRpc(params: {
+  baseUrl: string;
+  login: string;
+  password: string;
+  preferredDatabase: string;
+}): Promise<{ uid: number; database: string }> {
+  const dbCandidates = candidateDatabases(params.baseUrl, params.preferredDatabase);
+  const listed = await discoverDatabasesFromJsonRpc(params.baseUrl);
+  const ordered = [...listed, ...dbCandidates].filter((v, i, arr) => v && arr.indexOf(v) === i);
+  const rpcBaseCandidates = [params.baseUrl, params.baseUrl.replace(/\/odoo$/i, "")].filter(
+    (v, i, arr) => v && arr.indexOf(v) === i
+  );
+  console.error("[odoo-debug] jsonrpc start", {
+    baseUrl: params.baseUrl,
+    login: params.login,
+    preferredDatabase: params.preferredDatabase,
+    rpcBaseCandidates,
+    ordered,
+  });
+  let lastErr = "Unknown Odoo jsonrpc auth error";
+
+  for (const rpcBase of rpcBaseCandidates) {
+    for (const db of ordered) {
+      try {
+        const payload = await jsonRpcCall(rpcBase, {
+          jsonrpc: "2.0",
+          method: "call",
+          params: {
+            service: "common",
+            method: "login",
+            args: [db, params.login, params.password],
+          },
+          id: Date.now(),
+        });
+        const uid = Number(payload.result ?? 0);
+        console.error("[odoo-debug] jsonrpc response", {
+          rpcBase,
+          db,
+          hasResult: "result" in payload,
+          resultType: typeof payload.result,
+          hasError: "error" in payload,
+        });
+        if (uid > 0) {
+          return { uid, database: db };
+        }
+        const errObj =
+          payload && typeof payload.error === "object" && payload.error
+            ? (payload.error as Record<string, unknown>)
+            : null;
+        const errData =
+          errObj && typeof errObj.data === "object" && errObj.data
+            ? (errObj.data as Record<string, unknown>)
+            : null;
+      console.error("[odoo-debug] jsonrpc parsed-error", {
+        rpcBase,
+        db,
+        errObjectMessage: typeof errObj?.message === "string" ? errObj.message : "",
+        errDataMessage: typeof errData?.message === "string" ? errData.message.slice(0, 160) : "",
+        errDataDebug:
+          typeof errData?.debug === "string" ? errData.debug.slice(0, 160) : "",
+      });
+        lastErr =
+          (typeof errData?.message === "string" && errData.message) ||
+          (typeof errObj?.message === "string" && errObj.message) ||
+          `jsonrpc login failed for db '${db}'`;
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+        console.error("[odoo-debug] jsonrpc exception", {
+          rpcBase,
+          db,
+          error: lastErr.slice(0, 220),
+        });
+      }
+    }
+  }
+  throw new Error(lastErr);
+}
+
 async function authenticateViaWebSession(params: {
   baseUrl: string;
   login: string;
@@ -99,9 +230,12 @@ async function authenticateViaWebSession(params: {
   preferredDatabase: string;
 }): Promise<{ uid: number; database: string }> {
   const dbCandidates = candidateDatabases(params.baseUrl, params.preferredDatabase);
-  // #region agent log
-  fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H2',location:'odoo-client.ts:authenticateViaWebSession:start',message:'web session auth started',data:{baseUrl:params.baseUrl,login:params.login,candidateCount:dbCandidates.length},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  console.error("[odoo-debug] web-session start", {
+    baseUrl: params.baseUrl,
+    login: params.login,
+    preferredDatabase: params.preferredDatabase,
+    candidateCount: dbCandidates.length,
+  });
   // On some Odoo deployments, sending empty db can auto-resolve mono-db.
   const ordered = ["", ...dbCandidates].filter((v, i, arr) => arr.indexOf(v) === i);
   let lastErr = "Unknown Odoo web auth error";
@@ -125,6 +259,11 @@ async function authenticateViaWebSession(params: {
       });
 
       const raw = await res.text();
+      console.error("[odoo-debug] web-session response", {
+        db,
+        status: res.status,
+        rawPreview: raw.slice(0, 200),
+      });
       const payload = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
       const result =
         payload && typeof payload === "object" && payload.result && typeof payload.result === "object"
@@ -139,9 +278,6 @@ async function authenticateViaWebSession(params: {
             : db.trim();
 
       if (uid > 0 && dbName) {
-        // #region agent log
-        fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H2',location:'odoo-client.ts:authenticateViaWebSession:success',message:'web session auth succeeded',data:{db:dbName,uid},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         return { uid, database: dbName };
       }
 
@@ -149,21 +285,31 @@ async function authenticateViaWebSession(params: {
         payload && typeof payload === "object" && payload.error && typeof payload.error === "object"
           ? (payload.error as Record<string, unknown>)
           : null;
+      const errData =
+        typeof errObj?.data === "object" && errObj?.data
+          ? (errObj.data as Record<string, unknown>)
+          : null;
+      const detailedMessage =
+        typeof errData?.message === "string" && errData.message.trim()
+          ? errData.message.trim()
+          : typeof errData?.debug === "string" && errData.debug.trim()
+            ? errData.debug.trim().slice(0, 400)
+            : "";
       const errMsg =
-        typeof errObj?.message === "string"
-          ? errObj.message
-          : typeof errObj?.data === "object" && errObj?.data && "message" in errObj.data
-            ? String((errObj.data as Record<string, unknown>).message ?? "")
-            : `web auth failed (db='${db}')`;
+        detailedMessage ||
+        (typeof errObj?.message === "string" ? errObj.message : `web auth failed (db='${db}')`);
       lastErr = errMsg;
-      // #region agent log
-      fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H2',location:'odoo-client.ts:authenticateViaWebSession:attemptFail',message:'web session attempt failed',data:{db,status:res.status,errorMessage:lastErr.slice(0,180)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+      console.error("[odoo-debug] web-session parsed-error", {
+        db,
+        errObjectMessage: typeof errObj?.message === "string" ? errObj.message : "",
+        detailedMessagePreview: detailedMessage.slice(0, 200),
+      });
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e);
-      // #region agent log
-      fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H2',location:'odoo-client.ts:authenticateViaWebSession:exception',message:'web session exception',data:{db,errorMessage:lastErr.slice(0,180)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+      console.error("[odoo-debug] web-session exception", {
+        db,
+        error: lastErr.slice(0, 200),
+      });
     }
   }
 
@@ -171,9 +317,11 @@ async function authenticateViaWebSession(params: {
 }
 
 function humanizeOdooError(raw: string): string {
+  console.error("[odoo-debug] humanize raw", raw.slice(0, 200));
   const msg = raw.toLowerCase();
   if (
     msg.includes("access denied") ||
+    msg.includes("accesserror") ||
     msg.includes("wrong login/password") ||
     msg.includes("authentication failed") ||
     msg.includes("odoo_auth") ||
@@ -185,13 +333,23 @@ function humanizeOdooError(raw: string): string {
     return "Database Name Error: Please verify the exact Odoo Database Name from your Odoo login screen.";
   }
   if (msg.includes("database") && msg.includes("does not exist")) {
-    return "Database Name Error: Please verify the exact Odoo Database Name from your Odoo login screen.";
+    const m = raw.match(/database\s+"([^"]+)"\s+does not exist/i);
+    const db = m?.[1]?.trim();
+    return db
+      ? `Database Name Error: قاعدة البيانات "${db}" غير موجودة على خادم Odoo. اطلب اسم قاعدة البيانات الصحيح من مسؤول Odoo ثم أدخله حرفياً في الحقل.`
+      : "Database Name Error: Please verify the exact Odoo Database Name from your Odoo login screen.";
+  }
+  if (msg.includes("database not found")) {
+    return "Database Name Error: Odoo رفض اسم قاعدة البيانات. افتح صفحة قاعدة البيانات في Odoo (/web/database/selector أو /web/login) وخذ الاسم الدقيق ثم ضعه في الحقل.";
   }
   if (msg.includes("odoo server error")) {
     return "Odoo Server Error: تعذر تسجيل الدخول من الخادم. إذا كان حساب Odoo Online يستخدم حماية إضافية/2FA فأنشئ API Key من Odoo واستخدمه بدل كلمة المرور.";
   }
   if (msg.includes("<title>") || msg.includes("title tag") || msg.includes("html")) {
-    return "Base URL Error: Use only the root Odoo URL (for example: https://your-domain.odoo.com) without /odoo or /web.";
+    return "Base URL Error: استخدم رابط Odoo الصحيح كما يفتح عندك (قد يكون مع /odoo)، وتجنب فقط إضافة /web في النهاية.";
+  }
+  if (msg.includes("unknown xml-rpc tag 'title'")) {
+    return "Base URL Error: خادم Odoo أعاد صفحة HTML بدل XML-RPC. سنحاول مسار Web Session تلقائياً؛ تأكد أيضاً من Base URL الصحيح.";
   }
   if (msg.includes("timeout")) {
     return `تعذّر الاتصال بـ Odoo خلال المهلة. ${ODOO_SETTINGS_HINT}`;
@@ -206,9 +364,12 @@ async function authenticateWithFallback(params: {
   password: string;
 }): Promise<{ uid: number; database: string }> {
   const attempts = candidateDatabases(params.baseUrl, params.preferredDatabase);
-  // #region agent log
-  fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H3',location:'odoo-client.ts:authenticateWithFallback:start',message:'auth fallback started',data:{baseUrl:params.baseUrl,login:params.login,preferredDb:params.preferredDatabase,initialAttempts:attempts},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  console.error("[odoo-debug] fallback start", {
+    baseUrl: params.baseUrl,
+    login: params.login,
+    preferredDatabase: params.preferredDatabase,
+    attempts,
+  });
   try {
     const loginPageDb = await withTimeout(
       discoverDatabaseFromLoginPage(params.baseUrl),
@@ -220,6 +381,30 @@ async function authenticateWithFallback(params: {
     }
   } catch {
     // Continue with heuristics.
+  }
+  try {
+    const listed = await withTimeout(
+      discoverDatabasesFromWebList(params.baseUrl),
+      Math.min(ODOO_CALL_TIMEOUT_MS, 4_000),
+      "odoo_web_database_list"
+    );
+    for (const db of listed) {
+      if (!attempts.includes(db)) attempts.unshift(db);
+    }
+  } catch {
+    // Some instances disable db listing from web endpoint.
+  }
+  try {
+    const listedJsonRpc = await withTimeout(
+      discoverDatabasesFromJsonRpc(params.baseUrl),
+      Math.min(ODOO_CALL_TIMEOUT_MS, 4_000),
+      "odoo_jsonrpc_database_list"
+    );
+    for (const db of listedJsonRpc) {
+      if (!attempts.includes(db)) attempts.unshift(db);
+    }
+  } catch {
+    // keep going
   }
   try {
     const discovered = await withTimeout(
@@ -234,59 +419,84 @@ async function authenticateWithFallback(params: {
     // DB listing may be disabled on hosted Odoo; continue with heuristic candidates.
   }
   let lastErr = "Unknown Odoo authentication error";
-  let sawDbError = false;
+  const rpcBaseCandidates = [params.baseUrl, params.baseUrl.replace(/\/odoo$/i, "")].filter(
+    (v, i, arr) => v && arr.indexOf(v) === i
+  );
   for (const db of attempts) {
-    try {
-      const uid = await withTimeout(
-        odooAuthenticate({
-          baseUrl: params.baseUrl,
-          database: db,
-          login: params.login,
-          password: params.password,
-        }),
-        ODOO_CALL_TIMEOUT_MS,
-        "odoo_auth"
-      );
-      return { uid, database: db };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      lastErr = msg;
-      const lowered = msg.toLowerCase();
-      if (lowered.includes("database") || lowered.includes("keyerror")) {
-        sawDbError = true;
-      }
-      // Don't keep trying DB candidates when credentials are wrong.
-      const human = humanizeOdooError(msg);
-      if (human.startsWith("Invalid Password")) {
-        // #region agent log
-        fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H3',location:'odoo-client.ts:authenticateWithFallback:invalidPassword',message:'auth failed as invalid password',data:{db,errorMessage:msg.slice(0,180)},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
-        throw new Error(human);
+    for (const rpcBase of rpcBaseCandidates) {
+      try {
+        const uid = await withTimeout(
+          odooAuthenticate({
+            baseUrl: rpcBase,
+            database: db,
+            login: params.login,
+            password: params.password,
+          }),
+          ODOO_CALL_TIMEOUT_MS,
+          "odoo_auth"
+        );
+        return { uid, database: db };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("[odoo-debug] xmlrpc attempt fail", {
+          rpcBase,
+          db,
+          error: msg.slice(0, 200),
+        });
+        lastErr = msg;
+        // Don't keep trying DB candidates when credentials are wrong.
+        const human = humanizeOdooError(msg);
+        if (human.startsWith("Invalid Password")) {
+          throw new Error(human);
+        }
       }
     }
   }
 
-  if (sawDbError) {
-    try {
-      const viaWeb = await withTimeout(
-        authenticateViaWebSession({
-          baseUrl: params.baseUrl,
-          login: params.login,
-          password: params.password,
-          preferredDatabase: params.preferredDatabase,
-        }),
-        ODOO_CALL_TIMEOUT_MS,
-        "odoo_web_auth"
-      );
-      return viaWeb;
-    } catch (e) {
-      lastErr = e instanceof Error ? e.message : String(e);
+  try {
+    const viaJsonRpc = await withTimeout(
+      authenticateViaJsonRpc({
+        baseUrl: params.baseUrl,
+        login: params.login,
+        password: params.password,
+        preferredDatabase: params.preferredDatabase,
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_jsonrpc_auth"
+    );
+    return viaJsonRpc;
+  } catch (e) {
+    lastErr = e instanceof Error ? e.message : String(e);
+    console.error("[odoo-debug] jsonrpc final-error", { error: lastErr.slice(0, 220) });
+    // If JSON-RPC returned a meaningful Odoo-side auth/database error, don't overwrite it
+    // with CSRF-only noise from /web/session/authenticate fallback.
+    const normalized = lastErr.toLowerCase();
+    if (
+      normalized.includes("database") ||
+      normalized.includes("accesserror") ||
+      normalized.includes("wrong login/password") ||
+      normalized.includes("invalid password") ||
+      normalized.includes("odoo server error")
+    ) {
+      throw new Error(lastErr);
     }
   }
-  // #region agent log
-  fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H3',location:'odoo-client.ts:authenticateWithFallback:finalFail',message:'auth fallback failed',data:{sawDbError,lastErr:lastErr.slice(0,220)},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
 
+  try {
+    const viaWeb = await withTimeout(
+      authenticateViaWebSession({
+        baseUrl: params.baseUrl,
+        login: params.login,
+        password: params.password,
+        preferredDatabase: params.preferredDatabase,
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_web_auth"
+    );
+    return viaWeb;
+  } catch (e) {
+    lastErr = e instanceof Error ? e.message : String(e);
+  }
   throw new Error(lastErr);
 }
 
@@ -363,6 +573,12 @@ export async function testOdooLoginPlain(params: {
   passwordPlain: string;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
+    console.error("[odoo-debug] test input", {
+      baseUrl: params.baseUrl,
+      databaseName: params.databaseName,
+      loginUsername: params.loginUsername,
+      hasPassword: Boolean(params.passwordPlain),
+    });
     const baseUrl = sanitizeOdooBaseUrl(params.baseUrl);
     const db = params.databaseName.trim();
     await authenticateWithFallback({
@@ -371,15 +587,9 @@ export async function testOdooLoginPlain(params: {
       login: params.loginUsername.trim(),
       password: params.passwordPlain,
     });
-    // #region agent log
-    fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H4',location:'odoo-client.ts:testOdooLoginPlain:success',message:'test odoo login plain succeeded',data:{baseUrl,login:params.loginUsername.trim()},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    // #region agent log
-    fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H4',location:'odoo-client.ts:testOdooLoginPlain:failure',message:'test odoo login plain failed',data:{rawMessage:msg.slice(0,220),humanized:humanizeOdooError(msg)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     return { ok: false, message: humanizeOdooError(msg) };
   }
 }

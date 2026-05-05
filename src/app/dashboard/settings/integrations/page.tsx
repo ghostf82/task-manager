@@ -11,6 +11,8 @@ import {
   OdooConnectionTestButton,
   PendingSubmitButton,
 } from "@/app/dashboard/settings/integrations/integrations-connection-test";
+import { FormSubmitGuard } from "@/app/dashboard/settings/integrations/form-submit-guard";
+import { OdooBrowserOpenLink } from "@/app/dashboard/settings/integrations/odoo-browser-open-link";
 import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -46,6 +48,7 @@ export default async function IntegrationsSettingsPage({
     .select("base_url, database_name, login_username, updated_at")
     .eq("user_id", session.id)
     .maybeSingle();
+  const isOdooBrowserMode = odoo?.database_name === "__browser_session__";
 
   const { data: email } = await supabase
     .from("user_email_credentials")
@@ -133,6 +136,17 @@ export default async function IntegrationsSettingsPage({
           </CardHeader>
           <CardContent className="space-y-4">
             <form id="integrations-odoo-form" action={saveOdooCredentialsAction} className="grid gap-4">
+              <FormSubmitGuard formId="integrations-odoo-form" />
+              <input
+                type="hidden"
+                name="connection_mode"
+                value={isOdooBrowserMode ? "browser_session" : "api"}
+              />
+              {isOdooBrowserMode ? (
+                <p className="rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-800 dark:text-blue-200">
+                  Browser Session Mode مفعل: الربط يعتمد على جلسة المتصفح بعد تسجيل دخولك في Odoo.
+                </p>
+              ) : null}
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="grid gap-2 sm:col-span-2">
                   <Label htmlFor="base_url">{t("integrations.odoo.baseUrl")}</Label>
@@ -162,11 +176,12 @@ export default async function IntegrationsSettingsPage({
                   <Input
                     id="login_username"
                     name="login_username"
-                    required
+                    required={!isOdooBrowserMode}
                     dir="ltr"
                     className="font-mono text-sm"
-                    defaultValue={odoo?.login_username ?? ""}
+                    defaultValue={isOdooBrowserMode ? "" : (odoo?.login_username ?? "")}
                     autoComplete="username"
+                    disabled={isOdooBrowserMode}
                   />
                 </div>
                 <div className="grid gap-2 sm:col-span-2">
@@ -177,8 +192,13 @@ export default async function IntegrationsSettingsPage({
                     type="password"
                     dir="ltr"
                     className="font-mono text-sm"
-                    placeholder={odoo ? t("integrations.odoo.passwordKeep") : t("integrations.odoo.passwordRequired")}
+                    placeholder={
+                      isOdooBrowserMode
+                        ? "غير مطلوب في وضع Browser Session"
+                        : (odoo ? t("integrations.odoo.passwordKeep") : t("integrations.odoo.passwordRequired"))
+                    }
                     autoComplete="current-password"
+                    disabled={isOdooBrowserMode}
                   />
                 </div>
               </div>
@@ -192,8 +212,22 @@ export default async function IntegrationsSettingsPage({
                   testLabel={t("integrations.testConnection")}
                   formMissingMessage={t("integrations.formMissingOdoo")}
                 />
+                <OdooBrowserOpenLink baseUrl={odoo?.base_url ?? ""} label="فتح Odoo بالمتصفح" />
               </div>
             </form>
+            {!isOdooBrowserMode ? (
+              <form action={saveOdooCredentialsAction} className="pt-1">
+                <input type="hidden" name="base_url" value={odoo?.base_url ?? ""} />
+                <input type="hidden" name="connection_mode" value="browser_session" />
+                <PendingSubmitButton label="تفعيل Browser Session Mode" pendingLabel="جارٍ التفعيل..." variant="outline" />
+              </form>
+            ) : (
+              <form action={saveOdooCredentialsAction} className="pt-1 grid gap-2 sm:grid-cols-[1fr_auto]">
+                <input type="hidden" name="connection_mode" value="api" />
+                <Input name="base_url" dir="ltr" className="font-mono text-sm" defaultValue={odoo?.base_url ?? ""} />
+                <PendingSubmitButton label="الرجوع إلى API Mode" pendingLabel="جارٍ التفعيل..." variant="outline" />
+              </form>
+            )}
             {odoo ? (
               <form action={deleteOdooCredentialsAction}>
                 <div className="inline-flex">
@@ -228,6 +262,7 @@ export default async function IntegrationsSettingsPage({
           </CardHeader>
           <CardContent className="space-y-6">
             <form id="integrations-email-form" action={saveEmailCredentialsAction} className="grid gap-6">
+              <FormSubmitGuard formId="integrations-email-form" />
               <div className="rounded-lg border border-border/80 bg-muted/20 p-4">
                 <p className="mb-3 text-xs font-medium text-muted-foreground">
                   {t("integrations.email.imapBlock")}

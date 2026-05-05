@@ -16,7 +16,11 @@ export type OdooTaskRecord = {
 export function sanitizeOdooBaseUrl(raw: string): string {
   let t = raw.trim();
   t = t.replace(/\/+$/g, "");
-  t = t.replace(/\/(?:odoo|web)$/i, "");
+  // Keep /odoo if the instance is hosted under that path.
+  // Only strip trailing /web helper path.
+  t = t.replace(/\/web$/i, "");
+  // Collapse repeated "/odoo" suffixes (e.g. /odoo/odoo -> /odoo).
+  t = t.replace(/(?:\/odoo)+$/i, "/odoo");
   return t;
 }
 
