@@ -86,6 +86,72 @@ async function discoverDatabaseFromLoginPage(baseUrl: string): Promise<string | 
   }
 }
 
+async function authenticateViaWebSession(params: {
+  baseUrl: string;
+  login: string;
+  password: string;
+  preferredDatabase: string;
+}): Promise<{ uid: number; database: string }> {
+  const dbCandidates = candidateDatabases(params.baseUrl, params.preferredDatabase);
+  // On some Odoo deployments, sending empty db can auto-resolve mono-db.
+  const ordered = ["", ...dbCandidates].filter((v, i, arr) => arr.indexOf(v) === i);
+  let lastErr = "Unknown Odoo web auth error";
+
+  for (const db of ordered) {
+    try {
+      const res = await fetch(`${params.baseUrl}/web/session/authenticate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "call",
+          params: {
+            db,
+            login: params.login,
+            password: params.password,
+          },
+          id: Date.now(),
+        }),
+      });
+
+      const raw = await res.text();
+      const payload = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      const result =
+        payload && typeof payload === "object" && payload.result && typeof payload.result === "object"
+          ? (payload.result as Record<string, unknown>)
+          : null;
+      const uid = Number(result?.uid ?? 0);
+      const dbName =
+        typeof result?.db === "string" && result.db.trim()
+          ? result.db.trim()
+          : typeof result?.db_name === "string" && result.db_name.trim()
+            ? result.db_name.trim()
+            : db.trim();
+
+      if (uid > 0 && dbName) {
+        return { uid, database: dbName };
+      }
+
+      const errObj =
+        payload && typeof payload === "object" && payload.error && typeof payload.error === "object"
+          ? (payload.error as Record<string, unknown>)
+          : null;
+      const errMsg =
+        typeof errObj?.message === "string"
+          ? errObj.message
+          : typeof errObj?.data === "object" && errObj?.data && "message" in errObj.data
+            ? String((errObj.data as Record<string, unknown>).message ?? "")
+            : `web auth failed (db='${db}')`;
+      lastErr = errMsg;
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  throw new Error(lastErr);
+}
+
 function humanizeOdooError(raw: string): string {
   const msg = raw.toLowerCase();
   if (
@@ -144,6 +210,7 @@ async function authenticateWithFallback(params: {
     // DB listing may be disabled on hosted Odoo; continue with heuristic candidates.
   }
   let lastErr = "Unknown Odoo authentication error";
+  let sawDbError = false;
   for (const db of attempts) {
     try {
       const uid = await withTimeout(
@@ -160,6 +227,10 @@ async function authenticateWithFallback(params: {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       lastErr = msg;
+      const lowered = msg.toLowerCase();
+      if (lowered.includes("database") || lowered.includes("keyerror")) {
+        sawDbError = true;
+      }
       // Don't keep trying DB candidates when credentials are wrong.
       const human = humanizeOdooError(msg);
       if (human.startsWith("Invalid Password")) {
@@ -167,6 +238,25 @@ async function authenticateWithFallback(params: {
       }
     }
   }
+
+  if (sawDbError) {
+    try {
+      const viaWeb = await withTimeout(
+        authenticateViaWebSession({
+          baseUrl: params.baseUrl,
+          login: params.login,
+          password: params.password,
+          preferredDatabase: params.preferredDatabase,
+        }),
+        ODOO_CALL_TIMEOUT_MS,
+        "odoo_web_auth"
+      );
+      return viaWeb;
+    } catch (e) {
+      lastErr = e instanceof Error ? e.message : String(e);
+    }
+  }
+
   throw new Error(lastErr);
 }
 

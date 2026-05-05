@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { Loader2Icon } from "lucide-react";
+import { useFormStatus } from "react-dom";
 import { toast } from "sonner";
 
 import {
@@ -51,6 +52,24 @@ export function OdooConnectionTestButton({
     <Button type="button" variant="outline" disabled={pending} onClick={runTest}>
       {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
       {testLabel}
+    </Button>
+  );
+}
+
+export function PendingSubmitButton({
+  label,
+  pendingLabel,
+  variant = "default",
+}: {
+  label: string;
+  pendingLabel: string;
+  variant?: "default" | "outline" | "ghost";
+}) {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" variant={variant} disabled={pending} aria-busy={pending}>
+      {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
+      {pending ? pendingLabel : label}
     </Button>
   );
 }

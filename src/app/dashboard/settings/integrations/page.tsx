@@ -9,8 +9,9 @@ import {
 import {
   EmailConnectionTestButton,
   OdooConnectionTestButton,
+  PendingSubmitButton,
 } from "@/app/dashboard/settings/integrations/integrations-connection-test";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -182,7 +183,10 @@ export default async function IntegrationsSettingsPage({
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button type="submit">{t("integrations.odoo.save")}</Button>
+                <PendingSubmitButton
+                  label={t("integrations.odoo.save")}
+                  pendingLabel="جارٍ الحفظ..."
+                />
                 <OdooConnectionTestButton
                   formId="integrations-odoo-form"
                   testLabel={t("integrations.testConnection")}
@@ -192,9 +196,13 @@ export default async function IntegrationsSettingsPage({
             </form>
             {odoo ? (
               <form action={deleteOdooCredentialsAction}>
-                <Button type="submit" variant="ghost" className="text-destructive">
-                  {t("integrations.odoo.delete")}
-                </Button>
+                <div className="inline-flex">
+                  <PendingSubmitButton
+                    label={t("integrations.odoo.delete")}
+                    pendingLabel="جارٍ الحذف..."
+                    variant="ghost"
+                  />
+                </div>
               </form>
             ) : null}
           </CardContent>
@@ -353,9 +361,10 @@ export default async function IntegrationsSettingsPage({
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button type="submit" className="w-fit">
-                  {t("integrations.email.save")}
-                </Button>
+                <PendingSubmitButton
+                  label={t("integrations.email.save")}
+                  pendingLabel="Saving..."
+                />
                 <EmailConnectionTestButton
                   formId="integrations-email-form"
                   testLabel={t("integrations.testConnection")}
@@ -365,9 +374,13 @@ export default async function IntegrationsSettingsPage({
             </form>
             {email ? (
               <form action={deleteEmailCredentialsAction}>
-                <Button type="submit" variant="ghost" className="text-destructive">
-                  {t("integrations.email.delete")}
-                </Button>
+                <div className="inline-flex">
+                  <PendingSubmitButton
+                    label={t("integrations.email.delete")}
+                    pendingLabel="Deleting..."
+                    variant="ghost"
+                  />
+                </div>
               </form>
             ) : null}
           </CardContent>
