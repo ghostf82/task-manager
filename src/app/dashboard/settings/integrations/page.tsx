@@ -152,7 +152,7 @@ export default async function IntegrationsSettingsPage({
                     name="database_name"
                     dir="ltr"
                     className="font-mono text-sm"
-                    placeholder="production"
+                    placeholder="production (اختياري)"
                     defaultValue={odoo?.database_name ?? ""}
                   />
                 </div>

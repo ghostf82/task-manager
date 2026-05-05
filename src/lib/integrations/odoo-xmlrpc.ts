@@ -69,6 +69,13 @@ export async function odooAuthenticate(params: {
   return uid;
 }
 
+export async function odooListDatabases(baseUrl: string): Promise<string[]> {
+  const client = createClient(baseUrl, "common");
+  const rows = await methodCall(client, "list", []);
+  if (!Array.isArray(rows)) return [];
+  return rows.map((x) => String(x).trim()).filter(Boolean);
+}
+
 export async function odooSearchRead<T = unknown>(params: {
   baseUrl: string;
   database: string;

@@ -4,6 +4,7 @@ import { decryptCredentialSecret } from "@/lib/crypto/credentials-cipher";
 import {
   defaultOpenTaskDomain,
   odooAuthenticate,
+  odooListDatabases,
   odooReadOne,
   odooSearchRead,
   sanitizeOdooBaseUrl,
@@ -35,13 +36,7 @@ const TASK_FIELDS = [
 ] as const;
 
 function resolveDatabase(bundle: OdooCredentialBundle): string {
-  const db = bundle.databaseName?.trim();
-  if (!db) {
-    throw new Error(
-      "اسم قاعدة بيانات Odoo غير محدد — أدخل قيمة «اسم قاعدة البيانات» في الخزنة."
-    );
-  }
-  return db;
+  return bundle.databaseName?.trim() ?? "";
 }
 
 function candidateDatabases(baseUrl: string, preferred: string): string[] {
@@ -97,6 +92,18 @@ async function authenticateWithFallback(params: {
   password: string;
 }): Promise<{ uid: number; database: string }> {
   const attempts = candidateDatabases(params.baseUrl, params.preferredDatabase);
+  try {
+    const discovered = await withTimeout(
+      odooListDatabases(params.baseUrl),
+      Math.min(ODOO_CALL_TIMEOUT_MS, 4_000),
+      "odoo_db_list"
+    );
+    for (const db of discovered) {
+      if (!attempts.includes(db)) attempts.push(db);
+    }
+  } catch {
+    // DB listing may be disabled on hosted Odoo; continue with heuristic candidates.
+  }
   let lastErr = "Unknown Odoo authentication error";
   for (const db of attempts) {
     try {
@@ -199,13 +206,6 @@ export async function testOdooLoginPlain(params: {
   try {
     const baseUrl = sanitizeOdooBaseUrl(params.baseUrl);
     const db = params.databaseName.trim();
-    if (!db) {
-      return {
-        ok: false,
-        message:
-          "Database Name Error: Please verify the exact Odoo Database Name from your Odoo login screen.",
-      };
-    }
     await authenticateWithFallback({
       baseUrl,
       preferredDatabase: db,

@@ -29,7 +29,7 @@ export async function loadOdooCredentialBundle(
   const databaseName = String(data.database_name ?? "").trim();
   const username = String(data.login_username ?? "").trim();
   const passwordEncrypted = String(data.password_encrypted ?? "").trim();
-  if (!baseUrl || !databaseName || !username || !passwordEncrypted) {
+  if (!baseUrl || !username || !passwordEncrypted) {
     return null;
   }
   return {
