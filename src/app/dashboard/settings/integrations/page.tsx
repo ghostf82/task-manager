@@ -11,7 +11,6 @@ import {
   OdooConnectionTestButton,
   PendingSubmitButton,
 } from "@/app/dashboard/settings/integrations/integrations-connection-test";
-import { FormSubmitGuard } from "@/app/dashboard/settings/integrations/form-submit-guard";
 import { OdooBrowserOpenLink } from "@/app/dashboard/settings/integrations/odoo-browser-open-link";
 import { buttonVariants } from "@/components/ui/button";
 import {
@@ -136,7 +135,6 @@ export default async function IntegrationsSettingsPage({
           </CardHeader>
           <CardContent className="space-y-4">
             <form id="integrations-odoo-form" action={saveOdooCredentialsAction} className="grid gap-4">
-              <FormSubmitGuard formId="integrations-odoo-form" />
               <input
                 type="hidden"
                 name="connection_mode"
@@ -260,7 +258,6 @@ export default async function IntegrationsSettingsPage({
           </CardHeader>
           <CardContent className="space-y-6">
             <form id="integrations-email-form" action={saveEmailCredentialsAction} className="grid gap-6">
-              <FormSubmitGuard formId="integrations-email-form" />
               <div className="rounded-lg border border-border/80 bg-muted/20 p-4">
                 <p className="mb-3 text-xs font-medium text-muted-foreground">
                   {t("integrations.email.imapBlock")}
