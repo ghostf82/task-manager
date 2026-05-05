@@ -143,6 +143,9 @@ export async function executeAiChatTool(
           return { text: "رفض: شركة المستند غير مسموحة للمستخدم." };
         }
       }
+      if (proposed.type === "create_personal_reminder") {
+        // Reminder is always scoped to current user, no tenant check needed.
+      }
 
       const detail_json: Record<string, unknown> = {
         source: "ai_chat",

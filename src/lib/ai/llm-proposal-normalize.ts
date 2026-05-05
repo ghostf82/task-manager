@@ -97,6 +97,22 @@ export function normalizeProposedAction(a: unknown): ProposedActionPayload {
         newExpiry,
       };
     }
+    case "create_personal_reminder": {
+      const title = typeof a.title === "string" ? a.title.trim() : "";
+      const remindAt = typeof a.remindAt === "string" ? a.remindAt.trim() : "";
+      const recurrenceRaw = typeof a.recurrence === "string" ? a.recurrence : "once";
+      const recurrence =
+        recurrenceRaw === "daily" || recurrenceRaw === "weekly" ? recurrenceRaw : "once";
+      if (!title || !remindAt) return { type: "noop" };
+      return {
+        type: "create_personal_reminder",
+        title,
+        remindAt,
+        recurrence,
+        soundEnabled: Boolean(a.soundEnabled ?? true),
+        emailEnabled: Boolean(a.emailEnabled ?? false),
+      };
+    }
     case "execution_plan": {
       const intent = typeof a.intent === "string" ? a.intent : "combined";
       const rawSteps = Array.isArray(a.steps) ? a.steps : [];

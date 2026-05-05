@@ -44,6 +44,14 @@ export type ProposedActionPayload =
       newExpiry: string;
     }
   | {
+      type: "create_personal_reminder";
+      title: string;
+      remindAt: string;
+      recurrence: "once" | "daily" | "weekly";
+      soundEnabled: boolean;
+      emailEnabled: boolean;
+    }
+  | {
       type: "execution_plan";
       intent: string;
       steps: Array<{

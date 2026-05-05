@@ -332,6 +332,34 @@ export async function executeApprovedProposal(
       return { ok: true };
     }
 
+    case "create_personal_reminder": {
+      const { error: remErr } = await supabase.from("personal_reminders").insert({
+        user_id: opts.userId,
+        title: action.title,
+        remind_at: action.remindAt,
+        recurrence: action.recurrence,
+        sound_enabled: action.soundEnabled,
+        email_enabled: action.emailEnabled,
+        is_active: true,
+      });
+      if (remErr) {
+        return { ok: false, error: `تعذّر إنشاء التذكير: ${remErr.message}` };
+      }
+      await appendAgentActivity(supabase, {
+        userId: opts.userId,
+        proposalId: opts.proposalId,
+        eventType: "executed",
+        message: `تم إنشاء تذكير شخصي: ${action.title} عند ${action.remindAt}.`,
+      });
+      await postExecutionAssistantNote(
+        supabase,
+        opts.userId,
+        `تم إنشاء التذكير بنجاح: «${action.title}» في ${action.remindAt}.`,
+        { proposal_id: opts.proposalId, action: "create_personal_reminder" }
+      );
+      return { ok: true };
+    }
+
     default:
       return { ok: false, error: "نوع إجراء غير مدعوم." };
   }

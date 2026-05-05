@@ -10,7 +10,7 @@ export type CallLLMOptions = {
   /** Prefer JSON object responses when the provider supports it */
   jsonMode?: boolean;
   maxTokens?: number;
-  /** fast_text = favor low-latency generation, analysis = favor deeper reasoning first */
+  /** analysis = deeper reasoning, fast_text = concise/quick */
   mode?: "fast_text" | "analysis";
 };
 
@@ -73,7 +73,7 @@ async function geminiGenerate(opts: CallLLMOptions): Promise<string | null> {
   const key = trimHeaderSafeSecret(process.env.GEMINI_API_KEY);
   if (!key) return null;
 
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash";
+  const model = process.env.GEMINI_MODEL?.trim() || "gemini-1.5-pro";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
 
   const body: Record<string, unknown> = {
@@ -84,8 +84,8 @@ async function geminiGenerate(opts: CallLLMOptions): Promise<string | null> {
       },
     ],
     generationConfig: {
-      temperature: 0.25,
-      maxOutputTokens: opts.maxTokens ?? 4096,
+      temperature: 0.7,
+      maxOutputTokens: opts.maxTokens ?? 8192,
       ...(opts.jsonMode ? { responseMimeType: "application/json" } : {}),
     },
   };
@@ -126,8 +126,8 @@ async function groqChat(opts: CallLLMOptions): Promise<string | null> {
     },
     body: JSON.stringify({
       model,
-      temperature: 0.25,
-      max_tokens: opts.maxTokens ?? 4096,
+      temperature: 0.7,
+      max_tokens: opts.maxTokens ?? 8192,
       ...(opts.jsonMode ? { response_format: { type: "json_object" } } : {}),
       messages: [
         { role: "system", content: opts.systemPrompt },
@@ -168,8 +168,8 @@ async function openaiChat(opts: CallLLMOptions): Promise<string | null> {
   const openai = new OpenAI({ apiKey: key });
   const completion = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
-    temperature: 0.25,
-    max_tokens: opts.maxTokens ?? 4096,
+    temperature: 0.7,
+    max_tokens: opts.maxTokens ?? 8192,
     ...(opts.jsonMode ? { response_format: { type: "json_object" as const } } : {}),
     messages: [
       { role: "system", content: opts.systemPrompt },
@@ -182,17 +182,14 @@ async function openaiChat(opts: CallLLMOptions): Promise<string | null> {
 }
 
 /**
- * Multi-provider text completion with smart failover.
- * - fast_text: Groq → Gemini → OpenAI
- * - analysis: Gemini → Groq → OpenAI
- * Any Gemini 429 auto-fails over silently to Groq.
+ * Multi-provider text completion with Gemini-first strategy.
+ * Priority: Gemini → Groq → OpenAI.
+ * Groq/OpenAI are emergency fallbacks if Gemini fails.
  * Used by analysis flows; chat tool-loop may use Groq/OpenAI SDK separately.
  */
 export async function callLLM(opts: CallLLMOptions): Promise<CallLLMResult> {
   const errors: string[] = [];
-  const selectedMode = opts.mode ?? (opts.jsonMode ? "analysis" : "fast_text");
-  const order: Array<"gemini" | "groq" | "openai"> =
-    selectedMode === "analysis" ? ["gemini", "groq", "openai"] : ["groq", "gemini", "openai"];
+  const order: Array<"gemini" | "groq" | "openai"> = ["gemini", "groq", "openai"];
 
   for (const provider of order) {
     try {
@@ -213,7 +210,7 @@ export async function callLLM(opts: CallLLMOptions): Promise<CallLLMResult> {
       errors.push(msg);
       const p = providerFromError(msg);
       const code = codeFromError(msg);
-      // Keep this silent for end users: immediately continue to Groq fallback on Gemini 429.
+      // Keep this silent for end users: immediately continue to emergency fallback.
       if (p === "gemini" && code === 429) continue;
     }
   }

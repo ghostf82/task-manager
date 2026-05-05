@@ -18,8 +18,8 @@ import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
 import { normalizeProposedAction } from "@/lib/ai/llm-proposal-normalize";
 import { trimHeaderSafeSecret } from "@/lib/env/bearer-key";
 
-const MAX_TOOL_ROUNDS = 4;
-const HISTORY_LIMIT = 28;
+const MAX_TOOL_ROUNDS = 6;
+const HISTORY_LIMIT = 40;
 const OPEN_TASK_STATUSES = ["not_started", "in_progress", "on_hold"] as const;
 
 function createChatToolClient(): OpenAI | null {
@@ -69,7 +69,7 @@ function buildSystemPrompt(input: {
       ? input.tenantNames.join("، ")
       : "لا شركات مرتبطة بالحساب";
 
-  return `أنت «الوكيل التنفيذي لشركة المديفر» داخل نظام ERP مهام الشركات بالعربية.
+  return `أنت الوكيل التنفيذي لشركة أبناء صالح المديفر القابضة. أنت لست مجرد برنامج، أنت عقل مفكر ومنفذ. ردودك يجب أن تكون حازمة، ذكية، استباقية، ولبقة جداً.
 تاريخ اليوم (UTC): ${input.todayStr}
 الشركات ضمن نطاق صلاحية المستخدم: ${tenants}
 الأدوات الخارجية المصرّح بها لهذا المستخدم: ${tools}
@@ -236,6 +236,42 @@ function normalizedForMatch(s: string): string {
   return s.toLowerCase().replace(/\s+/g, "").replace(/[^\p{L}\p{N}]/gu, "");
 }
 
+function isTaskCreateIntent(userText: string): boolean {
+  const t = userText.toLowerCase();
+  const hasCreate =
+    t.includes("انش") || t.includes("أنش") || t.includes("سوي") || t.includes("اعمل") || t.includes("create");
+  const hasTask = t.includes("مهم") || t.includes("task");
+  return hasCreate && hasTask;
+}
+
+function extractTaskTitle(userText: string): string | null {
+  const m1 = userText.match(/(?:باسم|اسمها|بعنوان)\s+([^\n،,.]{3,120})/i);
+  if (m1?.[1]) return m1[1].trim();
+  const m2 = userText.match(/مهمة(?:\s+جديدة)?\s+([^\n،,.]{3,120})/i);
+  if (m2?.[1]) return m2[1].trim();
+  return null;
+}
+
+function parseArabicReminderDateTime(userText: string, now: Date): { iso: string; label: string } | null {
+  const hasToday = /اليوم/i.test(userText);
+  const timeMatch = userText.match(/(\d{1,2})\s*[:كk٫.]\s*(\d{1,2})/i);
+  if (!hasToday || !timeMatch) return null;
+  let hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute) || minute < 0 || minute > 59) return null;
+  const lower = userText.toLowerCase();
+  const isPm = /ظهر|ظهرا|pm|مساء|عصر/.test(lower);
+  const isAm = /صباح|am/.test(lower);
+  if (isPm && hour < 12) hour += 12;
+  if (isAm && hour === 12) hour = 0;
+  if (hour < 0 || hour > 23) return null;
+  const when = new Date(now);
+  when.setHours(hour, minute, 0, 0);
+  const hh = String(hour).padStart(2, "0");
+  const mm = String(minute).padStart(2, "0");
+  return { iso: when.toISOString(), label: `${hh}:${mm}` };
+}
+
 const sseEncoder = new TextEncoder();
 
 /** SSE line as strict UTF-8 bytes (never pass raw strings into byte stream controllers). */
@@ -321,6 +357,120 @@ export async function handleAiChatPost(params: {
   }
 
   const todayStr = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const fastTrackTaskCreate = isTaskCreateIntent(text);
+  if (fastTrackTaskCreate) {
+    const title = extractTaskTitle(text);
+    if (!title) {
+      return streamAssistantResponse(
+        params.supabase,
+        params.userId,
+        "فهمت نية إنشاء مهمة، لكن عنوان المهمة غير واضح. اكتبها مثلاً: `أنشئ مهمة باسم مراجعة الجوازات`.",
+        [],
+        [],
+        { source: "chat", fast_track: "task_missing_title" }
+      );
+    }
+    const tenantId = tenantIds[0] ?? null;
+    if (!tenantId) {
+      return streamAssistantResponse(
+        params.supabase,
+        params.userId,
+        "لا أستطيع إنشاء مهمة الآن لأنه لا توجد شركة مرتبطة بصلاحيات حسابك. اربط شركة أولاً ثم أتابع معك فوراً.",
+        [],
+        [],
+        { source: "chat", fast_track: "task_missing_tenant" }
+      );
+    }
+    const dueOn = todayStr;
+    const reminder = parseArabicReminderDateTime(text, now);
+    const taskAction = normalizeProposedAction({
+      type: "create_corporate_task",
+      tenantId,
+      title,
+      dueOn,
+      notes: reminder
+        ? `مطلوب تذكير اليوم ${reminder.label} (محلّل تلقائياً من عبارة المستخدم).`
+        : null,
+    });
+    const taskProposalIds: string[] = [];
+    const taskProposals: CreatedProposalInfo[] = [];
+    if (taskAction.type === "create_corporate_task") {
+      const { data: taskIns, error: taskErr } = await params.supabase
+        .from("ai_agent_proposals")
+        .insert({
+          user_id: params.userId,
+          tenant_id: tenantId,
+          kind: "task_create",
+          title: `إنشاء مهمة: ${title}`,
+          summary: `إنشاء مهمة جديدة بعنوان «${title}» بتاريخ استحقاق ${dueOn}.`,
+          detail_json: { source: "chat_fast_track", created_via: "task_create_request" },
+          proposed_action: taskAction as unknown as Record<string, unknown>,
+          status: "pending",
+        })
+        .select("id")
+        .single();
+      if (!taskErr && taskIns?.id) {
+        taskProposalIds.push(String(taskIns.id));
+        taskProposals.push({
+          id: String(taskIns.id),
+          title: `إنشاء مهمة: ${title}`,
+          summary: `إنشاء مهمة جديدة بعنوان «${title}».`,
+        });
+      }
+    }
+    if (reminder) {
+      const remAction = normalizeProposedAction({
+        type: "create_personal_reminder",
+        title: `تذكير: ${title}`,
+        remindAt: reminder.iso,
+        recurrence: "once",
+        soundEnabled: true,
+        emailEnabled: false,
+      });
+      if (remAction.type === "create_personal_reminder") {
+        const { data: remIns, error: remErr } = await params.supabase
+          .from("ai_agent_proposals")
+          .insert({
+            user_id: params.userId,
+            tenant_id: null,
+            kind: "generic",
+            title: `إنشاء تذكير: ${title}`,
+            summary: `تذكير اليوم عند ${reminder.label} للمهمة «${title}».`,
+            detail_json: { source: "chat_fast_track", created_via: "task_reminder_request" },
+            proposed_action: remAction as unknown as Record<string, unknown>,
+            status: "pending",
+          })
+          .select("id")
+          .single();
+        if (!remErr && remIns?.id) {
+          taskProposalIds.push(String(remIns.id));
+          taskProposals.push({
+            id: String(remIns.id),
+            title: `إنشاء تذكير: ${title}`,
+            summary: `تذكير اليوم عند ${reminder.label}.`,
+          });
+        }
+      }
+    }
+    if (taskProposalIds.length > 0) {
+      const final =
+        `تم استيعاب طلبك مباشرة وجهّزت مقترحات تنفيذ جاهزة للموافقة:\n\n` +
+        `- **المهمة:** ${title}\n` +
+        `- **الاستحقاق:** ${dueOn}\n` +
+        (reminder ? `- **التذكير:** اليوم ${reminder.label}\n` : "- **التذكير:** غير محدد بوقت واضح\n") +
+        `\nبمجرد اعتمادك للمقترحات، سيتم التنفيذ فوراً مع رسالة تأكيد نهائية واضحة.`;
+      return streamAssistantResponse(
+        params.supabase,
+        params.userId,
+        final,
+        taskProposalIds,
+        taskProposals,
+        { source: "chat", fast_track: "task_create_proposal" }
+      );
+    }
+  }
+
   const fastTrackDocumentChange = isDocumentExpiryChangeIntent(text) || requestedRelativeDays(text) !== null;
   if (fastTrackDocumentChange) {
     const { data: docs, error: docsErr } = await params.supabase
@@ -423,18 +573,24 @@ export async function handleAiChatPost(params: {
 
   const { data: expiringDocs } = await params.supabase
     .from("company_documents")
-    .select("document_name, expiry_date, tenants ( name )")
+    .select("tenant_id, document_name, document_number, expiry_date, tenants ( name )")
     .order("expiry_date", { ascending: true })
-    .limit(3);
-  const proactiveContext =
-    (expiringDocs ?? [])
-      .map((d) => {
-        const tenant = Array.isArray(d.tenants)
-          ? d.tenants[0]?.name
-          : (d.tenants as { name?: string } | null)?.name;
-        return `${d.document_name} لدى ${tenant ?? "شركة غير محددة"} ينتهي في ${d.expiry_date}`;
-      })
-      .join(" | ") || "لا يوجد تنبيه قريب.";
+    .limit(5);
+  const proactiveRows: string[] = [];
+  for (const d of expiringDocs ?? []) {
+    const tenant = Array.isArray(d.tenants)
+      ? d.tenants[0]?.name
+      : (d.tenants as { name?: string } | null)?.name;
+    const { count: tenantOpenTasks } = await params.supabase
+      .from("corporate_tasks")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", String(d.tenant_id))
+      .in("status", [...OPEN_TASK_STATUSES]);
+    proactiveRows.push(
+      `${d.document_name} (${d.document_number ?? "—"}) لدى ${tenant ?? "شركة غير محددة"} ينتهي في ${d.expiry_date} | مهام مفتوحة للشركة: ${tenantOpenTasks ?? 0}`
+    );
+  }
+  const proactiveContext = proactiveRows.join(" | ") || "لا يوجد تنبيه قريب.";
 
   const system = buildSystemPrompt({
     todayStr,
@@ -536,7 +692,7 @@ export async function handleAiChatPost(params: {
       userPrompt: text,
       jsonMode: false,
       maxTokens: 2048,
-      mode: "fast_text",
+      mode: "analysis",
     });
     finalContent =
       reply.trim() ||
@@ -549,13 +705,14 @@ export async function handleAiChatPost(params: {
 
     try {
       if (generalMode) {
-        const completion = await client.chat.completions.create({
-          model: chatToolModel(),
-          messages,
-          tool_choice: "none",
-          temperature: 0.35,
+        const g = await callLLM({
+          systemPrompt: system,
+          userPrompt: text,
+          jsonMode: false,
+          maxTokens: 4096,
+          mode: "analysis",
         });
-        finalContent = (completion.choices[0]?.message?.content ?? "").trim();
+        finalContent = g.text.trim();
       }
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         if (generalMode && finalContent) break;
@@ -564,7 +721,8 @@ export async function handleAiChatPost(params: {
           messages,
           tools: pickToolsByIntent(plan.intent, text),
           tool_choice: "auto",
-          temperature: 0.35,
+          temperature: 0.7,
+          max_tokens: 4096,
         });
 
         const choice = completion.choices[0];
@@ -613,8 +771,8 @@ export async function handleAiChatPost(params: {
               systemPrompt: system,
               userPrompt: text,
               jsonMode: false,
-              maxTokens: 1024,
-              mode: "fast_text",
+              maxTokens: 4096,
+              mode: "analysis",
             });
             finalContent = fast.text;
           }
