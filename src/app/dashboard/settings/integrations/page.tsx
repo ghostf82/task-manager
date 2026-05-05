@@ -165,6 +165,7 @@ export default async function IntegrationsSettingsPage({
                     dir="ltr"
                     className="font-mono text-sm"
                     defaultValue={odoo?.login_username ?? ""}
+                    autoComplete="username"
                   />
                 </div>
                 <div className="grid gap-2 sm:col-span-2">
@@ -176,7 +177,7 @@ export default async function IntegrationsSettingsPage({
                     dir="ltr"
                     className="font-mono text-sm"
                     placeholder={odoo ? t("integrations.odoo.passwordKeep") : t("integrations.odoo.passwordRequired")}
-                    autoComplete="new-password"
+                    autoComplete="current-password"
                   />
                 </div>
               </div>
