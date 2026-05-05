@@ -212,6 +212,9 @@ export async function testOdooConnectionAction(input: {
 }): Promise<ConnectionTestResult> {
   const session = await requireSession();
   const supabase = await createClient();
+  // #region agent log
+  fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H5',location:'integrations/actions.ts:testOdooConnectionAction:start',message:'test odoo connection action invoked',data:{baseUrl:String(input.base_url??'').trim(),databaseName:String(input.database_name??'').trim(),login:String(input.login_username??'').trim(),hasPassword:Boolean(String(input.password??'').trim())},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
 
   if (!(await userHasAiToolLicense(supabase, session.id, "odoo"))) {
     return { ok: false, message: await tAction("integrationsActions.testOdooNoLicense") };
@@ -232,6 +235,9 @@ export async function testOdooConnectionAction(input: {
     }
     try {
       passwordPlain = decryptCredentialSecret(data.password_encrypted);
+      // #region agent log
+      fetch('http://127.0.0.1:7521/ingest/be47065e-d94d-4ea9-ba05-564706e1b09a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bbe53c'},body:JSON.stringify({sessionId:'bbe53c',runId:'pre-fix',hypothesisId:'H5',location:'integrations/actions.ts:testOdooConnectionAction:passwordFromVault',message:'using encrypted password from vault for test',data:{usedVaultPassword:true},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
     } catch {
       return { ok: false, message: await tAction("integrationsActions.testOdooDecryptFail") };
     }
