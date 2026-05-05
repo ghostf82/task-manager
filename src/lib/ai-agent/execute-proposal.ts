@@ -4,7 +4,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { appendAgentActivity } from "@/lib/ai-agent/activity-log";
 import { appendConversationMemory } from "@/lib/ai-agent/conversation-memory";
-import { loadEmailCredentialBundle, loadOdooCredentialBundle } from "@/lib/ai-agent/load-user-integrations";
+import {
+  loadEmailCredentialBundle,
+  loadOdooCredentialBundle,
+  odooCredentialsMissingMessage,
+} from "@/lib/ai-agent/load-user-integrations";
 import type { ProposedActionPayload } from "@/lib/ai-agent/proposal-types";
 import { odooAuthenticateUid, odooUpdateTaskStage, odooVerifyTaskAssigned } from "@/lib/integrations/odoo-client";
 import { sendSmtpReply } from "@/lib/integrations/email-client";
@@ -224,7 +228,7 @@ export async function executeApprovedProposal(
     case "odoo_update_task": {
       const bundle = await loadOdooCredentialBundle(supabase, opts.userId);
       if (!bundle) {
-        return { ok: false, error: "لا توجد بيانات Odoo محفوظة في الخزنة." };
+        return { ok: false, error: odooCredentialsMissingMessage() };
       }
       if (detail.odooTaskIds.length && !detail.odooTaskIds.includes(action.taskId)) {
         return {
@@ -247,7 +251,10 @@ export async function executeApprovedProposal(
         odooUid = await odooAuthenticateUid(bundle);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        return { ok: false, error: `فشل دخول Odoo: ${msg}` };
+        return {
+          ok: false,
+          error: `تعذّر تسجيل الدخول إلى Odoo. ${odooCredentialsMissingMessage()} سبب فني: ${msg}`,
+        };
       }
 
       const assigned = await odooVerifyTaskAssigned({
@@ -268,7 +275,10 @@ export async function executeApprovedProposal(
         stageId: action.stageId,
       });
       if (!upd.ok) {
-        return { ok: false, error: upd.error };
+        return {
+          ok: false,
+          error: `فشل تحديث المهمة في Odoo. ${odooCredentialsMissingMessage()} سبب فني: ${upd.error}`,
+        };
       }
 
       await appendAgentActivity(supabase, {
@@ -280,7 +290,7 @@ export async function executeApprovedProposal(
       await postExecutionAssistantNote(
         supabase,
         opts.userId,
-        `تم تنفيذ التحديث بنجاح: مهمة Odoo رقم ${action.taskId} انتقلت إلى المرحلة ${action.stageId}.`,
+        `تم تنفيذ التحديث بنجاح: مهمة Odoo رقم ${action.taskId} انتقلت إلى المرحلة ${action.stageId}.\nيمكنك متابعة المهمة مباشرة من لوحة Odoo أو طلب تحديث إضافي الآن.`,
         { proposal_id: opts.proposalId, action: "odoo_update_task" }
       );
       return { ok: true };

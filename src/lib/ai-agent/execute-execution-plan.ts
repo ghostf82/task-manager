@@ -3,7 +3,11 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { appendAgentActivity } from "@/lib/ai-agent/activity-log";
-import { loadEmailCredentialBundle, loadOdooCredentialBundle } from "@/lib/ai-agent/load-user-integrations";
+import {
+  loadEmailCredentialBundle,
+  loadOdooCredentialBundle,
+  odooCredentialsMissingMessage,
+} from "@/lib/ai-agent/load-user-integrations";
 import type { ProposedActionPayload } from "@/lib/ai-agent/proposal-types";
 import { callLLM } from "@/lib/ai/llm-unified";
 import { fetchUnreadInboxSummary } from "@/lib/integrations/email-client";
@@ -68,9 +72,11 @@ async function runPlanStepTool(
   }
   if (t === "odoo_read_tasks") {
     const bundle = await loadOdooCredentialBundle(supabase, userId);
-    if (!bundle) return "لا توجد بيانات Odoo في الخزنة.";
+    if (!bundle) return odooCredentialsMissingMessage();
     const r = await fetchOdooOpenTasksForUser(bundle);
-    if (r.error) return `تعذر Odoo: ${r.error}`;
+    if (r.error) {
+      return `تعذر جلب ملخص المهام من Odoo. ${odooCredentialsMissingMessage()} سبب فني: ${r.error}`;
+    }
     const late = r.tasks.filter((tk) => tk.date_deadline && tk.date_deadline < new Date().toISOString().slice(0, 10));
     return `مهام مفتوحة: ${r.tasks.length}. متأخرة تقريباً: ${late.length}. (${description})`;
   }

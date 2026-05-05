@@ -5,6 +5,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { OdooCredentialBundle } from "@/lib/integrations/odoo-client";
 import type { EmailCredentialBundle } from "@/lib/integrations/email-client";
 
+const ODOO_SETTINGS_HINT =
+  "تحقق من ربط Odoo في صفحة الإعدادات > التكاملات (/dashboard/settings/integrations).";
+
+function normalizeBaseUrl(url: string): string {
+  const v = url.trim();
+  if (!v) return "";
+  return v.endsWith("/") ? v.slice(0, -1) : v;
+}
+
 export async function loadOdooCredentialBundle(
   supabase: SupabaseClient,
   userId: string
@@ -15,12 +24,23 @@ export async function loadOdooCredentialBundle(
     .eq("user_id", userId)
     .maybeSingle();
   if (!data) return null;
+  const baseUrl = normalizeBaseUrl(String(data.base_url ?? ""));
+  const databaseName = String(data.database_name ?? "").trim();
+  const username = String(data.login_username ?? "").trim();
+  const passwordEncrypted = String(data.password_encrypted ?? "").trim();
+  if (!baseUrl || !databaseName || !username || !passwordEncrypted) {
+    return null;
+  }
   return {
-    baseUrl: data.base_url,
-    databaseName: data.database_name,
-    username: data.login_username,
-    passwordEncrypted: data.password_encrypted,
+    baseUrl,
+    databaseName,
+    username,
+    passwordEncrypted,
   };
+}
+
+export function odooCredentialsMissingMessage(): string {
+  return `بيانات ربط Odoo غير مكتملة أو غير محفوظة. ${ODOO_SETTINGS_HINT}`;
 }
 
 export async function loadEmailCredentialBundle(
