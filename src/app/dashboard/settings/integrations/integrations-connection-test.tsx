@@ -34,16 +34,20 @@ export function OdooConnectionTestButton({
     }
     const fd = new FormData(el);
     start(async () => {
-      const res = await testOdooConnectionAction({
-        base_url: String(fd.get("base_url") ?? ""),
-        database_name: String(fd.get("database_name") ?? ""),
-        login_username: String(fd.get("login_username") ?? ""),
-        password: String(fd.get("password") ?? ""),
-      });
-      if (res.ok) {
-        toast.success(res.message);
-      } else {
-        toast.error(res.message);
+      try {
+        const res = await testOdooConnectionAction({
+          base_url: String(fd.get("base_url") ?? ""),
+          database_name: String(fd.get("database_name") ?? ""),
+          login_username: String(fd.get("login_username") ?? ""),
+          password: String(fd.get("password") ?? ""),
+        });
+        if (res.ok) {
+          toast.success(res.message);
+        } else {
+          toast.error(res.message);
+        }
+      } catch {
+        toast.error("تعذر إكمال فحص اتصال Odoo حالياً. أعد المحاولة خلال ثوانٍ.");
       }
     });
   }
@@ -95,22 +99,26 @@ export function EmailConnectionTestButton({
     const imapPort = Number(fd.get("imap_port"));
     const smtpPort = Number(fd.get("smtp_port"));
     start(async () => {
-      const res = await testEmailConnectionAction({
-        imap_host: String(fd.get("imap_host") ?? ""),
-        imap_port: Number.isFinite(imapPort) ? imapPort : 993,
-        imap_use_tls: readCheckbox(fd, "imap_use_tls"),
-        imap_username: String(fd.get("imap_username") ?? ""),
-        imap_password: String(fd.get("imap_password") ?? ""),
-        smtp_host: String(fd.get("smtp_host") ?? ""),
-        smtp_port: Number.isFinite(smtpPort) ? smtpPort : 465,
-        smtp_use_tls: readCheckbox(fd, "smtp_use_tls"),
-        smtp_username: String(fd.get("smtp_username") ?? ""),
-        smtp_password: String(fd.get("smtp_password") ?? ""),
-      });
-      if (res.ok) {
-        toast.success(res.message);
-      } else {
-        toast.error(res.message);
+      try {
+        const res = await testEmailConnectionAction({
+          imap_host: String(fd.get("imap_host") ?? ""),
+          imap_port: Number.isFinite(imapPort) ? imapPort : 993,
+          imap_use_tls: readCheckbox(fd, "imap_use_tls"),
+          imap_username: String(fd.get("imap_username") ?? ""),
+          imap_password: String(fd.get("imap_password") ?? ""),
+          smtp_host: String(fd.get("smtp_host") ?? ""),
+          smtp_port: Number.isFinite(smtpPort) ? smtpPort : 465,
+          smtp_use_tls: readCheckbox(fd, "smtp_use_tls"),
+          smtp_username: String(fd.get("smtp_username") ?? ""),
+          smtp_password: String(fd.get("smtp_password") ?? ""),
+        });
+        if (res.ok) {
+          toast.success(res.message);
+        } else {
+          toast.error(res.message);
+        }
+      } catch {
+        toast.error("تعذر إكمال فحص البريد حالياً. أعد المحاولة خلال ثوانٍ.");
       }
     });
   }

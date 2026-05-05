@@ -169,6 +169,9 @@ function humanizeOdooError(raw: string): string {
   if (msg.includes("database") && msg.includes("does not exist")) {
     return "Database Name Error: Please verify the exact Odoo Database Name from your Odoo login screen.";
   }
+  if (msg.includes("odoo server error")) {
+    return "Odoo Server Error: تعذر تسجيل الدخول من الخادم. إذا كان حساب Odoo Online يستخدم حماية إضافية/2FA فأنشئ API Key من Odoo واستخدمه بدل كلمة المرور.";
+  }
   if (msg.includes("<title>") || msg.includes("title tag") || msg.includes("html")) {
     return "Base URL Error: Use only the root Odoo URL (for example: https://your-domain.odoo.com) without /odoo or /web.";
   }
