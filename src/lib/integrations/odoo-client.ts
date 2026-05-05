@@ -59,6 +59,33 @@ function candidateDatabases(baseUrl: string, preferred: string): string[] {
   return out;
 }
 
+async function discoverDatabaseFromLoginPage(baseUrl: string): Promise<string | null> {
+  try {
+    const url = `${baseUrl}/web/login`;
+    const res = await fetch(url, { method: "GET", cache: "no-store" });
+    if (!res.ok) return null;
+    const html = await res.text();
+    if (!html) return null;
+
+    // Odoo often embeds current db in a hidden login input.
+    const hiddenDb =
+      html.match(/name=["']db["'][^>]*value=["']([^"']+)["']/i)?.[1] ??
+      html.match(/value=["']([^"']+)["'][^>]*name=["']db["']/i)?.[1] ??
+      null;
+    if (hiddenDb && hiddenDb.trim()) return hiddenDb.trim();
+
+    // Some bundles expose current DB in boot payload.
+    const jsDb =
+      html.match(/["']db["']\s*:\s*["']([^"']+)["']/i)?.[1] ??
+      html.match(/odoo\.db\s*=\s*["']([^"']+)["']/i)?.[1] ??
+      null;
+    if (jsDb && jsDb.trim()) return jsDb.trim();
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function humanizeOdooError(raw: string): string {
   const msg = raw.toLowerCase();
   if (
@@ -92,6 +119,18 @@ async function authenticateWithFallback(params: {
   password: string;
 }): Promise<{ uid: number; database: string }> {
   const attempts = candidateDatabases(params.baseUrl, params.preferredDatabase);
+  try {
+    const loginPageDb = await withTimeout(
+      discoverDatabaseFromLoginPage(params.baseUrl),
+      Math.min(ODOO_CALL_TIMEOUT_MS, 4_000),
+      "odoo_login_db_discovery"
+    );
+    if (loginPageDb && !attempts.includes(loginPageDb)) {
+      attempts.unshift(loginPageDb);
+    }
+  } catch {
+    // Continue with heuristics.
+  }
   try {
     const discovered = await withTimeout(
       odooListDatabases(params.baseUrl),
@@ -278,8 +317,14 @@ export async function odooVerifyTaskAssigned(params: {
 }): Promise<boolean> {
   try {
     const password = decryptCredentialSecret(params.bundle.passwordEncrypted);
-    const database = resolveDatabase(params.bundle);
+    const preferredDatabase = resolveDatabase(params.bundle);
     const baseUrl = sanitizeOdooBaseUrl(params.bundle.baseUrl);
+    const { database } = await authenticateWithFallback({
+      baseUrl,
+      preferredDatabase,
+      login: params.bundle.username.trim(),
+      password,
+    });
     const row = await withTimeout(
       odooReadOne({
         baseUrl,
