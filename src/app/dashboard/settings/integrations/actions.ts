@@ -10,6 +10,7 @@ import { requireSession } from "@/lib/dashboard-auth";
 import { tAction } from "@/lib/i18n/action-messages";
 import { testEmailConnectionsPlain } from "@/lib/integrations/email-client";
 import { testOdooLoginPlain } from "@/lib/integrations/odoo-client";
+import { sanitizeOdooBaseUrl } from "@/lib/integrations/odoo-xmlrpc";
 import { createClient } from "@/lib/supabase/server";
 
 function num(v: FormDataEntryValue | null, fallback: number) {
@@ -30,7 +31,7 @@ export async function saveOdooCredentialsAction(formData: FormData) {
     redirect("/dashboard/settings/integrations?err=no_license_odoo");
   }
 
-  const baseUrl = String(formData.get("base_url") ?? "").trim();
+  const baseUrl = sanitizeOdooBaseUrl(String(formData.get("base_url") ?? "").trim());
   const databaseName = String(formData.get("database_name") ?? "").trim();
   const loginUsername = String(formData.get("login_username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
@@ -237,7 +238,7 @@ export async function testOdooConnectionAction(input: {
   }
 
   const r = await testOdooLoginPlain({
-    baseUrl: input.base_url.trim(),
+    baseUrl: sanitizeOdooBaseUrl(input.base_url.trim()),
     databaseName: String(input.database_name ?? "").trim(),
     loginUsername: input.login_username.trim(),
     passwordPlain,

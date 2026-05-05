@@ -13,8 +13,15 @@ export type OdooTaskRecord = {
   description: string | false;
 };
 
+export function sanitizeOdooBaseUrl(raw: string): string {
+  let t = raw.trim();
+  t = t.replace(/\/+$/g, "");
+  t = t.replace(/\/(?:odoo|web)$/i, "");
+  return t;
+}
+
 function normalizeBaseUrl(raw: string): URL {
-  const t = raw.trim();
+  const t = sanitizeOdooBaseUrl(raw);
   return new URL(t.endsWith("/") ? t : `${t}/`);
 }
 
@@ -57,7 +64,7 @@ export async function odooAuthenticate(params: {
     {},
   ]);
   if (uid === false || uid === 0 || typeof uid !== "number") {
-    throw new Error("فشل تسجيل الدخول إلى Odoo (تحقق من قاعدة البيانات والمستخدم وكلمة المرور).");
+    throw new Error("Invalid Password: The Odoo password or username is incorrect.");
   }
   return uid;
 }

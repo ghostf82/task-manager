@@ -4,12 +4,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { OdooCredentialBundle } from "@/lib/integrations/odoo-client";
 import type { EmailCredentialBundle } from "@/lib/integrations/email-client";
+import { sanitizeOdooBaseUrl } from "@/lib/integrations/odoo-xmlrpc";
 
 const ODOO_SETTINGS_HINT =
   "تحقق من ربط Odoo في صفحة الإعدادات > التكاملات (/dashboard/settings/integrations).";
 
 function normalizeBaseUrl(url: string): string {
-  const v = url.trim();
+  const v = sanitizeOdooBaseUrl(url.trim());
   if (!v) return "";
   return v.endsWith("/") ? v.slice(0, -1) : v;
 }

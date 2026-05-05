@@ -6,6 +6,7 @@ import {
   odooAuthenticate,
   odooReadOne,
   odooSearchRead,
+  sanitizeOdooBaseUrl,
   odooWrite,
   type OdooTaskRecord,
 } from "@/lib/integrations/odoo-xmlrpc";
@@ -19,6 +20,8 @@ export type OdooCredentialBundle = {
 
 const TASK_MODEL = process.env.ODOO_TASK_MODEL?.trim() || "project.task";
 const ODOO_CALL_TIMEOUT_MS = Number(process.env.ODOO_CALL_TIMEOUT_MS || 8_000);
+const ODOO_SETTINGS_HINT =
+  "تحقق من إعدادات Odoo في صفحة الإعدادات > التكاملات.";
 
 const TASK_FIELDS = [
   "id",
@@ -41,6 +44,29 @@ function resolveDatabase(bundle: OdooCredentialBundle): string {
   return db;
 }
 
+function humanizeOdooError(raw: string): string {
+  const msg = raw.toLowerCase();
+  if (
+    msg.includes("access denied") ||
+    msg.includes("wrong login/password") ||
+    msg.includes("authentication failed") ||
+    msg.includes("odoo_auth") ||
+    msg.includes("login failed")
+  ) {
+    return "Invalid Password: The Odoo password or username is incorrect.";
+  }
+  if (msg.includes("keyerror") && msg.includes("database_name")) {
+    return "Database Name Error: Please verify the exact Odoo Database Name from your Odoo login screen.";
+  }
+  if (msg.includes("<title>") || msg.includes("title tag") || msg.includes("html")) {
+    return "Base URL Error: Use only the root Odoo URL (for example: https://your-domain.odoo.com) without /odoo or /web.";
+  }
+  if (msg.includes("timeout")) {
+    return `تعذّر الاتصال بـ Odoo خلال المهلة. ${ODOO_SETTINGS_HINT}`;
+  }
+  return `تعذر الاتصال بـ Odoo: ${raw}`;
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -59,12 +85,13 @@ export async function fetchOdooOpenTasksForUser(
   try {
     const password = decryptCredentialSecret(bundle.passwordEncrypted);
     const database = resolveDatabase(bundle);
+    const baseUrl = sanitizeOdooBaseUrl(bundle.baseUrl);
     const uid = await withTimeout(
       odooAuthenticate({
-      baseUrl: bundle.baseUrl,
-      database,
-      login: bundle.username,
-      password,
+        baseUrl,
+        database,
+        login: bundle.username.trim(),
+        password,
       }),
       ODOO_CALL_TIMEOUT_MS,
       "odoo_auth"
@@ -83,7 +110,7 @@ export async function fetchOdooOpenTasksForUser(
     }
     const rows = await withTimeout(
       odooSearchRead<OdooTaskRecord>({
-        baseUrl: bundle.baseUrl,
+        baseUrl,
         database,
         uid,
         password,
@@ -105,14 +132,7 @@ export async function fetchOdooOpenTasksForUser(
     return { tasks };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (
-      msg.includes("FATAL") ||
-      msg.includes("ECONNREFUSED") ||
-      msg.includes("ENOTFOUND")
-    ) {
-      return { tasks: [], error: `تعذّر الاتصال بخادم Odoo: ${msg}` };
-    }
-    return { tasks: [], error: msg };
+    return { tasks: [], error: humanizeOdooError(msg) };
   }
 }
 
@@ -124,13 +144,18 @@ export async function testOdooLoginPlain(params: {
   passwordPlain: string;
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
+    const baseUrl = sanitizeOdooBaseUrl(params.baseUrl);
     const db = params.databaseName.trim();
     if (!db) {
-      return { ok: false, message: "اسم قاعدة بيانات Odoo مطلوب للفحص." };
+      return {
+        ok: false,
+        message:
+          "Database Name Error: Please verify the exact Odoo Database Name from your Odoo login screen.",
+      };
     }
     await withTimeout(
       odooAuthenticate({
-        baseUrl: params.baseUrl.trim(),
+        baseUrl,
         database: db,
         login: params.loginUsername.trim(),
         password: params.passwordPlain,
@@ -141,7 +166,7 @@ export async function testOdooLoginPlain(params: {
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, message: msg };
+    return { ok: false, message: humanizeOdooError(msg) };
   }
 }
 
@@ -167,11 +192,12 @@ export async function odooUpdateTaskStage(params: {
   try {
     const password = decryptCredentialSecret(params.bundle.passwordEncrypted);
     const database = resolveDatabase(params.bundle);
+    const baseUrl = sanitizeOdooBaseUrl(params.bundle.baseUrl);
     const uid = await withTimeout(
       odooAuthenticate({
-        baseUrl: params.bundle.baseUrl,
+        baseUrl,
         database,
-        login: params.bundle.username,
+        login: params.bundle.username.trim(),
         password,
       }),
       ODOO_CALL_TIMEOUT_MS,
@@ -179,7 +205,7 @@ export async function odooUpdateTaskStage(params: {
     );
     const ok = await withTimeout(
       odooWrite({
-        baseUrl: params.bundle.baseUrl,
+        baseUrl,
         database,
         uid,
         password,
@@ -196,7 +222,7 @@ export async function odooUpdateTaskStage(params: {
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: msg };
+    return { ok: false, error: humanizeOdooError(msg) };
   }
 }
 
@@ -208,9 +234,10 @@ export async function odooVerifyTaskAssigned(params: {
   try {
     const password = decryptCredentialSecret(params.bundle.passwordEncrypted);
     const database = resolveDatabase(params.bundle);
+    const baseUrl = sanitizeOdooBaseUrl(params.bundle.baseUrl);
     const row = await withTimeout(
       odooReadOne({
-        baseUrl: params.bundle.baseUrl,
+        baseUrl,
         database,
         uid: params.odooUid,
         password,
@@ -237,11 +264,12 @@ export async function odooVerifyTaskAssigned(params: {
 export async function odooAuthenticateUid(bundle: OdooCredentialBundle): Promise<number> {
   const password = decryptCredentialSecret(bundle.passwordEncrypted);
   const database = resolveDatabase(bundle);
+  const baseUrl = sanitizeOdooBaseUrl(bundle.baseUrl);
   return withTimeout(
     odooAuthenticate({
-      baseUrl: bundle.baseUrl,
+      baseUrl,
       database,
-      login: bundle.username,
+      login: bundle.username.trim(),
       password,
     }),
     ODOO_CALL_TIMEOUT_MS,
