@@ -18,6 +18,7 @@ export type OdooCredentialBundle = {
 };
 
 const TASK_MODEL = process.env.ODOO_TASK_MODEL?.trim() || "project.task";
+const ODOO_CALL_TIMEOUT_MS = Number(process.env.ODOO_CALL_TIMEOUT_MS || 8_000);
 
 const TASK_FIELDS = [
   "id",
@@ -40,18 +41,34 @@ function resolveDatabase(bundle: OdooCredentialBundle): string {
   return db;
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timeout after ${timeoutMs}ms`)), timeoutMs);
+    });
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function fetchOdooOpenTasksForUser(
   bundle: OdooCredentialBundle
 ): Promise<{ tasks: OdooTaskRecord[]; error?: string }> {
   try {
     const password = decryptCredentialSecret(bundle.passwordEncrypted);
     const database = resolveDatabase(bundle);
-    const uid = await odooAuthenticate({
+    const uid = await withTimeout(
+      odooAuthenticate({
       baseUrl: bundle.baseUrl,
       database,
       login: bundle.username,
       password,
-    });
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_auth"
+    );
     const customDomain = process.env.ODOO_OPEN_TASK_DOMAIN_JSON?.trim();
     let domain: unknown[];
     if (customDomain) {
@@ -64,16 +81,20 @@ export async function fetchOdooOpenTasksForUser(
     } else {
       domain = defaultOpenTaskDomain(uid);
     }
-    const rows = await odooSearchRead<OdooTaskRecord>({
-      baseUrl: bundle.baseUrl,
-      database,
-      uid,
-      password,
-      model: TASK_MODEL,
-      domain,
-      fields: [...TASK_FIELDS],
-      limit: 60,
-    });
+    const rows = await withTimeout(
+      odooSearchRead<OdooTaskRecord>({
+        baseUrl: bundle.baseUrl,
+        database,
+        uid,
+        password,
+        model: TASK_MODEL,
+        domain,
+        fields: [...TASK_FIELDS],
+        limit: 60,
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_search_read"
+    );
 
     const tasks = rows.map((r) => ({
       ...r,
@@ -107,12 +128,16 @@ export async function testOdooLoginPlain(params: {
     if (!db) {
       return { ok: false, message: "اسم قاعدة بيانات Odoo مطلوب للفحص." };
     }
-    await odooAuthenticate({
-      baseUrl: params.baseUrl.trim(),
-      database: db,
-      login: params.loginUsername.trim(),
-      password: params.passwordPlain,
-    });
+    await withTimeout(
+      odooAuthenticate({
+        baseUrl: params.baseUrl.trim(),
+        database: db,
+        login: params.loginUsername.trim(),
+        password: params.passwordPlain,
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_login_probe"
+    );
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -142,21 +167,29 @@ export async function odooUpdateTaskStage(params: {
   try {
     const password = decryptCredentialSecret(params.bundle.passwordEncrypted);
     const database = resolveDatabase(params.bundle);
-    const uid = await odooAuthenticate({
-      baseUrl: params.bundle.baseUrl,
-      database,
-      login: params.bundle.username,
-      password,
-    });
-    const ok = await odooWrite({
-      baseUrl: params.bundle.baseUrl,
-      database,
-      uid,
-      password,
-      model: TASK_MODEL,
-      ids: [params.taskId],
-      values: { stage_id: params.stageId },
-    });
+    const uid = await withTimeout(
+      odooAuthenticate({
+        baseUrl: params.bundle.baseUrl,
+        database,
+        login: params.bundle.username,
+        password,
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_auth_update"
+    );
+    const ok = await withTimeout(
+      odooWrite({
+        baseUrl: params.bundle.baseUrl,
+        database,
+        uid,
+        password,
+        model: TASK_MODEL,
+        ids: [params.taskId],
+        values: { stage_id: params.stageId },
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_write"
+    );
     if (!ok) {
       return { ok: false, error: "رفض Odoo عملية التحديث." };
     }
@@ -175,15 +208,19 @@ export async function odooVerifyTaskAssigned(params: {
   try {
     const password = decryptCredentialSecret(params.bundle.passwordEncrypted);
     const database = resolveDatabase(params.bundle);
-    const row = await odooReadOne({
-      baseUrl: params.bundle.baseUrl,
-      database,
-      uid: params.odooUid,
-      password,
-      model: TASK_MODEL,
-      id: params.taskId,
-      fields: ["user_ids", "user_id"],
-    });
+    const row = await withTimeout(
+      odooReadOne({
+        baseUrl: params.bundle.baseUrl,
+        database,
+        uid: params.odooUid,
+        password,
+        model: TASK_MODEL,
+        id: params.taskId,
+        fields: ["user_ids", "user_id"],
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_read_one"
+    );
     if (!row) return false;
     const userIds = Array.isArray(row.user_ids) ? (row.user_ids as number[]) : [];
     const userId = row.user_id;
@@ -200,10 +237,14 @@ export async function odooVerifyTaskAssigned(params: {
 export async function odooAuthenticateUid(bundle: OdooCredentialBundle): Promise<number> {
   const password = decryptCredentialSecret(bundle.passwordEncrypted);
   const database = resolveDatabase(bundle);
-  return odooAuthenticate({
-    baseUrl: bundle.baseUrl,
-    database,
-    login: bundle.username,
-    password,
-  });
+  return withTimeout(
+    odooAuthenticate({
+      baseUrl: bundle.baseUrl,
+      database,
+      login: bundle.username,
+      password,
+    }),
+    ODOO_CALL_TIMEOUT_MS,
+    "odoo_auth_uid"
+  );
 }

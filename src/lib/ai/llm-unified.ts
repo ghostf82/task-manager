@@ -69,7 +69,7 @@ function summarizeProviderFailures(errors: string[]): string {
   return ` ${unique.join(" — ")}.`;
 }
 
-async function geminiGenerate(opts: CallLLMOptions): Promise<string | null> {
+async function geminiGenerate(opts: CallLLMOptions, timeoutMs = 45_000): Promise<string | null> {
   const key = trimHeaderSafeSecret(process.env.GEMINI_API_KEY);
   if (!key) return null;
 
@@ -94,7 +94,7 @@ async function geminiGenerate(opts: CallLLMOptions): Promise<string | null> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!res.ok) {
@@ -194,7 +194,7 @@ export async function callLLM(opts: CallLLMOptions): Promise<CallLLMResult> {
   for (const provider of order) {
     try {
       if (provider === "gemini") {
-        const out = await geminiGenerate(opts);
+        const out = await geminiGenerate(opts, 5_000);
         if (out) return { text: out, provider: "gemini" };
         continue;
       }

@@ -341,19 +341,41 @@ export async function handleAiChatPost(params: {
     metadata: { source: "chat" },
   });
 
-  const licensedSlugs = await getLicensedActiveToolSlugs(params.supabase, params.userId);
+  const { data: me } = await params.supabase
+    .from("users")
+    .select("is_super_admin,email")
+    .eq("id", params.userId)
+    .maybeSingle();
+  const isSuperAdmin = Boolean(me?.is_super_admin);
+
+  let licensedSlugs = await getLicensedActiveToolSlugs(params.supabase, params.userId);
+  if (isSuperAdmin && !licensedSlugs.length) {
+    licensedSlugs = getRegisteredAiTools().map((t) => t.slug);
+  }
+
   const { data: memberships } = await params.supabase
     .from("tenant_memberships")
     .select("tenant_id, tenants ( name )")
     .eq("user_id", params.userId)
     .eq("status", "active");
 
-  const tenantIds = [...new Set((memberships ?? []).map((m) => m.tenant_id as string))];
+  let tenantIds = [...new Set((memberships ?? []).map((m) => m.tenant_id as string))];
   const tenantNames: string[] = [];
   for (const m of memberships ?? []) {
     const t = m.tenants as { name?: string } | { name?: string }[] | null;
     const n = Array.isArray(t) ? t[0]?.name : t?.name;
     if (n) tenantNames.push(String(n));
+  }
+  if (isSuperAdmin && !tenantIds.length) {
+    const { data: allTenants } = await params.supabase
+      .from("tenants")
+      .select("id,name")
+      .order("name", { ascending: true })
+      .limit(200);
+    tenantIds = [...new Set((allTenants ?? []).map((t) => String(t.id)))];
+    for (const t of allTenants ?? []) {
+      if (t.name) tenantNames.push(String(t.name));
+    }
   }
 
   const todayStr = new Date().toISOString().slice(0, 10);
