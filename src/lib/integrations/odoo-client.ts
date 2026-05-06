@@ -140,38 +140,79 @@ async function createWebSession(bundle: OdooCredentialBundle): Promise<{
     "odoo_web_login_page"
   );
   const loginHtml = await loginPage.text();
-  const csrfToken =
-    loginHtml.match(/name=["']csrf_token["'][^>]*value=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
   const dbFromPage =
     loginHtml.match(/name=["']db["'][^>]*value=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
-
-  const body = new URLSearchParams();
-  body.set("login", login);
-  body.set("password", password);
-  if (csrfToken) body.set("csrf_token", csrfToken);
-  if (dbFromPage) body.set("db", dbFromPage);
-
   const pageCookies = readSetCookies(loginPage);
-  const authRes = await withTimeout(
-    fetch(`${baseUrl}/web/login`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        cookie: mergeCookieHeaders(pageCookies),
-      },
-      body: body.toString(),
-      redirect: "manual",
-      cache: "no-store",
-    }),
-    ODOO_CALL_TIMEOUT_MS,
-    "odoo_web_login_submit"
-  );
-  const authCookies = readSetCookies(authRes);
-  const cookieHeader = mergeCookieHeaders(pageCookies, authCookies);
-  if (!cookieHeader.includes("session_id=")) {
-    throw new Error(
-      "تعذر إنشاء جلسة Odoo عبر المتصفح. تحقق من اسم المستخدم/كلمة المرور أو أعد الحفظ من صفحة الربط."
+
+  const dbCandidates = [
+    dbFromPage,
+    bundle.databaseName?.trim() ?? "",
+    (() => {
+      try {
+        const u = new URL(baseUrl);
+        return (u.hostname.split(".")[0] ?? "").trim();
+      } catch {
+        return "";
+      }
+    })(),
+    "",
+  ].filter((v, i, arr) => v !== "__browser_session__" && arr.indexOf(v) === i);
+
+  let cookieHeader = mergeCookieHeaders(pageCookies);
+  let lastAuthErr = "تعذر إنشاء جلسة Odoo عبر المتصفح.";
+  for (const db of dbCandidates) {
+    const authRes = await withTimeout(
+      fetch(`${baseUrl}/web/session/authenticate`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-requested-with": "XMLHttpRequest",
+          cookie: cookieHeader,
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "call",
+          params: {
+            db: db || undefined,
+            login,
+            password,
+          },
+          id: Date.now(),
+        }),
+        cache: "no-store",
+      }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_web_session_authenticate"
     );
+    const authRaw = await authRes.text();
+    const authJson = parseJsonOrThrow(authRaw, "odoo_web_session_authenticate");
+    const authCookies = readSetCookies(authRes);
+    const mergedCookies = mergeCookieHeaders([cookieHeader], authCookies);
+    const resultObj =
+      authJson.result && typeof authJson.result === "object"
+        ? (authJson.result as Record<string, unknown>)
+        : null;
+    const uidFromAuth = Number(resultObj?.uid ?? 0);
+    if (uidFromAuth > 0) {
+      cookieHeader = mergedCookies || cookieHeader;
+      break;
+    }
+    const errObj =
+      authJson.error && typeof authJson.error === "object"
+        ? (authJson.error as Record<string, unknown>)
+        : null;
+    const errData =
+      errObj?.data && typeof errObj.data === "object"
+        ? (errObj.data as Record<string, unknown>)
+        : null;
+    lastAuthErr =
+      (typeof errData?.message === "string" && errData.message) ||
+      (typeof errObj?.message === "string" && errObj.message) ||
+      "فشل المصادقة في Odoo.";
+  }
+
+  if (!cookieHeader.includes("session_id=")) {
+    throw new OdooGatewayError("OdooSessionAuthFailed", lastAuthErr);
   }
 
   const sessionInfoRes = await withTimeout(
@@ -198,7 +239,7 @@ async function createWebSession(bundle: OdooCredentialBundle): Promise<{
       : null;
   const uid = Number(resultObj?.uid ?? 0);
   if (!uid) {
-    throw new Error("جلسة Odoo لا تحتوي على مستخدم فعّال بعد تسجيل الدخول.");
+    throw new OdooGatewayError("OdooSessionExpired", "جلسة Odoo لا تحتوي على مستخدم فعّال بعد تسجيل الدخول.");
   }
   return { ok: true, baseUrl, uid, cookieHeader: refreshedCookieHeader || cookieHeader };
 }
