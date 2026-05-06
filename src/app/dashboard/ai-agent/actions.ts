@@ -356,137 +356,158 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
   const session = await requireSession();
   const supabase = await createClient();
 
-  const licensed = await getLicensedActiveToolSlugs(supabase, session.id);
-  if (!licensed.length) {
+  try {
+    const licensed = await getLicensedActiveToolSlugs(supabase, session.id);
+    if (!licensed.length) {
+      return {
+        ok: false,
+        message: await tAction("aiAgentActions.scanNoTools"),
+        inserted: 0,
+        taskCount: 0,
+        emailCount: 0,
+      };
+    }
+
+    const { tasks, emails } = await collectLicensedInboundData(supabase, session.id);
+
+    const taskCount = tasks.length;
+    const emailCount = emails.length;
+
+    const allowedStageIds = [
+      ...new Set(
+        tasks.flatMap((tk) => {
+          if (tk.stage_id && Array.isArray(tk.stage_id) && typeof tk.stage_id[0] === "number") {
+            return [Number(tk.stage_id[0])];
+          }
+          return [];
+        })
+      ),
+    ];
+    const odooTaskIds = tasks.map((tk) => tk.id);
+    const replyEmailsRaw = emails.map((e) => e.replyTo.trim()).filter(Boolean);
+    const replyEmailsAllowed = [...new Set(replyEmailsRaw.map((e) => e.toLowerCase()))];
+
+    let proposals: LlmAnalysisResult[] = [];
+    try {
+      proposals = await analyzeInboundSourcesWithLlm({
+        tasks,
+        emails,
+        tenantId: null,
+        allowedStageIds,
+        odooTaskIds,
+        replyEmailsAllowed,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const logLine = await tActionFill("aiAgentActions.logLlmFail", { msg });
+      await appendAgentActivity(supabase, {
+        userId: session.id,
+        eventType: "scan_llm_error",
+        message: logLine,
+      });
+      revalidatePath("/dashboard/ai-agent");
+      return {
+        ok: false,
+        message: logLine,
+        inserted: 0,
+        taskCount,
+        emailCount,
+      };
+    }
+
+    const detail_json = {
+      source: "inbound_scan",
+      scan_at: new Date().toISOString(),
+      allowedStageIds,
+      odooTaskIds,
+      replyEmailsAllowed,
+    };
+
+    let inserted = 0;
+    for (const p of proposals) {
+      const rowDetail = enrichProposalDetailJson(detail_json, p.proposed_action, tasks, emailCount);
+      const { data: ins, error } = await supabase
+        .from("ai_agent_proposals")
+        .insert({
+          user_id: session.id,
+          tenant_id: null,
+          kind: p.kind,
+          title: p.title,
+          summary: p.summary,
+          detail_json: rowDetail,
+          proposed_action: p.proposed_action,
+          status: "pending",
+        })
+        .select("id")
+        .single();
+
+      if (!error && ins) {
+        inserted += 1;
+        await appendAgentActivity(supabase, {
+          userId: session.id,
+          proposalId: ins.id,
+          eventType: "proposed",
+          message: await tActionFill("aiAgentActions.logScanProposal", { title: p.title }),
+        });
+      }
+    }
+
+    if (!inserted && (tasks.length > 0 || emails.length > 0)) {
+      const hasAnyLlm =
+        Boolean(process.env.GEMINI_API_KEY?.trim()) ||
+        Boolean(process.env.GROQ_API_KEY?.trim()) ||
+        Boolean(process.env.OPENAI_API_KEY?.trim());
+      await appendAgentActivity(supabase, {
+        userId: session.id,
+        eventType: "scan_llm",
+        message: hasAnyLlm
+          ? await tAction("aiAgentActions.scanNoModelOutput")
+          : await tAction("aiAgentActions.scanNoOpenAiKey"),
+      });
+    }
+
+    await appendAgentActivity(supabase, {
+      userId: session.id,
+      eventType: "scan",
+      message: await tActionFill("aiAgentActions.logScanComplete", {
+        taskCount: String(taskCount),
+        emailCount: String(emailCount),
+        inserted: String(inserted),
+      }),
+    });
+
+    revalidatePath("/dashboard/ai-agent");
+    return {
+      ok: true,
+      message: await tActionFill("aiAgentActions.scanDoneSummary", {
+        taskCount: String(taskCount),
+        emailCount: String(emailCount),
+        inserted: String(inserted),
+      }),
+      inserted,
+      taskCount,
+      emailCount,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    try {
+      await appendAgentActivity(supabase, {
+        userId: session.id,
+        eventType: "scan_runtime_error",
+        message: `فشل مسح المصادر قبل الاكتمال: ${msg}`,
+      });
+    } catch {
+      // Ignore activity logging failures in fallback path.
+    }
+    revalidatePath("/dashboard/ai-agent");
     return {
       ok: false,
-      message: await tAction("aiAgentActions.scanNoTools"),
+      message: `فشل المسح على الخادم: ${msg}`,
       inserted: 0,
       taskCount: 0,
       emailCount: 0,
     };
   }
-
-  const { tasks, emails } = await collectLicensedInboundData(supabase, session.id);
-
-  const taskCount = tasks.length;
-  const emailCount = emails.length;
-
-  const allowedStageIds = [
-    ...new Set(
-      tasks.flatMap((tk) => {
-        if (tk.stage_id && Array.isArray(tk.stage_id) && typeof tk.stage_id[0] === "number") {
-          return [Number(tk.stage_id[0])];
-        }
-        return [];
-      })
-    ),
-  ];
-  const odooTaskIds = tasks.map((tk) => tk.id);
-  const replyEmailsRaw = emails.map((e) => e.replyTo.trim()).filter(Boolean);
-  const replyEmailsAllowed = [...new Set(replyEmailsRaw.map((e) => e.toLowerCase()))];
-
-  let proposals: LlmAnalysisResult[] = [];
-  try {
-    proposals = await analyzeInboundSourcesWithLlm({
-      tasks,
-      emails,
-      tenantId: null,
-      allowedStageIds,
-      odooTaskIds,
-      replyEmailsAllowed,
-    });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const logLine = await tActionFill("aiAgentActions.logLlmFail", { msg });
-    await appendAgentActivity(supabase, {
-      userId: session.id,
-      eventType: "scan_llm_error",
-      message: logLine,
-    });
-    revalidatePath("/dashboard/ai-agent");
-    return {
-      ok: false,
-      message: logLine,
-      inserted: 0,
-      taskCount,
-      emailCount,
-    };
-  }
-
-  const detail_json = {
-    source: "inbound_scan",
-    scan_at: new Date().toISOString(),
-    allowedStageIds,
-    odooTaskIds,
-    replyEmailsAllowed,
-  };
-
-  let inserted = 0;
-  for (const p of proposals) {
-    const rowDetail = enrichProposalDetailJson(detail_json, p.proposed_action, tasks, emailCount);
-    const { data: ins, error } = await supabase
-      .from("ai_agent_proposals")
-      .insert({
-        user_id: session.id,
-        tenant_id: null,
-        kind: p.kind,
-        title: p.title,
-        summary: p.summary,
-        detail_json: rowDetail,
-        proposed_action: p.proposed_action,
-        status: "pending",
-      })
-      .select("id")
-      .single();
-
-    if (!error && ins) {
-      inserted += 1;
-      await appendAgentActivity(supabase, {
-        userId: session.id,
-        proposalId: ins.id,
-        eventType: "proposed",
-        message: await tActionFill("aiAgentActions.logScanProposal", { title: p.title }),
-      });
-    }
-  }
-
-  if (!inserted && (tasks.length > 0 || emails.length > 0)) {
-    const hasAnyLlm =
-      Boolean(process.env.GEMINI_API_KEY?.trim()) ||
-      Boolean(process.env.GROQ_API_KEY?.trim()) ||
-      Boolean(process.env.OPENAI_API_KEY?.trim());
-    await appendAgentActivity(supabase, {
-      userId: session.id,
-      eventType: "scan_llm",
-      message: hasAnyLlm
-        ? await tAction("aiAgentActions.scanNoModelOutput")
-        : await tAction("aiAgentActions.scanNoOpenAiKey"),
-    });
-  }
-
-  await appendAgentActivity(supabase, {
-    userId: session.id,
-    eventType: "scan",
-    message: await tActionFill("aiAgentActions.logScanComplete", {
-      taskCount: String(taskCount),
-      emailCount: String(emailCount),
-      inserted: String(inserted),
-    }),
-  });
-
-  revalidatePath("/dashboard/ai-agent");
-  return {
-    ok: true,
-    message: await tActionFill("aiAgentActions.scanDoneSummary", {
-      taskCount: String(taskCount),
-      emailCount: String(emailCount),
-      inserted: String(inserted),
-    }),
-    inserted,
-    taskCount,
-    emailCount,
-  };
 }
 
 export async function approveExecutionPlanAction(input: {

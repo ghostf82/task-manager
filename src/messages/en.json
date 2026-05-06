@@ -616,11 +616,11 @@
   "aiAgentScan": {
     "toastUnexpected": "Scan failed unexpectedly.",
     "cardTitle": "Live source scan",
-    "cardDesc": "Calls only tools registered in the system and licensed for your account ({tools}), then passes results to OpenAI. Runs on the server (suitable for Netlify); errors are logged and shown as toasts.",
+    "cardDesc": "Calls only tools registered in the system and licensed for your account ({tools}), then sends results to the analysis engine (Gemini, then Groq, then OpenAI). Runs on the server (suitable for Netlify); errors are logged and shown as toasts.",
     "buttonScanning": "Scanning…",
     "buttonRun": "Run scan now",
     "hintNoTools": "No tools are enabled for your account — ask your administrator in AI tool governance, then connect the vault for licensed tools.",
-    "hintTiming": "A scan may take tens of seconds. Ensure OPENAI_API_KEY is set for automatic proposals.",
+    "hintTiming": "A scan may take tens of seconds. Ensure GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY is configured for automatic proposals.",
     "overlayScanning": "Connecting to sources and analysing content on the server…"
   },
   "aiAgentError": {

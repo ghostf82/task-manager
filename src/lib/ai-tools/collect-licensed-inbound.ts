@@ -27,21 +27,31 @@ export async function collectLicensedInboundData(
   for (const slug of slugs) {
     const tool = getAiToolBySlug(slug);
     if (!tool) continue;
-    const part = await tool.collectInbound(supabase, userId);
-    if (part.tasks?.length) {
-      tasks.push(...part.tasks);
-    }
-    if (part.emails?.length) {
-      emails.push(...part.emails);
-    }
-    if (part.scanErrors?.length) {
-      for (const err of part.scanErrors) {
-        await appendAgentActivity(supabase, {
-          userId,
-          eventType: err.kind,
-          message: err.message,
-        });
+    try {
+      const part = await tool.collectInbound(supabase, userId);
+      if (part.tasks?.length) {
+        tasks.push(...part.tasks);
       }
+      if (part.emails?.length) {
+        emails.push(...part.emails);
+      }
+      if (part.scanErrors?.length) {
+        for (const err of part.scanErrors) {
+          await appendAgentActivity(supabase, {
+            userId,
+            eventType: err.kind,
+            message: err.message,
+          });
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await appendAgentActivity(supabase, {
+        userId,
+        eventType: "scan_tool_error",
+        message: `تعذر جمع بيانات الأداة ${slug}: ${msg}`,
+      });
+      // Continue scanning other licensed tools.
     }
   }
 
