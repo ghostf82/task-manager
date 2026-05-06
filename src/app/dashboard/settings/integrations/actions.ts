@@ -5,11 +5,12 @@ import { redirect } from "next/navigation";
 
 import { decryptCredentialSecret, encryptCredentialSecret } from "@/lib/crypto/credentials-cipher";
 import { appendAgentActivity } from "@/lib/ai-agent/activity-log";
+import { loadOdooBrowserSessionBundle } from "@/lib/ai-agent/load-user-integrations";
 import { userHasAiToolLicense } from "@/lib/ai-tools/user-licenses";
 import { requireSession } from "@/lib/dashboard-auth";
 import { tAction } from "@/lib/i18n/action-messages";
 import { testEmailConnectionsPlain } from "@/lib/integrations/email-client";
-import { testOdooLoginPlain } from "@/lib/integrations/odoo-client";
+import { fetchOdooOpenTasksViaWebLogin, testOdooLoginPlain } from "@/lib/integrations/odoo-client";
 import { sanitizeOdooBaseUrl } from "@/lib/integrations/odoo-xmlrpc";
 import { createClient } from "@/lib/supabase/server";
 
@@ -225,10 +226,21 @@ export async function testOdooConnectionAction(input: {
   });
 
   if (String(input.database_name ?? "").trim() === ODOO_BROWSER_MODE_DB) {
+    const browserBundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+    if (!browserBundle) {
+      return {
+        ok: false,
+        message:
+          "Browser Session Mode مفعّل لكن بياناته غير مكتملة (اسم المستخدم/كلمة المرور). أعد الحفظ من صفحة الربط.",
+      };
+    }
+    const probe = await fetchOdooOpenTasksViaWebLogin(browserBundle);
+    if (probe.error) {
+      return { ok: false, message: probe.error };
+    }
     return {
       ok: true,
-      message:
-        "Browser Session Mode مفعل: سيتم الاعتماد على جلسة المتصفح بعد تسجيل دخولك في Odoo، وليس على اتصال API مباشر.",
+      message: `Browser Session Mode جاهز: تم إنشاء جلسة Odoo بنجاح وقراءة ${probe.tasks.length} مهمة.`,
     };
   }
 

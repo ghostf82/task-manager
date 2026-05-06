@@ -67,6 +67,21 @@ function mergeCookieHeaders(...cookieGroups: string[][]): string {
   return [...pairs.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
 }
 
+function parseJsonOrThrow(raw: string, context: string): Record<string, unknown> {
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    const sample = raw.slice(0, 220).toLowerCase();
+    if (sample.includes("<!doctype") || sample.includes("<html")) {
+      throw new Error(
+        `${context}: خادم Odoo أعاد HTML بدل JSON (غالباً إعادة توجيه لجلسة تسجيل الدخول أو مسار غير صحيح).`
+      );
+    }
+    throw new Error(`${context}: استجابة غير JSON: ${raw.slice(0, 220)}`);
+  }
+}
+
 async function createWebSession(bundle: OdooCredentialBundle): Promise<{
   ok: true;
   baseUrl: string;
@@ -132,7 +147,9 @@ async function createWebSession(bundle: OdooCredentialBundle): Promise<{
     "odoo_web_session_info"
   );
   const sessionInfoRaw = await sessionInfoRes.text();
-  const sessionInfo = sessionInfoRaw ? (JSON.parse(sessionInfoRaw) as Record<string, unknown>) : {};
+  const sessionInfo = parseJsonOrThrow(sessionInfoRaw, "odoo_web_session_info");
+  const sessionCookies = readSetCookies(sessionInfoRes);
+  const refreshedCookieHeader = mergeCookieHeaders([cookieHeader], sessionCookies);
   const resultObj =
     sessionInfo.result && typeof sessionInfo.result === "object"
       ? (sessionInfo.result as Record<string, unknown>)
@@ -141,7 +158,7 @@ async function createWebSession(bundle: OdooCredentialBundle): Promise<{
   if (!uid) {
     throw new Error("جلسة Odoo لا تحتوي على مستخدم فعّال بعد تسجيل الدخول.");
   }
-  return { ok: true, baseUrl, uid, cookieHeader };
+  return { ok: true, baseUrl, uid, cookieHeader: refreshedCookieHeader || cookieHeader };
 }
 
 async function webCallKw(params: {
@@ -178,7 +195,7 @@ async function webCallKw(params: {
     `odoo_call_kw_${params.model}_${params.method}`
   );
   const raw = await res.text();
-  const json = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  const json = parseJsonOrThrow(raw, `odoo_call_kw_${params.model}_${params.method}`);
   if (json.error && typeof json.error === "object") {
     const e = json.error as Record<string, unknown>;
     const msg =
@@ -503,6 +520,9 @@ function humanizeOdooError(raw: string): string {
   }
   if (msg.includes("<title>") || msg.includes("title tag") || msg.includes("html")) {
     return "Base URL Error: استخدم رابط Odoo الصحيح كما يفتح عندك (قد يكون مع /odoo)، وتجنب فقط إضافة /web في النهاية.";
+  }
+  if (msg.includes("unexpected token '<'") || msg.includes("doctype")) {
+    return "Odoo Session Error: الخادم أعاد صفحة HTML بدل JSON. غالبًا الجلسة لم تثبت أو تم تحويل الطلب إلى صفحة تسجيل الدخول. أعد حفظ الربط ثم جرّب مرة أخرى.";
   }
   if (msg.includes("unknown xml-rpc tag 'title'")) {
     return "Base URL Error: خادم Odoo أعاد صفحة HTML بدل XML-RPC. سنحاول مسار Web Session تلقائياً؛ تأكد أيضاً من Base URL الصحيح.";
