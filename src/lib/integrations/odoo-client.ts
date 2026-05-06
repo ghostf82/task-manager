@@ -133,115 +133,128 @@ async function createWebSession(bundle: OdooCredentialBundle): Promise<{
   const baseUrl = sanitizeOdooBaseUrl(bundle.baseUrl);
   const login = bundle.username.trim();
   const password = decryptCredentialSecret(bundle.passwordEncrypted);
-
-  const loginPage = await withTimeout(
-    fetch(`${baseUrl}/web/login`, { method: "GET", cache: "no-store" }),
-    ODOO_CALL_TIMEOUT_MS,
-    "odoo_web_login_page"
+  const rpcBaseCandidates = [baseUrl, baseUrl.replace(/\/odoo$/i, "")].filter(
+    (v, i, arr) => v && arr.indexOf(v) === i
   );
-  const loginHtml = await loginPage.text();
-  const dbFromPage =
-    loginHtml.match(/name=["']db["'][^>]*value=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
-  const pageCookies = readSetCookies(loginPage);
-
-  const dbCandidates = [
-    dbFromPage,
-    bundle.databaseName?.trim() ?? "",
-    (() => {
-      try {
-        const u = new URL(baseUrl);
-        return (u.hostname.split(".")[0] ?? "").trim();
-      } catch {
-        return "";
-      }
-    })(),
-    "",
-  ].filter((v, i, arr) => v !== "__browser_session__" && arr.indexOf(v) === i);
-
-  let cookieHeader = mergeCookieHeaders(pageCookies);
   let lastAuthErr = "تعذر إنشاء جلسة Odoo عبر المتصفح.";
-  for (const db of dbCandidates) {
-    const authRes = await withTimeout(
-      fetch(`${baseUrl}/web/session/authenticate`, {
+
+  for (const rpcBase of rpcBaseCandidates) {
+    const loginPage = await withTimeout(
+      fetch(`${rpcBase}/web/login`, { method: "GET", cache: "no-store" }),
+      ODOO_CALL_TIMEOUT_MS,
+      "odoo_web_login_page"
+    );
+    const loginHtml = await loginPage.text();
+    const dbFromPage =
+      loginHtml.match(/name=["']db["'][^>]*value=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
+    const pageCookies = readSetCookies(loginPage);
+
+    const dbCandidates = [
+      dbFromPage,
+      bundle.databaseName?.trim() ?? "",
+      (() => {
+        try {
+          const u = new URL(rpcBase);
+          return (u.hostname.split(".")[0] ?? "").trim();
+        } catch {
+          return "";
+        }
+      })(),
+      "",
+    ].filter((v, i, arr) => v !== "__browser_session__" && arr.indexOf(v) === i);
+
+    let cookieHeader = mergeCookieHeaders(pageCookies);
+    let authenticated = false;
+    for (const db of dbCandidates) {
+      const authRes = await withTimeout(
+        fetch(`${rpcBase}/web/session/authenticate`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-requested-with": "XMLHttpRequest",
+            cookie: cookieHeader,
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            method: "call",
+            params: {
+              db: db || undefined,
+              login,
+              password,
+            },
+            id: Date.now(),
+          }),
+          cache: "no-store",
+        }),
+        ODOO_CALL_TIMEOUT_MS,
+        "odoo_web_session_authenticate"
+      );
+      const authRaw = await authRes.text();
+      const authJson = parseJsonOrThrow(authRaw, "odoo_web_session_authenticate");
+      const authCookies = readSetCookies(authRes);
+      const mergedCookies = mergeCookieHeaders([cookieHeader], authCookies);
+      const resultObj =
+        authJson.result && typeof authJson.result === "object"
+          ? (authJson.result as Record<string, unknown>)
+          : null;
+      const uidFromAuth = Number(resultObj?.uid ?? 0);
+      if (uidFromAuth > 0) {
+        cookieHeader = mergedCookies || cookieHeader;
+        authenticated = true;
+        break;
+      }
+      const errObj =
+        authJson.error && typeof authJson.error === "object"
+          ? (authJson.error as Record<string, unknown>)
+          : null;
+      const errData =
+        errObj?.data && typeof errObj.data === "object"
+          ? (errObj.data as Record<string, unknown>)
+          : null;
+      lastAuthErr =
+        (typeof errData?.message === "string" && errData.message) ||
+        (typeof errObj?.message === "string" && errObj.message) ||
+        "فشل المصادقة في Odoo.";
+    }
+
+    if (!authenticated || !cookieHeader.includes("session_id=")) {
+      continue;
+    }
+
+    const sessionInfoRes = await withTimeout(
+      fetch(`${rpcBase}/web/session/get_session_info`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-requested-with": "XMLHttpRequest",
           cookie: cookieHeader,
         },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          method: "call",
-          params: {
-            db: db || undefined,
-            login,
-            password,
-          },
-          id: Date.now(),
-        }),
+        body: JSON.stringify({ jsonrpc: "2.0", method: "call", params: {}, id: Date.now() }),
         cache: "no-store",
       }),
       ODOO_CALL_TIMEOUT_MS,
-      "odoo_web_session_authenticate"
+      "odoo_web_session_info"
     );
-    const authRaw = await authRes.text();
-    const authJson = parseJsonOrThrow(authRaw, "odoo_web_session_authenticate");
-    const authCookies = readSetCookies(authRes);
-    const mergedCookies = mergeCookieHeaders([cookieHeader], authCookies);
+    const sessionInfoRaw = await sessionInfoRes.text();
+    const sessionInfo = parseJsonOrThrow(sessionInfoRaw, "odoo_web_session_info");
+    const sessionCookies = readSetCookies(sessionInfoRes);
+    const refreshedCookieHeader = mergeCookieHeaders([cookieHeader], sessionCookies);
     const resultObj =
-      authJson.result && typeof authJson.result === "object"
-        ? (authJson.result as Record<string, unknown>)
+      sessionInfo.result && typeof sessionInfo.result === "object"
+        ? (sessionInfo.result as Record<string, unknown>)
         : null;
-    const uidFromAuth = Number(resultObj?.uid ?? 0);
-    if (uidFromAuth > 0) {
-      cookieHeader = mergedCookies || cookieHeader;
-      break;
+    const uid = Number(resultObj?.uid ?? 0);
+    if (uid) {
+      return {
+        ok: true,
+        baseUrl: rpcBase,
+        uid,
+        cookieHeader: refreshedCookieHeader || cookieHeader,
+      };
     }
-    const errObj =
-      authJson.error && typeof authJson.error === "object"
-        ? (authJson.error as Record<string, unknown>)
-        : null;
-    const errData =
-      errObj?.data && typeof errObj.data === "object"
-        ? (errObj.data as Record<string, unknown>)
-        : null;
-    lastAuthErr =
-      (typeof errData?.message === "string" && errData.message) ||
-      (typeof errObj?.message === "string" && errObj.message) ||
-      "فشل المصادقة في Odoo.";
   }
 
-  if (!cookieHeader.includes("session_id=")) {
-    throw new OdooGatewayError("OdooSessionAuthFailed", lastAuthErr);
-  }
-
-  const sessionInfoRes = await withTimeout(
-    fetch(`${baseUrl}/web/session/get_session_info`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-requested-with": "XMLHttpRequest",
-        cookie: cookieHeader,
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", method: "call", params: {}, id: Date.now() }),
-      cache: "no-store",
-    }),
-    ODOO_CALL_TIMEOUT_MS,
-    "odoo_web_session_info"
-  );
-  const sessionInfoRaw = await sessionInfoRes.text();
-  const sessionInfo = parseJsonOrThrow(sessionInfoRaw, "odoo_web_session_info");
-  const sessionCookies = readSetCookies(sessionInfoRes);
-  const refreshedCookieHeader = mergeCookieHeaders([cookieHeader], sessionCookies);
-  const resultObj =
-    sessionInfo.result && typeof sessionInfo.result === "object"
-      ? (sessionInfo.result as Record<string, unknown>)
-      : null;
-  const uid = Number(resultObj?.uid ?? 0);
-  if (!uid) {
-    throw new OdooGatewayError("OdooSessionExpired", "جلسة Odoo لا تحتوي على مستخدم فعّال بعد تسجيل الدخول.");
-  }
-  return { ok: true, baseUrl, uid, cookieHeader: refreshedCookieHeader || cookieHeader };
+  throw new OdooGatewayError("OdooSessionAuthFailed", lastAuthErr);
 }
 
 async function webCallKw(params: {
