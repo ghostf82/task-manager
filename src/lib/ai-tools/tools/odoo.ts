@@ -15,9 +15,9 @@ export const odooAiTool: AIToolModule = {
   displayNameAr: "Odoo",
   displayNameEn: "Odoo",
   descriptionAr: "مهام المشروع و XML-RPC",
-  descriptionEn: "Project tasks via Odoo XML-RPC.",
+  descriptionEn: "Project tasks via Odoo API/Web session.",
   requiredCredentials: ["odoo"],
-  functions: ["fetchOpenTasks", "updateTaskStage"],
+  functions: ["fetchOpenTasks", "updateTaskStage", "createTask", "searchTasks"],
   async collectInbound(supabase: SupabaseClient, userId: string) {
     const connection = await loadOdooConnectionState(supabase, userId);
     if (connection.mode === "browser_session") {

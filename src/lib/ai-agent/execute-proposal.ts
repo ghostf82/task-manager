@@ -5,13 +5,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { appendAgentActivity } from "@/lib/ai-agent/activity-log";
 import { appendConversationMemory } from "@/lib/ai-agent/conversation-memory";
 import {
+  loadOdooBrowserSessionBundle,
   loadEmailCredentialBundle,
   loadOdooConnectionState,
   loadOdooCredentialBundle,
   odooCredentialsMissingMessage,
 } from "@/lib/ai-agent/load-user-integrations";
 import type { ProposedActionPayload } from "@/lib/ai-agent/proposal-types";
-import { odooAuthenticateUid, odooUpdateTaskStage, odooVerifyTaskAssigned } from "@/lib/integrations/odoo-client";
+import {
+  createOdooTaskViaWebLogin,
+  odooAuthenticateUid,
+  odooUpdateTaskStage,
+  odooVerifyTaskAssigned,
+  updateOdooTaskStageViaWebLogin,
+} from "@/lib/integrations/odoo-client";
 import { sendSmtpReply } from "@/lib/integrations/email-client";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -231,20 +238,27 @@ export async function executeApprovedProposal(
       if (!bundle) {
         const odooState = await loadOdooConnectionState(supabase, opts.userId);
         if (odooState.mode === "browser_session") {
-          const openUrl = `${odooState.baseUrl.replace(/\/+$/g, "")}/odoo`;
+          const browserBundle = await loadOdooBrowserSessionBundle(supabase, opts.userId);
+          if (!browserBundle) {
+            return { ok: false, error: "بيانات Browser Session غير مكتملة في خزنة Odoo." };
+          }
+          const upd = await updateOdooTaskStageViaWebLogin({
+            bundle: browserBundle,
+            taskId: action.taskId,
+            stageId: action.stageId,
+          });
+          if (!upd.ok) return { ok: false, error: upd.error };
           await appendAgentActivity(supabase, {
             userId: opts.userId,
             proposalId: opts.proposalId,
-            eventType: "executed",
-            message: `تم تجهيز إجراء Odoo عبر Browser Session: مهمة #${action.taskId} إلى المرحلة ${action.stageId}.`,
-            meta: { mode: "browser_session", taskId: action.taskId, stageId: action.stageId, openUrl },
+            eventType: "odoo_action_success",
+            message: `تم تحديث مهمة Odoo #${action.taskId} إلى المرحلة ${action.stageId} عبر Browser Session.`,
+            meta: { mode: "browser_session", taskId: action.taskId, stageId: action.stageId },
           });
           await postExecutionAssistantNote(
             supabase,
             opts.userId,
-            `تم تجهيز إجراء التحديث لحسابك عبر **Browser Session Mode** بدون الحاجة إلى اسم قاعدة البيانات.\n` +
-              `الخطوة التالية السريعة: افتح Odoo من هذا الرابط ${openUrl} ثم نفّذ تحديث المهمة #${action.taskId} إلى المرحلة ${action.stageId}.\n` +
-              `إذا رغبت، أقدر أجهز لك الآن خطوات تنفيذ مختصرة دقيقة حسب شاشة Odoo الحالية.`,
+            `تم تنفيذ التحديث بنجاح في Odoo: المهمة #${action.taskId} أصبحت في المرحلة ${action.stageId}.`,
             { proposal_id: opts.proposalId, action: "odoo_update_task", mode: "browser_session" }
           );
           return { ok: true };
@@ -315,6 +329,43 @@ export async function executeApprovedProposal(
         { proposal_id: opts.proposalId, action: "odoo_update_task" }
       );
       return { ok: true };
+    }
+
+    case "odoo_create_task": {
+      const odooState = await loadOdooConnectionState(supabase, opts.userId);
+      if (odooState.mode === "browser_session") {
+        const browserBundle = await loadOdooBrowserSessionBundle(supabase, opts.userId);
+        if (!browserBundle) {
+          return { ok: false, error: "بيانات Browser Session غير مكتملة في خزنة Odoo." };
+        }
+        const created = await createOdooTaskViaWebLogin({
+          bundle: browserBundle,
+          title: action.title,
+          description: action.description ?? null,
+          projectId: action.projectId ?? null,
+          stageId: action.stageId ?? null,
+        });
+        if (!created.ok) return { ok: false, error: created.error };
+        await appendAgentActivity(supabase, {
+          userId: opts.userId,
+          proposalId: opts.proposalId,
+          eventType: "odoo_action_success",
+          message: `تم إنشاء مهمة Odoo جديدة (#${created.taskId}) بعنوان: ${action.title}`,
+          meta: { mode: "browser_session", taskId: created.taskId },
+        });
+        await postExecutionAssistantNote(
+          supabase,
+          opts.userId,
+          `تم بنجاح إنشاء مهمة Odoo جديدة بعنوان «${action.title}» (رقم ${created.taskId}).`,
+          { proposal_id: opts.proposalId, action: "odoo_create_task", taskId: created.taskId }
+        );
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        error:
+          "إنشاء مهام Odoo من المساعد متاح حالياً عبر Browser Session Mode. فعّل هذا الوضع من صفحة التكاملات ثم أعد التنفيذ.",
+      };
     }
 
     case "update_company_document_expiry": {

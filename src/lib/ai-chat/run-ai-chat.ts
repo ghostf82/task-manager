@@ -244,6 +244,14 @@ function isTaskCreateIntent(userText: string): boolean {
   return hasCreate && hasTask;
 }
 
+function isOdooTaskIntent(userText: string): boolean {
+  const t = userText.toLowerCase();
+  return (
+    (t.includes("odoo") || t.includes("أودو") || t.includes("اودو")) &&
+    (t.includes("مهمة") || t.includes("task") || t.includes("مهام"))
+  );
+}
+
 function extractTaskTitle(userText: string): string | null {
   const m1 = userText.match(/(?:باسم|اسمها|بعنوان)\s+([^\n،,.]{3,120})/i);
   if (m1?.[1]) return m1[1].trim();
@@ -394,6 +402,7 @@ export async function handleAiChatPost(params: {
       );
     }
     const tenantId = tenantIds[0] ?? null;
+    const wantsOdooTask = isOdooTaskIntent(text);
     if (!tenantId) {
       return streamAssistantResponse(
         params.supabase,
@@ -406,26 +415,38 @@ export async function handleAiChatPost(params: {
     }
     const dueOn = todayStr;
     const reminder = parseArabicReminderDateTime(text, now);
-    const taskAction = normalizeProposedAction({
-      type: "create_corporate_task",
-      tenantId,
-      title,
-      dueOn,
-      notes: reminder
-        ? `مطلوب تذكير اليوم ${reminder.label} (محلّل تلقائياً من عبارة المستخدم).`
-        : null,
-    });
+    const taskAction = normalizeProposedAction(
+      wantsOdooTask
+        ? {
+            type: "odoo_create_task",
+            title,
+            description: reminder
+              ? `تذكير مطلوب اليوم ${reminder.label} (تحليل تلقائي من نص المستخدم).`
+              : null,
+          }
+        : {
+            type: "create_corporate_task",
+            tenantId,
+            title,
+            dueOn,
+            notes: reminder
+              ? `مطلوب تذكير اليوم ${reminder.label} (محلّل تلقائياً من عبارة المستخدم).`
+              : null,
+          }
+    );
     const taskProposalIds: string[] = [];
     const taskProposals: CreatedProposalInfo[] = [];
-    if (taskAction.type === "create_corporate_task") {
+    if (taskAction.type === "create_corporate_task" || taskAction.type === "odoo_create_task") {
       const { data: taskIns, error: taskErr } = await params.supabase
         .from("ai_agent_proposals")
         .insert({
           user_id: params.userId,
-          tenant_id: tenantId,
-          kind: "task_create",
-          title: `إنشاء مهمة: ${title}`,
-          summary: `إنشاء مهمة جديدة بعنوان «${title}» بتاريخ استحقاق ${dueOn}.`,
+          tenant_id: wantsOdooTask ? null : tenantId,
+          kind: wantsOdooTask ? "odoo_sync" : "task_create",
+          title: wantsOdooTask ? `إنشاء مهمة Odoo: ${title}` : `إنشاء مهمة: ${title}`,
+          summary: wantsOdooTask
+            ? `إنشاء مهمة جديدة في Odoo بعنوان «${title}».`
+            : `إنشاء مهمة جديدة بعنوان «${title}» بتاريخ استحقاق ${dueOn}.`,
           detail_json: { source: "chat_fast_track", created_via: "task_create_request" },
           proposed_action: taskAction as unknown as Record<string, unknown>,
           status: "pending",
@@ -436,8 +457,10 @@ export async function handleAiChatPost(params: {
         taskProposalIds.push(String(taskIns.id));
         taskProposals.push({
           id: String(taskIns.id),
-          title: `إنشاء مهمة: ${title}`,
-          summary: `إنشاء مهمة جديدة بعنوان «${title}».`,
+            title: wantsOdooTask ? `إنشاء مهمة Odoo: ${title}` : `إنشاء مهمة: ${title}`,
+            summary: wantsOdooTask
+              ? `إنشاء مهمة Odoo جديدة بعنوان «${title}».`
+              : `إنشاء مهمة جديدة بعنوان «${title}».`,
         });
       }
     }

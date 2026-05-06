@@ -79,6 +79,20 @@ export function normalizeProposedAction(a: unknown): ProposedActionPayload {
       }
       return { type: "odoo_update_task", taskId, stageId };
     }
+    case "odoo_create_task": {
+      const title = typeof a.title === "string" ? a.title.trim() : "";
+      if (!title) return { type: "noop" };
+      const description = typeof a.description === "string" ? a.description : null;
+      const projectIdRaw = Number(a.projectId);
+      const stageIdRaw = Number(a.stageId);
+      return {
+        type: "odoo_create_task",
+        title,
+        description,
+        projectId: Number.isFinite(projectIdRaw) ? projectIdRaw : null,
+        stageId: Number.isFinite(stageIdRaw) ? stageIdRaw : null,
+      };
+    }
     case "update_company_document_expiry": {
       const documentId = typeof a.documentId === "string" ? a.documentId.trim() : "";
       const tenantId = typeof a.tenantId === "string" ? a.tenantId.trim() : "";

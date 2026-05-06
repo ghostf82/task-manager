@@ -22,6 +22,12 @@ import { requireSession } from "@/lib/dashboard-auth";
 import { tAction, tActionFill } from "@/lib/i18n/action-messages";
 import type { OdooTaskRecord } from "@/lib/integrations/odoo-xmlrpc";
 import { createClient } from "@/lib/supabase/server";
+import {
+  createOdooTaskViaWebLogin,
+  searchOdooTasksViaWebLogin,
+  updateOdooTaskStageViaWebLogin,
+} from "@/lib/integrations/odoo-client";
+import { loadOdooBrowserSessionBundle, loadOdooConnectionState } from "@/lib/ai-agent/load-user-integrations";
 
 export type ScanResult = {
   ok: boolean;
@@ -544,4 +550,105 @@ export async function advanceExecutionPlanStepAction(
   revalidatePath("/dashboard/ai-agent");
   revalidatePath("/dashboard/chat");
   return { ok: true, message: res.message, done: res.done };
+}
+
+export async function listOdooTasksAction(input?: {
+  text?: string;
+  projectId?: number | null;
+  stageId?: number | null;
+  limit?: number;
+}): Promise<{ ok: true; tasks: Array<{ id: number; name: string; stage: string; project: string; deadline: string }> } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const mode = await loadOdooConnectionState(supabase, session.id);
+  if (mode.mode !== "browser_session") {
+    return { ok: false, error: "فعّل Browser Session Mode أولاً من إعدادات التكاملات." };
+  }
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) {
+    return { ok: false, error: "بيانات Odoo في Browser Session غير مكتملة." };
+  }
+  const res = await searchOdooTasksViaWebLogin({
+    bundle,
+    text: input?.text,
+    projectId: input?.projectId ?? null,
+    stageId: input?.stageId ?? null,
+    limit: input?.limit ?? 50,
+  });
+  if (res.error) {
+    await appendAgentActivity(supabase, {
+      userId: session.id,
+      eventType: "odoo_session_error",
+      message: res.error,
+    });
+    return { ok: false, error: res.error };
+  }
+  return {
+    ok: true,
+    tasks: res.tasks.map((t) => ({
+      id: t.id,
+      name: t.name ?? "",
+      stage: Array.isArray(t.stage_id) ? String(t.stage_id[1]) : "—",
+      project: Array.isArray(t.project_id) ? String(t.project_id[1]) : "—",
+      deadline: typeof t.date_deadline === "string" ? t.date_deadline : "—",
+    })),
+  };
+}
+
+export async function updateOdooTaskStageAction(input: {
+  taskId: number;
+  stageId: number;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const mode = await loadOdooConnectionState(supabase, session.id);
+  if (mode.mode !== "browser_session") {
+    return { ok: false, error: "تحديث مهام Odoo عبر التطبيق متاح حالياً في Browser Session Mode." };
+  }
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const upd = await updateOdooTaskStageViaWebLogin({
+    bundle,
+    taskId: Number(input.taskId),
+    stageId: Number(input.stageId),
+  });
+  if (!upd.ok) return { ok: false, error: upd.error };
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_action_success",
+    message: `تم تحديث مهمة Odoo #${input.taskId} إلى المرحلة ${input.stageId}.`,
+  });
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, message: "تم تحديث مرحلة المهمة في Odoo بنجاح." };
+}
+
+export async function createOdooTaskAction(input: {
+  title: string;
+  description?: string;
+  projectId?: number | null;
+  stageId?: number | null;
+}): Promise<{ ok: true; message: string; taskId: number } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const mode = await loadOdooConnectionState(supabase, session.id);
+  if (mode.mode !== "browser_session") {
+    return { ok: false, error: "إنشاء مهام Odoo عبر التطبيق متاح حالياً في Browser Session Mode." };
+  }
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const created = await createOdooTaskViaWebLogin({
+    bundle,
+    title: String(input.title ?? "").trim(),
+    description: input.description ?? null,
+    projectId: input.projectId ?? null,
+    stageId: input.stageId ?? null,
+  });
+  if (!created.ok) return { ok: false, error: created.error };
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_action_success",
+    message: `تم إنشاء مهمة Odoo جديدة (#${created.taskId}) بعنوان: ${String(input.title ?? "").trim()}`,
+  });
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, message: "تم إنشاء المهمة في Odoo بنجاح.", taskId: created.taskId };
 }

@@ -36,6 +36,13 @@ export type ProposedActionPayload =
       stageId: number;
     }
   | {
+      type: "odoo_create_task";
+      title: string;
+      description?: string | null;
+      projectId?: number | null;
+      stageId?: number | null;
+    }
+  | {
       type: "update_company_document_expiry";
       documentId: string;
       tenantId: string;

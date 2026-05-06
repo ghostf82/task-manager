@@ -133,6 +133,11 @@ export async function executeAiChatTool(
           return { text: "رفض: المستخدم لا يملك ترخيص أداة Odoo." };
         }
       }
+      if (proposed.type === "odoo_create_task") {
+        if (!ctx.licensedToolSlugs.includes("odoo")) {
+          return { text: "رفض: المستخدم لا يملك ترخيص أداة Odoo." };
+        }
+      }
       if (proposed.type === "create_corporate_task") {
         if (!ctx.tenantIds.includes(proposed.tenantId)) {
           return { text: "رفض: شركة المهمة غير مسموحة للمستخدم." };

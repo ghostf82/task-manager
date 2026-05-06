@@ -19,6 +19,14 @@ export type OdooCredentialBundle = {
   passwordEncrypted: string;
 };
 
+export type OdooWebTaskLite = {
+  id: number;
+  name: string;
+  stage_id?: [number, string] | false;
+  project_id?: [number, string] | false;
+  date_deadline?: string | false;
+};
+
 const TASK_MODEL = process.env.ODOO_TASK_MODEL?.trim() || "project.task";
 const ODOO_CALL_TIMEOUT_MS = Number(process.env.ODOO_CALL_TIMEOUT_MS || 8_000);
 const ODOO_SETTINGS_HINT =
@@ -57,6 +65,130 @@ function mergeCookieHeaders(...cookieGroups: string[][]): string {
     }
   }
   return [...pairs.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+}
+
+async function createWebSession(bundle: OdooCredentialBundle): Promise<{
+  ok: true;
+  baseUrl: string;
+  uid: number;
+  cookieHeader: string;
+}> {
+  const baseUrl = sanitizeOdooBaseUrl(bundle.baseUrl);
+  const login = bundle.username.trim();
+  const password = decryptCredentialSecret(bundle.passwordEncrypted);
+
+  const loginPage = await withTimeout(
+    fetch(`${baseUrl}/web/login`, { method: "GET", cache: "no-store" }),
+    ODOO_CALL_TIMEOUT_MS,
+    "odoo_web_login_page"
+  );
+  const loginHtml = await loginPage.text();
+  const csrfToken =
+    loginHtml.match(/name=["']csrf_token["'][^>]*value=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
+  const dbFromPage =
+    loginHtml.match(/name=["']db["'][^>]*value=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
+
+  const body = new URLSearchParams();
+  body.set("login", login);
+  body.set("password", password);
+  if (csrfToken) body.set("csrf_token", csrfToken);
+  if (dbFromPage) body.set("db", dbFromPage);
+
+  const pageCookies = readSetCookies(loginPage);
+  const authRes = await withTimeout(
+    fetch(`${baseUrl}/web/login`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: mergeCookieHeaders(pageCookies),
+      },
+      body: body.toString(),
+      redirect: "manual",
+      cache: "no-store",
+    }),
+    ODOO_CALL_TIMEOUT_MS,
+    "odoo_web_login_submit"
+  );
+  const authCookies = readSetCookies(authRes);
+  const cookieHeader = mergeCookieHeaders(pageCookies, authCookies);
+  if (!cookieHeader.includes("session_id=")) {
+    throw new Error(
+      "تعذر إنشاء جلسة Odoo عبر المتصفح. تحقق من اسم المستخدم/كلمة المرور أو أعد الحفظ من صفحة الربط."
+    );
+  }
+
+  const sessionInfoRes = await withTimeout(
+    fetch(`${baseUrl}/web/session/get_session_info`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        cookie: cookieHeader,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "call", params: {}, id: Date.now() }),
+      cache: "no-store",
+    }),
+    ODOO_CALL_TIMEOUT_MS,
+    "odoo_web_session_info"
+  );
+  const sessionInfoRaw = await sessionInfoRes.text();
+  const sessionInfo = sessionInfoRaw ? (JSON.parse(sessionInfoRaw) as Record<string, unknown>) : {};
+  const resultObj =
+    sessionInfo.result && typeof sessionInfo.result === "object"
+      ? (sessionInfo.result as Record<string, unknown>)
+      : null;
+  const uid = Number(resultObj?.uid ?? 0);
+  if (!uid) {
+    throw new Error("جلسة Odoo لا تحتوي على مستخدم فعّال بعد تسجيل الدخول.");
+  }
+  return { ok: true, baseUrl, uid, cookieHeader };
+}
+
+async function webCallKw(params: {
+  baseUrl: string;
+  cookieHeader: string;
+  model: string;
+  method: string;
+  args?: unknown[];
+  kwargs?: Record<string, unknown>;
+}): Promise<Record<string, unknown>> {
+  const payload = {
+    jsonrpc: "2.0",
+    method: "call",
+    params: {
+      model: params.model,
+      method: params.method,
+      args: params.args ?? [],
+      kwargs: params.kwargs ?? {},
+    },
+    id: Date.now(),
+  };
+  const res = await withTimeout(
+    fetch(`${params.baseUrl}/web/dataset/call_kw/${params.model}/${params.method}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-requested-with": "XMLHttpRequest",
+        cookie: params.cookieHeader,
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    }),
+    ODOO_CALL_TIMEOUT_MS,
+    `odoo_call_kw_${params.model}_${params.method}`
+  );
+  const raw = await res.text();
+  const json = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  if (json.error && typeof json.error === "object") {
+    const e = json.error as Record<string, unknown>;
+    const msg =
+      (typeof e.message === "string" && e.message) ||
+      (typeof (e.data as Record<string, unknown> | undefined)?.message === "string"
+        ? String((e.data as Record<string, unknown>).message)
+        : "Odoo call_kw error");
+    throw new Error(msg);
+  }
+  return json;
 }
 
 function resolveDatabase(bundle: OdooCredentialBundle): string {
@@ -593,108 +725,15 @@ export async function fetchOdooOpenTasksViaWebLogin(
   bundle: OdooCredentialBundle
 ): Promise<{ tasks: OdooTaskRecord[]; error?: string }> {
   try {
-    const baseUrl = sanitizeOdooBaseUrl(bundle.baseUrl);
-    const login = bundle.username.trim();
-    const password = decryptCredentialSecret(bundle.passwordEncrypted);
-
-    const loginPage = await withTimeout(
-      fetch(`${baseUrl}/web/login`, { method: "GET", cache: "no-store" }),
-      ODOO_CALL_TIMEOUT_MS,
-      "odoo_web_login_page"
-    );
-    const loginHtml = await loginPage.text();
-    const csrfToken =
-      loginHtml.match(/name=["']csrf_token["'][^>]*value=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
-    const dbFromPage =
-      loginHtml.match(/name=["']db["'][^>]*value=["']([^"']+)["']/i)?.[1]?.trim() ?? "";
-
-    const body = new URLSearchParams();
-    body.set("login", login);
-    body.set("password", password);
-    if (csrfToken) body.set("csrf_token", csrfToken);
-    if (dbFromPage) body.set("db", dbFromPage);
-
-    const pageCookies = readSetCookies(loginPage);
-    const authRes = await withTimeout(
-      fetch(`${baseUrl}/web/login`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          cookie: mergeCookieHeaders(pageCookies),
-        },
-        body: body.toString(),
-        redirect: "manual",
-        cache: "no-store",
-      }),
-      ODOO_CALL_TIMEOUT_MS,
-      "odoo_web_login_submit"
-    );
-    const authCookies = readSetCookies(authRes);
-    const cookieHeader = mergeCookieHeaders(pageCookies, authCookies);
-    if (!cookieHeader.includes("session_id=")) {
-      return {
-        tasks: [],
-        error:
-          "تعذر إنشاء جلسة Odoo عبر المتصفح. تحقق من اسم المستخدم/كلمة المرور أو أعد الحفظ من صفحة الربط.",
-      };
-    }
-
-    const sessionInfoRes = await withTimeout(
-      fetch(`${baseUrl}/web/session/get_session_info`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-requested-with": "XMLHttpRequest",
-          cookie: cookieHeader,
-        },
-        body: JSON.stringify({ jsonrpc: "2.0", method: "call", params: {}, id: Date.now() }),
-        cache: "no-store",
-      }),
-      ODOO_CALL_TIMEOUT_MS,
-      "odoo_web_session_info"
-    );
-    const sessionInfoRaw = await sessionInfoRes.text();
-    const sessionInfo = sessionInfoRaw ? (JSON.parse(sessionInfoRaw) as Record<string, unknown>) : {};
-    const resultObj =
-      sessionInfo.result && typeof sessionInfo.result === "object"
-        ? (sessionInfo.result as Record<string, unknown>)
-        : null;
-    const uid = Number(resultObj?.uid ?? 0);
-    if (!uid) {
-      return { tasks: [], error: "جلسة Odoo لا تحتوي على مستخدم فعّال بعد تسجيل الدخول." };
-    }
-
-    const payload = {
-      jsonrpc: "2.0",
-      method: "call",
-      params: {
-        model: TASK_MODEL,
-        method: "search_read",
-        args: [defaultOpenTaskDomain(uid)],
-        kwargs: {
-          fields: [...TASK_FIELDS],
-          limit: 60,
-        },
-      },
-      id: Date.now(),
-    };
-
-    const tasksRes = await withTimeout(
-      fetch(`${baseUrl}/web/dataset/call_kw/${TASK_MODEL}/search_read`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-requested-with": "XMLHttpRequest",
-          cookie: cookieHeader,
-        },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-      }),
-      ODOO_CALL_TIMEOUT_MS,
-      "odoo_web_tasks_search_read"
-    );
-    const tasksRaw = await tasksRes.text();
-    const tasksJson = tasksRaw ? (JSON.parse(tasksRaw) as Record<string, unknown>) : {};
+    const session = await createWebSession(bundle);
+    const tasksJson = await webCallKw({
+      baseUrl: session.baseUrl,
+      cookieHeader: session.cookieHeader,
+      model: TASK_MODEL,
+      method: "search_read",
+      args: [defaultOpenTaskDomain(session.uid)],
+      kwargs: { fields: [...TASK_FIELDS], limit: 60 },
+    });
     const result = Array.isArray(tasksJson.result) ? tasksJson.result : [];
     const tasks = result
       .filter((x) => x && typeof x === "object")
@@ -708,6 +747,103 @@ export async function fetchOdooOpenTasksViaWebLogin(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { tasks: [], error: humanizeOdooError(msg) };
+  }
+}
+
+export async function searchOdooTasksViaWebLogin(params: {
+  bundle: OdooCredentialBundle;
+  text?: string;
+  projectId?: number | null;
+  stageId?: number | null;
+  limit?: number;
+}): Promise<{ tasks: OdooWebTaskLite[]; error?: string }> {
+  try {
+    const session = await createWebSession(params.bundle);
+    const domain: unknown[] = [];
+    if (params.text?.trim()) {
+      domain.push(["name", "ilike", params.text.trim()]);
+    }
+    if (Number.isFinite(Number(params.projectId))) {
+      domain.push(["project_id", "=", Number(params.projectId)]);
+    }
+    if (Number.isFinite(Number(params.stageId))) {
+      domain.push(["stage_id", "=", Number(params.stageId)]);
+    }
+    const json = await webCallKw({
+      baseUrl: session.baseUrl,
+      cookieHeader: session.cookieHeader,
+      model: TASK_MODEL,
+      method: "search_read",
+      args: [domain],
+      kwargs: {
+        fields: ["id", "name", "stage_id", "project_id", "date_deadline"],
+        limit: Math.min(100, Math.max(1, Number(params.limit ?? 40))),
+      },
+    });
+    const rows = Array.isArray(json.result) ? json.result : [];
+    const tasks = rows
+      .filter((x) => x && typeof x === "object")
+      .map((r) => r as OdooWebTaskLite)
+      .map((r) => ({ ...r, id: Number(r.id), name: String(r.name ?? "") }));
+    return { tasks };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { tasks: [], error: humanizeOdooError(msg) };
+  }
+}
+
+export async function updateOdooTaskStageViaWebLogin(params: {
+  bundle: OdooCredentialBundle;
+  taskId: number;
+  stageId: number;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const session = await createWebSession(params.bundle);
+    const json = await webCallKw({
+      baseUrl: session.baseUrl,
+      cookieHeader: session.cookieHeader,
+      model: TASK_MODEL,
+      method: "write",
+      args: [[params.taskId], { stage_id: params.stageId }],
+    });
+    if (json.result !== true) {
+      return { ok: false, error: "فشل تحديث مرحلة المهمة في Odoo." };
+    }
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: humanizeOdooError(msg) };
+  }
+}
+
+export async function createOdooTaskViaWebLogin(params: {
+  bundle: OdooCredentialBundle;
+  title: string;
+  description?: string | null;
+  projectId?: number | null;
+  stageId?: number | null;
+}): Promise<{ ok: true; taskId: number } | { ok: false; error: string }> {
+  try {
+    const session = await createWebSession(params.bundle);
+    const values: Record<string, unknown> = { name: params.title.trim() };
+    if (params.description?.trim()) values.description = params.description.trim();
+    if (Number.isFinite(Number(params.projectId))) values.project_id = Number(params.projectId);
+    if (Number.isFinite(Number(params.stageId))) values.stage_id = Number(params.stageId);
+    const json = await webCallKw({
+      baseUrl: session.baseUrl,
+      cookieHeader: session.cookieHeader,
+      model: TASK_MODEL,
+      method: "create",
+      args: [values],
+    });
+    const taskId = Number(json.result ?? 0);
+    if (!taskId) {
+      return { ok: false, error: "تعذر إنشاء المهمة في Odoo (لم يتم إرجاع معرّف)." };
+    }
+    return { ok: true, taskId };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: humanizeOdooError(msg) };
   }
 }
 

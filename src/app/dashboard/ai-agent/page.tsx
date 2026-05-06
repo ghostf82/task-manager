@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { analyzePasteAction } from "@/app/dashboard/ai-agent/actions";
 import { InboundScanCard } from "@/app/dashboard/ai-agent/inbound-scan-card";
+import { OdooTasksPanel } from "@/app/dashboard/ai-agent/odoo-tasks-panel";
 import {
   PendingProposalsPanel,
   type PendingProposalRow,
@@ -169,6 +170,8 @@ export default async function AiAgentPage({
         canScan={canRunInboundScan}
         licensedToolLabels={licensedToolLabels}
       />
+
+      <OdooTasksPanel />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <PendingProposalsPanel proposals={(pending ?? []) as PendingProposalRow[]} />
