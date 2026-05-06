@@ -568,6 +568,11 @@ export async function listOdooTasksAction(input?: {
   if (!bundle) {
     return { ok: false, error: "بيانات Odoo في Browser Session غير مكتملة." };
   }
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_call_start",
+    message: "بدء قراءة مهام Odoo عبر Browser Session.",
+  });
   const res = await searchOdooTasksViaWebLogin({
     bundle,
     text: input?.text,
@@ -578,11 +583,16 @@ export async function listOdooTasksAction(input?: {
   if (res.error) {
     await appendAgentActivity(supabase, {
       userId: session.id,
-      eventType: "odoo_session_error",
+      eventType: "odoo_call_fail",
       message: res.error,
     });
     return { ok: false, error: res.error };
   }
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_handshake_ok",
+    message: `تمت قراءة مهام Odoo بنجاح (${res.tasks.length}).`,
+  });
   return {
     ok: true,
     tasks: res.tasks.map((t) => ({
@@ -607,12 +617,24 @@ export async function updateOdooTaskStageAction(input: {
   }
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_call_start",
+    message: `بدء تحديث مهمة Odoo #${input.taskId} إلى المرحلة ${input.stageId}.`,
+  });
   const upd = await updateOdooTaskStageViaWebLogin({
     bundle,
     taskId: Number(input.taskId),
     stageId: Number(input.stageId),
   });
-  if (!upd.ok) return { ok: false, error: upd.error };
+  if (!upd.ok) {
+    await appendAgentActivity(supabase, {
+      userId: session.id,
+      eventType: "odoo_call_fail",
+      message: upd.error,
+    });
+    return { ok: false, error: upd.error };
+  }
   await appendAgentActivity(supabase, {
     userId: session.id,
     eventType: "odoo_action_success",
@@ -636,6 +658,11 @@ export async function createOdooTaskAction(input: {
   }
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_call_start",
+    message: `بدء إنشاء مهمة Odoo بعنوان: ${String(input.title ?? "").trim()}`,
+  });
   const created = await createOdooTaskViaWebLogin({
     bundle,
     title: String(input.title ?? "").trim(),
@@ -643,7 +670,14 @@ export async function createOdooTaskAction(input: {
     projectId: input.projectId ?? null,
     stageId: input.stageId ?? null,
   });
-  if (!created.ok) return { ok: false, error: created.error };
+  if (!created.ok) {
+    await appendAgentActivity(supabase, {
+      userId: session.id,
+      eventType: "odoo_call_fail",
+      message: created.error,
+    });
+    return { ok: false, error: created.error };
+  }
   await appendAgentActivity(supabase, {
     userId: session.id,
     eventType: "odoo_action_success",

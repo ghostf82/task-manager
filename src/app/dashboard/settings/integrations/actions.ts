@@ -36,8 +36,9 @@ export async function saveOdooCredentialsAction(formData: FormData) {
   }
 
   const baseUrl = sanitizeOdooBaseUrl(String(formData.get("base_url") ?? "").trim());
-  const browserMode = String(formData.get("connection_mode") ?? "").trim() === "browser_session";
+  const requestedMode = String(formData.get("connection_mode") ?? "").trim();
   const databaseName = String(formData.get("database_name") ?? "").trim();
+  const browserMode = requestedMode === "browser_session" || !databaseName;
   const loginUsername = String(formData.get("login_username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
@@ -225,9 +226,20 @@ export async function testOdooConnectionAction(input: {
     hasPassword: Boolean(String(input.password ?? "").trim()),
   });
 
-  if (String(input.database_name ?? "").trim() === ODOO_BROWSER_MODE_DB) {
+  const dbInput = String(input.database_name ?? "").trim();
+  if (dbInput === ODOO_BROWSER_MODE_DB || !dbInput) {
+    await appendAgentActivity(supabase, {
+      userId: session.id,
+      eventType: "odoo_handshake_start",
+      message: "بدء اختبار Odoo عبر Browser Session.",
+    });
     const browserBundle = await loadOdooBrowserSessionBundle(supabase, session.id);
     if (!browserBundle) {
+      await appendAgentActivity(supabase, {
+        userId: session.id,
+        eventType: "odoo_handshake_fail",
+        message: "Browser Session Mode مفعّل لكن البيانات غير مكتملة.",
+      });
       return {
         ok: false,
         message:
@@ -236,8 +248,18 @@ export async function testOdooConnectionAction(input: {
     }
     const probe = await fetchOdooOpenTasksViaWebLogin(browserBundle);
     if (probe.error) {
+      await appendAgentActivity(supabase, {
+        userId: session.id,
+        eventType: "odoo_handshake_fail",
+        message: probe.error,
+      });
       return { ok: false, message: probe.error };
     }
+    await appendAgentActivity(supabase, {
+      userId: session.id,
+      eventType: "odoo_handshake_ok",
+      message: `تم إنشاء جلسة Odoo بنجاح وقراءة ${probe.tasks.length} مهمة.`,
+    });
     return {
       ok: true,
       message: `Browser Session Mode جاهز: تم إنشاء جلسة Odoo بنجاح وقراءة ${probe.tasks.length} مهمة.`,

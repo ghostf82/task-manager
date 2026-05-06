@@ -27,6 +27,25 @@ export type OdooWebTaskLite = {
   date_deadline?: string | false;
 };
 
+export type OdooGatewayErrorCode =
+  | "OdooSessionAuthFailed"
+  | "OdooSessionExpired"
+  | "OdooCallKwHtmlRedirect"
+  | "OdooRateLimited"
+  | "OdooNetworkTimeout"
+  | "OdooInvalidCredentials"
+  | "OdooDatabaseNotFound"
+  | "OdooUnknown";
+
+class OdooGatewayError extends Error {
+  code: OdooGatewayErrorCode;
+  constructor(code: OdooGatewayErrorCode, message: string) {
+    super(message);
+    this.name = "OdooGatewayError";
+    this.code = code;
+  }
+}
+
 const TASK_MODEL = process.env.ODOO_TASK_MODEL?.trim() || "project.task";
 const ODOO_CALL_TIMEOUT_MS = Number(process.env.ODOO_CALL_TIMEOUT_MS || 8_000);
 const ODOO_SETTINGS_HINT =
@@ -74,12 +93,35 @@ function parseJsonOrThrow(raw: string, context: string): Record<string, unknown>
   } catch {
     const sample = raw.slice(0, 220).toLowerCase();
     if (sample.includes("<!doctype") || sample.includes("<html")) {
-      throw new Error(
+      throw new OdooGatewayError(
+        "OdooCallKwHtmlRedirect",
         `${context}: خادم Odoo أعاد HTML بدل JSON (غالباً إعادة توجيه لجلسة تسجيل الدخول أو مسار غير صحيح).`
       );
     }
-    throw new Error(`${context}: استجابة غير JSON: ${raw.slice(0, 220)}`);
+    throw new OdooGatewayError("OdooUnknown", `${context}: استجابة غير JSON: ${raw.slice(0, 220)}`);
   }
+}
+
+function asGatewayError(error: unknown): OdooGatewayError {
+  if (error instanceof OdooGatewayError) return error;
+  const msg = error instanceof Error ? error.message : String(error);
+  const low = msg.toLowerCase();
+  if (low.includes("wrong login/password") || low.includes("invalid password")) {
+    return new OdooGatewayError("OdooInvalidCredentials", msg);
+  }
+  if (low.includes("database") && low.includes("does not exist")) {
+    return new OdooGatewayError("OdooDatabaseNotFound", msg);
+  }
+  if (low.includes("timeout")) {
+    return new OdooGatewayError("OdooNetworkTimeout", msg);
+  }
+  if (low.includes("429")) {
+    return new OdooGatewayError("OdooRateLimited", msg);
+  }
+  if (low.includes("session") && low.includes("expired")) {
+    return new OdooGatewayError("OdooSessionExpired", msg);
+  }
+  return new OdooGatewayError("OdooUnknown", msg);
 }
 
 async function createWebSession(bundle: OdooCredentialBundle): Promise<{
@@ -221,7 +263,6 @@ function candidateDatabases(baseUrl: string, preferred: string): string[] {
   };
   push(preferred);
   push(process.env.ODOO_DATABASE_NAME ?? "");
-  push("production");
   try {
     const u = new URL(baseUrl);
     const hostFirst = u.hostname.split(".")[0] ?? "";
@@ -230,6 +271,30 @@ function candidateDatabases(baseUrl: string, preferred: string): string[] {
     // ignore malformed URL here; validator will handle later
   }
   return out;
+}
+
+async function callKwWithSessionRetry(
+  bundle: OdooCredentialBundle,
+  run: (session: { baseUrl: string; cookieHeader: string; uid: number }) => Promise<Record<string, unknown>>
+): Promise<Record<string, unknown>> {
+  let last: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const session = await createWebSession(bundle);
+      return await run(session);
+    } catch (e) {
+      last = e;
+      const ge = asGatewayError(e);
+      if (
+        attempt === 0 &&
+        (ge.code === "OdooCallKwHtmlRedirect" || ge.code === "OdooSessionExpired" || ge.code === "OdooSessionAuthFailed")
+      ) {
+        continue;
+      }
+      throw ge;
+    }
+  }
+  throw asGatewayError(last);
 }
 
 async function discoverDatabaseFromLoginPage(baseUrl: string): Promise<string | null> {
@@ -533,6 +598,25 @@ function humanizeOdooError(raw: string): string {
   return `تعذر الاتصال بـ Odoo: ${raw}`;
 }
 
+function humanizeGatewayError(error: unknown): string {
+  const ge = asGatewayError(error);
+  switch (ge.code) {
+    case "OdooInvalidCredentials":
+      return "Invalid Password: The Odoo password or username is incorrect.";
+    case "OdooDatabaseNotFound":
+      return "Database Name Error: قاعدة البيانات غير موجودة على خادم Odoo. في Odoo Online استخدم Browser Session Mode ولا تدخل DB يدويًا.";
+    case "OdooCallKwHtmlRedirect":
+    case "OdooSessionExpired":
+      return "Odoo Session Error: انتهت جلسة Odoo أو تم تحويل الطلب لصفحة تسجيل الدخول. أعد حفظ الربط ثم أعد المحاولة.";
+    case "OdooRateLimited":
+      return "Odoo Rate Limit: تم تجاوز الحد المؤقت للطلبات. أعد المحاولة بعد لحظات.";
+    case "OdooNetworkTimeout":
+      return `تعذّر الاتصال بـ Odoo خلال المهلة. ${ODOO_SETTINGS_HINT}`;
+    default:
+      return humanizeOdooError(ge.message);
+  }
+}
+
 async function authenticateWithFallback(params: {
   baseUrl: string;
   preferredDatabase: string;
@@ -745,15 +829,16 @@ export async function fetchOdooOpenTasksViaWebLogin(
   bundle: OdooCredentialBundle
 ): Promise<{ tasks: OdooTaskRecord[]; error?: string }> {
   try {
-    const session = await createWebSession(bundle);
-    const tasksJson = await webCallKw({
-      baseUrl: session.baseUrl,
-      cookieHeader: session.cookieHeader,
-      model: TASK_MODEL,
-      method: "search_read",
-      args: [defaultOpenTaskDomain(session.uid)],
-      kwargs: { fields: [...TASK_FIELDS], limit: 60 },
-    });
+    const tasksJson = await callKwWithSessionRetry(bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: TASK_MODEL,
+        method: "search_read",
+        args: [defaultOpenTaskDomain(session.uid)],
+        kwargs: { fields: [...TASK_FIELDS], limit: 60 },
+      })
+    );
     const result = Array.isArray(tasksJson.result) ? tasksJson.result : [];
     const tasks = result
       .filter((x) => x && typeof x === "object")
@@ -765,8 +850,7 @@ export async function fetchOdooOpenTasksViaWebLogin(
       }));
     return { tasks };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { tasks: [], error: humanizeOdooError(msg) };
+    return { tasks: [], error: humanizeGatewayError(e) };
   }
 }
 
@@ -778,7 +862,6 @@ export async function searchOdooTasksViaWebLogin(params: {
   limit?: number;
 }): Promise<{ tasks: OdooWebTaskLite[]; error?: string }> {
   try {
-    const session = await createWebSession(params.bundle);
     const domain: unknown[] = [];
     if (params.text?.trim()) {
       domain.push(["name", "ilike", params.text.trim()]);
@@ -789,17 +872,19 @@ export async function searchOdooTasksViaWebLogin(params: {
     if (Number.isFinite(Number(params.stageId))) {
       domain.push(["stage_id", "=", Number(params.stageId)]);
     }
-    const json = await webCallKw({
-      baseUrl: session.baseUrl,
-      cookieHeader: session.cookieHeader,
-      model: TASK_MODEL,
-      method: "search_read",
-      args: [domain],
-      kwargs: {
-        fields: ["id", "name", "stage_id", "project_id", "date_deadline"],
-        limit: Math.min(100, Math.max(1, Number(params.limit ?? 40))),
-      },
-    });
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: TASK_MODEL,
+        method: "search_read",
+        args: [domain],
+        kwargs: {
+          fields: ["id", "name", "stage_id", "project_id", "date_deadline"],
+          limit: Math.min(100, Math.max(1, Number(params.limit ?? 40))),
+        },
+      })
+    );
     const rows = Array.isArray(json.result) ? json.result : [];
     const tasks = rows
       .filter((x) => x && typeof x === "object")
@@ -807,8 +892,7 @@ export async function searchOdooTasksViaWebLogin(params: {
       .map((r) => ({ ...r, id: Number(r.id), name: String(r.name ?? "") }));
     return { tasks };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { tasks: [], error: humanizeOdooError(msg) };
+    return { tasks: [], error: humanizeGatewayError(e) };
   }
 }
 
@@ -818,21 +902,21 @@ export async function updateOdooTaskStageViaWebLogin(params: {
   stageId: number;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    const session = await createWebSession(params.bundle);
-    const json = await webCallKw({
-      baseUrl: session.baseUrl,
-      cookieHeader: session.cookieHeader,
-      model: TASK_MODEL,
-      method: "write",
-      args: [[params.taskId], { stage_id: params.stageId }],
-    });
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: TASK_MODEL,
+        method: "write",
+        args: [[params.taskId], { stage_id: params.stageId }],
+      })
+    );
     if (json.result !== true) {
       return { ok: false, error: "فشل تحديث مرحلة المهمة في Odoo." };
     }
     return { ok: true };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: humanizeOdooError(msg) };
+    return { ok: false, error: humanizeGatewayError(e) };
   }
 }
 
@@ -844,26 +928,26 @@ export async function createOdooTaskViaWebLogin(params: {
   stageId?: number | null;
 }): Promise<{ ok: true; taskId: number } | { ok: false; error: string }> {
   try {
-    const session = await createWebSession(params.bundle);
     const values: Record<string, unknown> = { name: params.title.trim() };
     if (params.description?.trim()) values.description = params.description.trim();
     if (Number.isFinite(Number(params.projectId))) values.project_id = Number(params.projectId);
     if (Number.isFinite(Number(params.stageId))) values.stage_id = Number(params.stageId);
-    const json = await webCallKw({
-      baseUrl: session.baseUrl,
-      cookieHeader: session.cookieHeader,
-      model: TASK_MODEL,
-      method: "create",
-      args: [values],
-    });
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: TASK_MODEL,
+        method: "create",
+        args: [values],
+      })
+    );
     const taskId = Number(json.result ?? 0);
     if (!taskId) {
       return { ok: false, error: "تعذر إنشاء المهمة في Odoo (لم يتم إرجاع معرّف)." };
     }
     return { ok: true, taskId };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: humanizeOdooError(msg) };
+    return { ok: false, error: humanizeGatewayError(e) };
   }
 }
 
