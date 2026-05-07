@@ -28,14 +28,14 @@ export function LanguageToggle({ locale, label, arLabel, enLabel, className }: P
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 border-b border-border/80 px-3 py-2",
+        "flex items-center gap-1.5 border-b border-sidebar-border/60 bg-white/5 px-3 py-2 text-white/90",
         className,
       )}
       role="group"
       aria-label={label}
     >
-      <Languages className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-      <span className="text-muted-foreground me-auto text-[11px] font-medium uppercase tracking-wide">
+      <Languages className="size-3.5 shrink-0 text-white/70" aria-hidden />
+      <span className="me-auto text-[11px] font-medium uppercase tracking-wide text-white/70">
         {label}
       </span>
       <Button

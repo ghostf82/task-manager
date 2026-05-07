@@ -154,18 +154,19 @@ export function ExecutiveDashboard({
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
-      <div className="relative overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-slate-500/8 via-background to-violet-500/10 p-6 shadow-sm md:p-8">
-        <div className="pointer-events-none absolute -start-24 -top-24 size-72 rounded-full bg-violet-500/10 blur-3xl" />
+      <div className="premium-hero p-6 md:p-8">
+        <div className="pointer-events-none absolute -start-24 -top-24 size-72 rounded-full bg-white/20 blur-3xl" />
+        <div className="pointer-events-none absolute -end-16 bottom-0 size-64 rounded-full bg-cyan-300/20 blur-3xl" />
         <div className="relative flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-muted-foreground flex items-center gap-2 text-xs font-medium uppercase tracking-widest">
-              <LayoutDashboard className="size-3.5 opacity-70" />
+            <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-white/80">
+              <LayoutDashboard className="size-3.5 opacity-90" />
               {t("executiveDashboard.eyebrow")}
             </p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">
               {t("executiveDashboard.title")}
             </h1>
-            <p className="text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed">
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/85">
               {t("executiveDashboard.subtitle")}
             </p>
           </div>
@@ -186,7 +187,7 @@ export function ExecutiveDashboard({
           </div>
         </div>
         {lastScanAt ? (
-          <p className="text-muted-foreground relative mt-3 text-xs">
+          <p className="relative mt-3 text-xs text-white/80">
             آخر مزامنة: {new Date(lastScanAt).toLocaleString()} {lastScanMessage ? `- ${lastScanMessage}` : ""}
           </p>
         ) : null}

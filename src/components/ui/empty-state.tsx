@@ -44,11 +44,11 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/80 bg-muted/20 px-6 py-14 text-center",
+        "flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-primary/30 bg-linear-to-br from-primary/6 via-white/60 to-cyan-500/8 px-6 py-14 text-center backdrop-blur-sm",
         className
       )}
     >
-      <div className="flex size-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground/50 ring-1 ring-border/60">
+      <div className="flex size-16 items-center justify-center rounded-2xl bg-white/75 text-primary/60 ring-1 ring-primary/20">
         <Icon className="size-8 stroke-[1.25]" aria-hidden />
       </div>
       <div className="max-w-sm space-y-1.5">

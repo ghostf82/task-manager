@@ -124,7 +124,7 @@ export function AppSidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="hidden w-60 shrink-0 flex-col border-e border-sidebar-border/60 bg-sidebar/92 backdrop-blur-xl md:flex">
+    <aside className="hidden w-60 shrink-0 flex-col border-e border-sidebar-border/60 bg-linear-to-b from-sidebar via-[#101f5e] to-[#0a143f] md:flex">
       <div className="flex h-16 shrink-0 items-center border-b border-sidebar-border/70 px-4">
         <span className="text-sm font-semibold tracking-tight text-sidebar-foreground">
           {brand}

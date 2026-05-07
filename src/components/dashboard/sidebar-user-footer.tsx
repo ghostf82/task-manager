@@ -40,34 +40,30 @@ export function SidebarUserFooter({
   const Chevron = locale === "en" ? ChevronRight : ChevronLeft;
 
   return (
-    <div className="mt-auto border-t border-border/80 bg-muted/20 p-2">
+    <div className="mt-auto border-t border-sidebar-border/70 bg-white/6 p-2">
       <Link
         prefetch={false}
         href="/dashboard/profile"
         className={cn(
           "flex items-center gap-2.5 rounded-lg px-2 py-2 text-start transition-colors",
-          "hover:bg-background hover:shadow-sm hover:ring-1 hover:ring-border/80",
+          "hover:bg-white/10 hover:shadow-sm hover:ring-1 hover:ring-white/20",
           "focus-visible:ring-ring outline-none focus-visible:ring-2",
         )}
       >
         {avatarUrl ? (
-          <img
-            src={avatarUrl}
-            alt=""
-            className="size-9 shrink-0 rounded-full object-cover ring-1 ring-border"
-          />
+          <img src={avatarUrl} alt="" className="size-9 shrink-0 rounded-full object-cover ring-1 ring-white/40" />
         ) : (
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold uppercase text-muted-foreground ring-1 ring-border">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/12 text-xs font-semibold uppercase text-white/85 ring-1 ring-white/20">
             {name.charAt(0)}
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold leading-tight">{name}</p>
-          <p className="text-muted-foreground truncate text-[11px] leading-snug">
-            <span className="font-medium text-foreground/75">{positionLabel}: </span>
+          <p className="truncate text-sm font-semibold leading-tight text-white">{name}</p>
+          <p className="truncate text-[11px] leading-snug text-white/65">
+            <span className="font-medium text-white/80">{positionLabel}: </span>
             {position}
           </p>
-          <p className="text-primary mt-0.5 flex items-center gap-0.5 text-[11px] font-medium">
+          <p className="mt-0.5 flex items-center gap-0.5 text-[11px] font-medium text-cyan-200">
             {accountLabel}
             <Chevron className="size-3 opacity-80" aria-hidden />
           </p>

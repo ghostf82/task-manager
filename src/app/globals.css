@@ -74,8 +74,8 @@
   --chart-4: oklch(0.68 0.16 320);
   --chart-5: oklch(0.52 0.12 240);
   --radius: 0.9rem;
-  --sidebar: oklch(0.19 0.04 268);
-  --sidebar-foreground: oklch(0.96 0.02 260);
+  --sidebar: oklch(0.23 0.06 275);
+  --sidebar-foreground: oklch(0.97 0.015 265);
   --sidebar-primary: oklch(0.62 0.21 282);
   --sidebar-primary-foreground: oklch(0.99 0.005 255);
   --sidebar-accent: oklch(0.28 0.05 270);
@@ -137,6 +137,9 @@
 @layer components {
   .premium-surface {
     @apply rounded-2xl border border-white/45 bg-white/70 shadow-[0_18px_45px_-30px_rgba(76,58,255,0.45)] backdrop-blur-xl;
+  }
+  .premium-hero {
+    @apply relative overflow-hidden rounded-3xl border border-white/45 bg-linear-to-r from-indigo-600 via-violet-600 to-cyan-500 text-white shadow-[0_32px_65px_-38px_rgba(74,52,255,0.85)];
   }
   .premium-chip {
     @apply rounded-xl border border-primary/15 bg-primary/8 px-2.5 py-1 text-xs font-medium text-primary;
