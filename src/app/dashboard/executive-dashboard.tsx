@@ -43,6 +43,7 @@ import { SizedChartHost } from "@/components/ui/sized-chart-host";
 import { buttonVariants } from "@/components/ui/button";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { cn } from "@/lib/utils";
+import { DashboardRefreshButton } from "@/app/dashboard/dashboard-refresh-button";
 
 function SummaryCard({
   title,
@@ -124,6 +125,8 @@ export function ExecutiveDashboard({
   tenantCount,
   userCount,
   unreadNotif,
+  lastScanAt,
+  lastScanMessage,
 }: {
   summary: ExecutiveSummary;
   taskPie: TaskStatusPieSlice[];
@@ -132,6 +135,8 @@ export function ExecutiveDashboard({
   tenantCount: number;
   userCount: number;
   unreadNotif: number;
+  lastScanAt?: string | null;
+  lastScanMessage?: string | null;
 }) {
   const { t } = useDashboardI18n();
   const pieSlices = useMemo(
@@ -165,6 +170,7 @@ export function ExecutiveDashboard({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <DashboardRefreshButton />
             <a
               href="/api/reports/tasks?format=xlsx"
               className={cn(buttonVariants({ variant: "default", size: "sm" }), "shadow-sm")}
@@ -179,6 +185,11 @@ export function ExecutiveDashboard({
             </a>
           </div>
         </div>
+        {lastScanAt ? (
+          <p className="text-muted-foreground relative mt-3 text-xs">
+            آخر مزامنة: {new Date(lastScanAt).toLocaleString()} {lastScanMessage ? `- ${lastScanMessage}` : ""}
+          </p>
+        ) : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

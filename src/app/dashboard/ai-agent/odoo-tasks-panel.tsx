@@ -17,6 +17,7 @@ import {
   listOdooDocumentsAction,
   listOdooProjectsAction,
   listOdooTasksAction,
+  listOdooWorkspaceAllAction,
   updateOdooCalendarEventAction,
   updateOdooDocumentAction,
   updateOdooProjectAction,
@@ -89,20 +90,46 @@ export function OdooTasksPanel() {
   const [docIdForUpdate, setDocIdForUpdate] = useState("");
   const [docNameForUpdate, setDocNameForUpdate] = useState("");
   const [selectedDetails, setSelectedDetails] = useState<Record<string, unknown> | null>(null);
+  const [mineOnly, setMineOnly] = useState(false);
+  const [needsRefresh, setNeedsRefresh] = useState(false);
 
   function showDetails(data: Record<string, unknown>) {
     setSelectedDetails(data);
+    if (typeof window !== "undefined") {
+      setTimeout(() => {
+        document.getElementById("odoo-record-details")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 10);
+    }
   }
 
   function loadTasks() {
     start(async () => {
-      const res = await listOdooTasksAction({ text: query, limit: 50 });
+      const res = await listOdooTasksAction({ text: query, limit: 50, mineOnly });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
       setTasks(res.tasks);
+      setNeedsRefresh(false);
       toast.success(`تم جلب ${res.tasks.length} مهمة من Odoo.`);
+    });
+  }
+
+  function loadAll() {
+    start(async () => {
+      const res = await listOdooWorkspaceAllAction({ text: query, mineOnly });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setTasks(res.tasks);
+      setProjects(res.projects);
+      setEvents(res.events);
+      setDocuments(res.documents);
+      setNeedsRefresh(false);
+      toast.success(
+        `تم جلب الكل: ${res.tasks.length} مهمة، ${res.projects.length} مشروع، ${res.events.length} حدث، ${res.documents.length} مستند.`
+      );
     });
   }
 
@@ -123,8 +150,7 @@ export function OdooTasksPanel() {
       toast.success(`${res.message} (رقم ${res.taskId})`);
       setNewTitle("");
       setNewDescription("");
-      const refreshed = await listOdooTasksAction({ text: query, limit: 50 });
-      if (refreshed.ok) setTasks(refreshed.tasks);
+      setNeedsRefresh(true);
     });
   }
 
@@ -142,8 +168,7 @@ export function OdooTasksPanel() {
         return;
       }
       toast.success(res.message);
-      const refreshed = await listOdooTasksAction({ text: query, limit: 50 });
-      if (refreshed.ok) setTasks(refreshed.tasks);
+      setNeedsRefresh(true);
     });
   }
 
@@ -163,7 +188,7 @@ export function OdooTasksPanel() {
         return;
       }
       toast.success(res.message);
-      loadTasks();
+      setNeedsRefresh(true);
     });
   }
 
@@ -175,10 +200,7 @@ export function OdooTasksPanel() {
         return;
       }
       toast.success(res.message);
-      loadTasks();
-      loadProjects();
-      loadCalendar();
-      loadDocuments();
+      setNeedsRefresh(true);
     });
   }
 
@@ -193,21 +215,19 @@ export function OdooTasksPanel() {
         return;
       }
       toast.success(res.message);
-      loadTasks();
-      loadProjects();
-      loadCalendar();
-      loadDocuments();
+      setNeedsRefresh(true);
     });
   }
 
   function loadProjects() {
     start(async () => {
-      const res = await listOdooProjectsAction({ text: query, limit: 100 });
+      const res = await listOdooProjectsAction({ text: query, limit: 100, mineOnly });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
       setProjects(res.projects);
+      setNeedsRefresh(false);
       toast.success(`تم جلب ${res.projects.length} مشروع.`);
     });
   }
@@ -222,8 +242,7 @@ export function OdooTasksPanel() {
       }
       toast.success(`${res.message} (#${res.projectId})`);
       setProjectName("");
-      const refreshed = await listOdooProjectsAction({ text: query, limit: 100 });
-      if (refreshed.ok) setProjects(refreshed.projects);
+      setNeedsRefresh(true);
     });
   }
 
@@ -242,19 +261,19 @@ export function OdooTasksPanel() {
         return;
       }
       toast.success(res.message);
-      const refreshed = await listOdooProjectsAction({ text: query, limit: 100 });
-      if (refreshed.ok) setProjects(refreshed.projects);
+      setNeedsRefresh(true);
     });
   }
 
   function loadCalendar() {
     start(async () => {
-      const res = await listOdooCalendarEventsAction({ text: query, limit: 100 });
+      const res = await listOdooCalendarEventsAction({ text: query, limit: 100, mineOnly });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
       setEvents(res.events);
+      setNeedsRefresh(false);
       toast.success(`تم جلب ${res.events.length} حدث تقويم.`);
     });
   }
@@ -277,8 +296,7 @@ export function OdooTasksPanel() {
       setEventName("");
       setEventStart("");
       setEventStop("");
-      const refreshed = await listOdooCalendarEventsAction({ text: query, limit: 100 });
-      if (refreshed.ok) setEvents(refreshed.events);
+      setNeedsRefresh(true);
     });
   }
 
@@ -297,19 +315,19 @@ export function OdooTasksPanel() {
         return;
       }
       toast.success(res.message);
-      const refreshed = await listOdooCalendarEventsAction({ text: query, limit: 100 });
-      if (refreshed.ok) setEvents(refreshed.events);
+      setNeedsRefresh(true);
     });
   }
 
   function loadDocuments() {
     start(async () => {
-      const res = await listOdooDocumentsAction({ text: query, limit: 100 });
+      const res = await listOdooDocumentsAction({ text: query, limit: 100, mineOnly });
       if (!res.ok) {
         toast.error(res.error);
         return;
       }
       setDocuments(res.documents);
+      setNeedsRefresh(false);
       toast.success(`تم جلب ${res.documents.length} مستند.`);
     });
   }
@@ -324,8 +342,7 @@ export function OdooTasksPanel() {
       }
       toast.success(`${res.message} (#${res.documentId})`);
       setDocName("");
-      const refreshed = await listOdooDocumentsAction({ text: query, limit: 100 });
-      if (refreshed.ok) setDocuments(refreshed.documents);
+      setNeedsRefresh(true);
     });
   }
 
@@ -344,8 +361,7 @@ export function OdooTasksPanel() {
         return;
       }
       toast.success(res.message);
-      const refreshed = await listOdooDocumentsAction({ text: query, limit: 100 });
-      if (refreshed.ok) setDocuments(refreshed.documents);
+      setNeedsRefresh(true);
     });
   }
 
@@ -389,16 +405,7 @@ export function OdooTasksPanel() {
           return;
         }
         toast.success(res.message);
-        const [t, p, c, d] = await Promise.all([
-          listOdooTasksAction({ text: query, limit: 50 }),
-          listOdooProjectsAction({ text: query, limit: 100 }),
-          listOdooCalendarEventsAction({ text: query, limit: 100 }),
-          listOdooDocumentsAction({ text: query, limit: 100 }),
-        ]);
-        if (t.ok) setTasks(t.tasks);
-        if (p.ok) setProjects(p.projects);
-        if (c.ok) setEvents(c.events);
-        if (d.ok) setDocuments(d.documents);
+        setNeedsRefresh(true);
       } catch {
         toast.error("تعذر قراءة ملف Excel.");
       }
@@ -425,6 +432,9 @@ export function OdooTasksPanel() {
             {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
             جلب المهام
           </Button>
+          <Button type="button" onClick={loadAll} disabled={pending}>
+            جلب الكل
+          </Button>
           <Button type="button" variant="outline" onClick={loadProjects} disabled={pending}>
             المشاريع
           </Button>
@@ -436,6 +446,22 @@ export function OdooTasksPanel() {
           </Button>
           <Button type="button" variant="secondary" onClick={exportExcel} disabled={pending}>
             تصدير Excel
+          </Button>
+          <Button
+            type="button"
+            variant={needsRefresh ? "default" : "outline"}
+            onClick={loadAll}
+            disabled={pending}
+          >
+            تحديث الآن
+          </Button>
+          <Button
+            type="button"
+            variant={mineOnly ? "default" : "outline"}
+            onClick={() => setMineOnly((v) => !v)}
+            disabled={pending}
+          >
+            {mineOnly ? "فلتر: ما يخصني" : "فلتر: الكل"}
           </Button>
           <label className="inline-flex items-center">
             <input
@@ -449,6 +475,11 @@ export function OdooTasksPanel() {
             </span>
           </label>
         </div>
+        {needsRefresh ? (
+          <p className="text-xs text-amber-600">
+            توجد تغييرات جديدة. اضغط &quot;تحديث الآن&quot; عند الانتهاء من جميع الإجراءات.
+          </p>
+        ) : null}
 
         <div className="grid gap-2 rounded-md border p-3">
           <Label>إنشاء مهمة جديدة</Label>
@@ -594,7 +625,7 @@ export function OdooTasksPanel() {
                           return;
                         }
                         toast.success(res.message);
-                        loadProjects();
+                        setNeedsRefresh(true);
                       });
                     }}>تعديل</Button>
                     <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("project.project", p.id)}>أرشفة</Button>
@@ -624,7 +655,7 @@ export function OdooTasksPanel() {
                           return;
                         }
                         toast.success(res.message);
-                        loadCalendar();
+                        setNeedsRefresh(true);
                       });
                     }}>تعديل</Button>
                     <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("calendar.event", e.id)}>أرشفة</Button>
@@ -653,7 +684,7 @@ export function OdooTasksPanel() {
                           return;
                         }
                         toast.success(res.message);
-                        loadDocuments();
+                        setNeedsRefresh(true);
                       });
                     }}>تعديل</Button>
                     <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("documents.document", d.id)}>أرشفة</Button>
@@ -666,7 +697,7 @@ export function OdooTasksPanel() {
           </div>
         </div>
 
-        <div className="rounded-md border p-3">
+        <div id="odoo-record-details" className="rounded-md border p-3">
           <Label className="mb-2 block">تفاصيل السجل المحدد</Label>
           {selectedDetails ? (
             <pre className="max-h-72 overflow-auto rounded bg-muted p-2 text-xs" dir="ltr">

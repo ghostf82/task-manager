@@ -1052,6 +1052,7 @@ export async function searchOdooTasksViaWebLogin(params: {
   projectId?: number | null;
   stageId?: number | null;
   limit?: number;
+  mineOnly?: boolean;
 }): Promise<{ tasks: OdooWebTaskLite[]; error?: string }> {
   try {
     const domain: unknown[] = [];
@@ -1072,7 +1073,11 @@ export async function searchOdooTasksViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: TASK_MODEL,
           method: "search_read",
-          args: [domain],
+          args: [
+            params.mineOnly
+              ? ["|", ["user_id", "=", session.uid], ["user_ids", "in", [session.uid]], ...domain]
+              : domain,
+          ],
           kwargs: {
             fields: [
               "id",
@@ -1098,7 +1103,11 @@ export async function searchOdooTasksViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: TASK_MODEL,
           method: "search_read",
-          args: [domain],
+          args: [
+            params.mineOnly
+              ? ["|", ["user_id", "=", session.uid], ["user_ids", "in", [session.uid]], ...domain]
+              : domain,
+          ],
           kwargs: {
             fields: ["id", "name", "stage_id", "project_id", "date_deadline"],
             limit: Math.min(100, Math.max(1, Number(params.limit ?? 40))),
@@ -1214,6 +1223,7 @@ export async function listOdooProjectsViaWebLogin(params: {
   bundle: OdooCredentialBundle;
   text?: string;
   limit?: number;
+  mineOnly?: boolean;
 }): Promise<{ projects: OdooWebProjectLite[]; error?: string }> {
   try {
     const domain: unknown[] = [];
@@ -1226,7 +1236,7 @@ export async function listOdooProjectsViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: "project.project",
           method: "search_read",
-          args: [domain],
+          args: [params.mineOnly ? ["|", ["user_id", "=", session.uid], ["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
             fields: ["id", "name", "active", "create_date", "create_uid", "user_id", "privacy_visibility"],
             order: "id desc",
@@ -1241,7 +1251,7 @@ export async function listOdooProjectsViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: "project.project",
           method: "search_read",
-          args: [domain],
+          args: [params.mineOnly ? ["|", ["user_id", "=", session.uid], ["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
             fields: ["id", "name", "active", "create_date"],
             order: "id desc",
@@ -1328,6 +1338,7 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
   bundle: OdooCredentialBundle;
   text?: string;
   limit?: number;
+  mineOnly?: boolean;
 }): Promise<{ events: OdooWebCalendarEventLite[]; error?: string }> {
   try {
     const domain: unknown[] = [];
@@ -1340,7 +1351,7 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: "calendar.event",
           method: "search_read",
-          args: [domain],
+          args: [params.mineOnly ? ["|", ["user_id", "=", session.uid], ["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
             fields: [
               "id",
@@ -1367,7 +1378,7 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: "calendar.event",
           method: "search_read",
-          args: [domain],
+          args: [params.mineOnly ? ["|", ["user_id", "=", session.uid], ["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
             fields: ["id", "name", "start", "stop", "allday"],
             order: "start desc",
@@ -1472,6 +1483,7 @@ export async function listOdooDocumentsViaWebLogin(params: {
   bundle: OdooCredentialBundle;
   text?: string;
   limit?: number;
+  mineOnly?: boolean;
 }): Promise<{ documents: OdooWebDocumentLite[]; error?: string }> {
   try {
     const domain: unknown[] = [];
@@ -1484,7 +1496,7 @@ export async function listOdooDocumentsViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: "documents.document",
           method: "search_read",
-          args: [domain],
+          args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
             fields: ["id", "name", "type", "mimetype", "create_date", "create_uid"],
             order: "id desc",
@@ -1500,7 +1512,7 @@ export async function listOdooDocumentsViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: "ir.attachment",
           method: "search_read",
-          args: [domain],
+          args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
             fields: ["id", "name", "type", "mimetype", "create_date", "create_uid"],
             order: "id desc",

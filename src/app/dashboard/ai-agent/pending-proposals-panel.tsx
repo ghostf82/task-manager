@@ -53,6 +53,10 @@ function actionType(pa: unknown): string {
   return "";
 }
 
+function isNoopAction(pa: unknown): boolean {
+  return actionType(pa) === "noop";
+}
+
 function readPlanPhase(detail: unknown): "plan_review" | "running" | "completed" | undefined {
   if (!isRecord(detail)) return undefined;
   const p = detail.phase;
@@ -112,7 +116,10 @@ export function PendingProposalsPanel({ proposals }: { proposals: PendingProposa
   const [planBusy, startPlan] = useTransition();
 
   const sorted = useMemo(
-    () => [...proposals].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
+    () =>
+      [...proposals]
+        .filter((p) => !isNoopAction(p.proposed_action))
+        .sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
     [proposals]
   );
 

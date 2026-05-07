@@ -30,6 +30,15 @@ export default async function DashboardHomePage() {
     loadDocumentsUrgentByTenant(supabase, scope),
   ]);
 
+  const { data: latestScan } = await supabase
+    .from("ai_agent_activity_log")
+    .select("created_at,message")
+    .eq("user_id", session.id)
+    .eq("event_type", "scan")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   let tenantCount = 0;
   let userCount = 0;
   let unreadNotif = 0;
@@ -60,6 +69,8 @@ export default async function DashboardHomePage() {
       tenantCount={tenantCount}
       userCount={userCount}
       unreadNotif={unreadNotif}
+      lastScanAt={latestScan?.created_at ?? null}
+      lastScanMessage={latestScan?.message ?? null}
     />
   );
 }

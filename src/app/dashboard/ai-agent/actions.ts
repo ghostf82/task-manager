@@ -444,6 +444,14 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
 
     let inserted = 0;
     for (const p of proposals) {
+      if (
+        p.proposed_action &&
+        typeof p.proposed_action === "object" &&
+        "type" in p.proposed_action &&
+        (p.proposed_action as { type?: unknown }).type === "noop"
+      ) {
+        continue;
+      }
       const rowDetail = enrichProposalDetailJson(detail_json, p.proposed_action, tasks, emailCount);
       const { data: ins, error } = await supabase
         .from("ai_agent_proposals")
@@ -570,6 +578,7 @@ export async function listOdooTasksAction(input?: {
   projectId?: number | null;
   stageId?: number | null;
   limit?: number;
+  mineOnly?: boolean;
 }): Promise<{ ok: true; tasks: Array<{ id: number; name: string; stage: string; project: string; deadline: string; creator: string; responsible: string; assigneeIds: number[]; description: string; priority: string; active: boolean }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
@@ -592,6 +601,7 @@ export async function listOdooTasksAction(input?: {
     projectId: input?.projectId ?? null,
     stageId: input?.stageId ?? null,
     limit: input?.limit ?? 50,
+    mineOnly: Boolean(input?.mineOnly ?? false),
   });
   if (res.error) {
     await appendAgentActivity(supabase, {
@@ -740,6 +750,7 @@ export async function createOdooTaskAction(input: {
 export async function listOdooProjectsAction(input?: {
   text?: string;
   limit?: number;
+  mineOnly?: boolean;
 }): Promise<{ ok: true; projects: Array<{ id: number; name: string; active: boolean; creator: string; manager: string; visibility: string; createdAt: string }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
@@ -749,7 +760,12 @@ export async function listOdooProjectsAction(input?: {
   }
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
-  const res = await listOdooProjectsViaWebLogin({ bundle, text: input?.text, limit: input?.limit ?? 80 });
+  const res = await listOdooProjectsViaWebLogin({
+    bundle,
+    text: input?.text,
+    limit: input?.limit ?? 80,
+    mineOnly: Boolean(input?.mineOnly ?? false),
+  });
   if (res.error) return { ok: false, error: res.error };
   await appendAgentActivity(supabase, {
     userId: session.id,
@@ -811,12 +827,18 @@ export async function updateOdooProjectAction(input: {
 export async function listOdooCalendarEventsAction(input?: {
   text?: string;
   limit?: number;
+  mineOnly?: boolean;
 }): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; partnerIds: number[]; location: string; description: string; active: boolean }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
-  const res = await listOdooCalendarEventsViaWebLogin({ bundle, text: input?.text, limit: input?.limit ?? 120 });
+  const res = await listOdooCalendarEventsViaWebLogin({
+    bundle,
+    text: input?.text,
+    limit: input?.limit ?? 120,
+    mineOnly: Boolean(input?.mineOnly ?? false),
+  });
   if (res.error) return { ok: false, error: res.error };
   await appendAgentActivity(supabase, {
     userId: session.id,
@@ -890,12 +912,18 @@ export async function updateOdooCalendarEventAction(input: {
 export async function listOdooDocumentsAction(input?: {
   text?: string;
   limit?: number;
+  mineOnly?: boolean;
 }): Promise<{ ok: true; documents: Array<{ id: number; name: string; type: string; createdAt: string; creator: string }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
-  const res = await listOdooDocumentsViaWebLogin({ bundle, text: input?.text, limit: input?.limit ?? 80 });
+  const res = await listOdooDocumentsViaWebLogin({
+    bundle,
+    text: input?.text,
+    limit: input?.limit ?? 80,
+    mineOnly: Boolean(input?.mineOnly ?? false),
+  });
   if (res.error) return { ok: false, error: res.error };
   await appendAgentActivity(supabase, {
     userId: session.id,
@@ -911,6 +939,38 @@ export async function listOdooDocumentsAction(input?: {
       createdAt: String(d.create_date ?? ""),
       creator: Array.isArray(d.create_uid) ? String(d.create_uid[1]) : "—",
     })),
+  };
+}
+
+export async function listOdooWorkspaceAllAction(input?: {
+  text?: string;
+  mineOnly?: boolean;
+}): Promise<
+  | {
+      ok: true;
+      tasks: Array<{ id: number; name: string; stage: string; project: string; deadline: string; creator: string; responsible: string; assigneeIds: number[]; description: string; priority: string; active: boolean }>;
+      projects: Array<{ id: number; name: string; active: boolean; creator: string; manager: string; visibility: string; createdAt: string }>;
+      events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; partnerIds: number[]; location: string; description: string; active: boolean }>;
+      documents: Array<{ id: number; name: string; type: string; createdAt: string; creator: string }>;
+    }
+  | { ok: false; error: string }
+> {
+  const [tasks, projects, events, documents] = await Promise.all([
+    listOdooTasksAction({ text: input?.text, limit: 60, mineOnly: input?.mineOnly }),
+    listOdooProjectsAction({ text: input?.text, limit: 100, mineOnly: input?.mineOnly }),
+    listOdooCalendarEventsAction({ text: input?.text, limit: 100, mineOnly: input?.mineOnly }),
+    listOdooDocumentsAction({ text: input?.text, limit: 100, mineOnly: input?.mineOnly }),
+  ]);
+  if (!tasks.ok) return tasks;
+  if (!projects.ok) return projects;
+  if (!events.ok) return events;
+  if (!documents.ok) return documents;
+  return {
+    ok: true,
+    tasks: tasks.tasks,
+    projects: projects.projects,
+    events: events.events,
+    documents: documents.documents,
   };
 }
 
