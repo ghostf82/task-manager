@@ -10,6 +10,7 @@ import {
   createOdooDocumentAction,
   createOdooProjectAction,
   createOdooTaskAction,
+  cloneOdooCalendarEventsAction,
   deleteOdooEntityAction,
   exportOdooWorkspaceExcelAction,
   importOdooWorkspaceExcelAction,
@@ -577,27 +578,26 @@ export function OdooTasksPanel() {
       return;
     }
     start(async () => {
-      let okCount = 0;
-      let failCount = 0;
-      for (const id of selectedCalendarIds) {
-        const row = sourceMonthEvents.find((e) => e.id === id);
-        if (!row) continue;
-        const nextStart = shiftToTargetMonth(row.start, sourceMonth, targetMonth);
-        const nextStop = shiftToTargetMonth(row.stop, sourceMonth, targetMonth);
-        const created = await createOdooCalendarEventAction({
-          name: row.name,
-          start: nextStart,
-          stop: nextStop || nextStart,
-          allday: row.allday,
+      const payload = sourceMonthEvents
+        .filter((e) => selectedCalendarIds.includes(e.id))
+        .map((row) => {
+          const nextStart = shiftToTargetMonth(row.start, sourceMonth, targetMonth);
+          const nextStop = shiftToTargetMonth(row.stop, sourceMonth, targetMonth);
+          return {
+            eventId: row.id,
+            name: row.name,
+            start: nextStart,
+            stop: nextStop || nextStart,
+            allday: row.allday,
+          };
         });
-        if (created.ok) {
-          okCount += 1;
-        } else {
-          failCount += 1;
-        }
+      const cloned = await cloneOdooCalendarEventsAction({ events: payload });
+      if (!cloned.ok) {
+        toast.error(cloned.error);
+        return;
       }
       setNeedsRefresh(true);
-      toast.success(`تم نسخ ${okCount} حدث إلى شهر ${targetMonth}.${failCount ? ` فشل ${failCount} حدث.` : ""}`);
+      toast.success(`تم نسخ ${cloned.copied} حدث إلى شهر ${targetMonth}.${cloned.failed ? ` فشل ${cloned.failed} حدث.` : ""}`);
     });
   }
 

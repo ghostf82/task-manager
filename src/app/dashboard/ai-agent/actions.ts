@@ -29,6 +29,7 @@ import {
   createOdooDocumentViaWebLogin,
   createOdooProjectViaWebLogin,
   createOdooTaskViaWebLogin,
+  copyOdooCalendarEventViaWebLogin,
   deleteOdooRecordViaWebLogin,
   listOdooCalendarEventsViaWebLogin,
   listOdooDocumentsViaWebLogin,
@@ -907,6 +908,60 @@ export async function createOdooCalendarEventAction(input: {
   if (!created.ok) return created;
   revalidatePath("/dashboard/ai-agent");
   return { ok: true, eventId: created.eventId, message: "تم إنشاء حدث التقويم في Odoo بنجاح." };
+}
+
+export async function cloneOdooCalendarEventsAction(input: {
+  events: Array<{
+    eventId: number;
+    name: string;
+    start: string;
+    stop: string;
+    allday?: boolean;
+  }>;
+}): Promise<{ ok: true; copied: number; failed: number; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const rows = Array.isArray(input.events) ? input.events : [];
+  if (!rows.length) return { ok: false, error: "اختر حدثًا واحدًا على الأقل." };
+
+  let copied = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    const cloned = await copyOdooCalendarEventViaWebLogin({
+      bundle,
+      eventId: Number(row.eventId),
+      name: row.name,
+      start: row.start,
+      stop: row.stop,
+      allday: row.allday,
+    });
+    if (cloned.ok) {
+      copied += 1;
+      continue;
+    }
+
+    // Fallback for tenants where copy is blocked by model rules.
+    const created = await createOdooCalendarEventViaWebLogin({
+      bundle,
+      name: row.name,
+      start: row.start,
+      stop: row.stop,
+      allday: row.allday,
+    });
+    if (created.ok) copied += 1;
+    else failed += 1;
+  }
+
+  revalidatePath("/dashboard/ai-agent");
+  return {
+    ok: true,
+    copied,
+    failed,
+    message: `تم نسخ ${copied} حدث${failed ? `، وفشل ${failed}` : ""}.`,
+  };
 }
 
 export async function updateOdooCalendarEventAction(input: {

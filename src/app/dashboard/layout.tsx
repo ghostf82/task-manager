@@ -96,7 +96,7 @@ export default async function DashboardLayout({
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <AppSidebar {...shell} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-border px-3 md:px-4">
+          <header className="sticky top-0 z-20 mx-3 mt-3 flex h-14 shrink-0 items-center justify-between gap-2 rounded-2xl border border-white/40 bg-white/75 px-3 shadow-[0_16px_32px_-28px_rgba(82,64,255,0.48)] backdrop-blur-xl md:mx-4 md:px-4">
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <MobileDashboardNav {...shell} />
               <Link

@@ -1483,6 +1483,37 @@ export async function updateOdooCalendarEventViaWebLogin(params: {
   }
 }
 
+export async function copyOdooCalendarEventViaWebLogin(params: {
+  bundle: OdooCredentialBundle;
+  eventId: number;
+  name?: string;
+  start?: string;
+  stop?: string;
+  allday?: boolean;
+}): Promise<{ ok: true; eventId: number } | { ok: false; error: string }> {
+  try {
+    const defaults: Record<string, unknown> = {};
+    if (typeof params.name === "string" && params.name.trim()) defaults.name = params.name.trim();
+    if (typeof params.start === "string" && params.start.trim()) defaults.start = params.start.trim();
+    if (typeof params.stop === "string" && params.stop.trim()) defaults.stop = params.stop.trim();
+    if (typeof params.allday === "boolean") defaults.allday = params.allday;
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: "calendar.event",
+        method: "copy",
+        args: [[Number(params.eventId)], defaults],
+      })
+    );
+    const eventId = Number(json.result ?? 0);
+    if (!eventId) return { ok: false, error: "تعذر نسخ حدث التقويم في Odoo." };
+    return { ok: true, eventId };
+  } catch (e) {
+    return { ok: false, error: humanizeGatewayError(e) };
+  }
+}
+
 export async function listOdooDocumentsViaWebLogin(params: {
   bundle: OdooCredentialBundle;
   text?: string;

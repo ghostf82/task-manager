@@ -98,13 +98,13 @@ function NavLinks({
             href={item.href}
             onClick={onPick}
             className={cn(
-              "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
+              "flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-200",
               active
-                ? "bg-background text-foreground shadow-sm ring-1 ring-border"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                ? "bg-linear-to-r from-violet-500/90 to-cyan-500/85 text-white shadow-[0_16px_28px_-18px_rgba(82,64,255,0.7)] ring-1 ring-white/35"
+                : "text-sidebar-foreground/80 hover:bg-white/10 hover:text-sidebar-foreground",
             )}
           >
-            <Icon className="size-4 shrink-0 opacity-80" aria-hidden />
+            <Icon className="size-4 shrink-0 opacity-90" aria-hidden />
             {item.label}
           </Link>
         );
@@ -124,14 +124,14 @@ export function AppSidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="hidden w-56 shrink-0 flex-col border-e border-border bg-sidebar/90 backdrop-blur-sm md:flex">
-      <div className="flex h-14 shrink-0 items-center border-b border-border/80 px-4">
+    <aside className="hidden w-60 shrink-0 flex-col border-e border-sidebar-border/60 bg-sidebar/92 backdrop-blur-xl md:flex">
+      <div className="flex h-16 shrink-0 items-center border-b border-sidebar-border/70 px-4">
         <span className="text-sm font-semibold tracking-tight text-sidebar-foreground">
           {brand}
         </span>
       </div>
       <LanguageToggle locale={locale} label={lang.label} arLabel={lang.ar} enLabel={lang.en} />
-      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
+      <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2.5">
         <NavLinks pathname={pathname} items={navItems} isSuperAdmin={isSuperAdmin} />
       </nav>
       <SidebarUserFooter locale={locale} {...userFooter} />
