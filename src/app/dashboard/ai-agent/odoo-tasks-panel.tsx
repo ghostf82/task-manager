@@ -15,6 +15,7 @@ import {
   exportOdooWorkspaceExcelAction,
   importOdooWorkspaceExcelAction,
   listOdooCalendarEventsAction,
+  listOdooCalendarEventsDayAction,
   listOdooCalendarEventsMonthAction,
   listOdooDocumentsAction,
   listOdooProjectsAction,
@@ -156,6 +157,8 @@ export function OdooTasksPanel() {
   const [selectedCalendarIds, setSelectedCalendarIds] = useState<number[]>([]);
   const [monthEvents, setMonthEvents] = useState<CalendarRow[]>([]);
   const [selectedSourceDay, setSelectedSourceDay] = useState("");
+  const [dayToCompare, setDayToCompare] = useState("");
+  const [dayEvents, setDayEvents] = useState<CalendarRow[]>([]);
 
   function loadTasks() {
     start(async () => {
@@ -549,6 +552,22 @@ export function OdooTasksPanel() {
       setSelectedSourceDay("");
       setSelectedCalendarIds([]);
       toast.success(`تم جلب ${res.events.length} حدثًا لشهر ${sourceMonth}.`);
+    });
+  }
+
+  function loadSelectedDayEvents() {
+    if (!dayToCompare) {
+      toast.error("اختر يومًا أولاً.");
+      return;
+    }
+    start(async () => {
+      const res = await listOdooCalendarEventsDayAction({ day: dayToCompare, mineOnly: false });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setDayEvents(res.events.filter((e) => passPeople(e.creator, e.responsible)));
+      toast.success(`تمت مطابقة يوم ${dayToCompare}: ${res.events.length} حدث من Odoo.`);
     });
   }
 
@@ -971,6 +990,34 @@ export function OdooTasksPanel() {
               ))}
               {!filteredDocuments.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
             </div>
+          </div>
+        </div>
+
+        <div className="rounded-md border p-3 space-y-3">
+          <Label className="block">مطابقة تفاصيل أي يوم (وليس شهرًا فقط)</Label>
+          <p className="text-xs text-muted-foreground">
+            اختر أي تاريخ، وسنجلب أحداثه من Odoo مع الوصف/الأجندة والموقع والمسؤولين لتظهر التفاصيل بدقة.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Input type="date" value={dayToCompare} onChange={(e) => setDayToCompare(e.target.value)} className="w-44" />
+            <Button type="button" variant="outline" onClick={loadSelectedDayEvents} disabled={pending}>
+              مطابقة اليوم المحدد
+            </Button>
+          </div>
+          <div className="max-h-56 overflow-auto rounded-md border p-2 space-y-2">
+            {dayEvents.length ? (
+              dayEvents.map((e) => (
+                <div key={`day-${e.id}`} className="rounded-md border border-border/60 p-2 text-sm">
+                  <p className="font-medium">#{e.id} - {e.name}</p>
+                  <p className="text-xs text-muted-foreground">{e.start} → {e.stop}</p>
+                  <p className="text-xs"><span className="font-medium">المسؤول:</span> {e.responsible || "—"}</p>
+                  <p className="text-xs"><span className="font-medium">الموقع:</span> {e.location || "—"}</p>
+                  <p className="text-xs whitespace-pre-wrap"><span className="font-medium">الأجندة/الملاحظات:</span> {e.description || "لا توجد ملاحظات."}</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-xs text-muted-foreground">لا توجد بيانات لهذا اليوم بعد. اختر تاريخًا واضغط «مطابقة اليوم المحدد».</p>
+            )}
           </div>
         </div>
 

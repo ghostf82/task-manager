@@ -889,6 +889,26 @@ export async function listOdooCalendarEventsMonthAction(input: {
   });
 }
 
+export async function listOdooCalendarEventsDayAction(input: {
+  day: string;
+  mineOnly?: boolean;
+}): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; responsibleId?: number; partnerIds: number[]; location: string; description: string; active: boolean }> } | { ok: false; error: string }> {
+  const day = String(input.day || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    return { ok: false, error: "صيغة اليوم غير صحيحة. استخدم YYYY-MM-DD." };
+  }
+  const [y, m, d] = day.split("-").map(Number);
+  const start = `${day} 00:00:00`;
+  const nextDay = new Date(y, m - 1, d + 1);
+  const end = `${nextDay.getFullYear()}-${String(nextDay.getMonth() + 1).padStart(2, "0")}-${String(nextDay.getDate()).padStart(2, "0")} 00:00:00`;
+  return listOdooCalendarEventsAction({
+    limit: 800,
+    mineOnly: Boolean(input.mineOnly ?? false),
+    startFrom: start,
+    startBefore: end,
+  });
+}
+
 export async function createOdooCalendarEventAction(input: {
   name: string;
   start: string;
