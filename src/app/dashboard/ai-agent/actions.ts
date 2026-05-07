@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import ExcelJS from "exceljs";
 
 import { analyzeFreeTextWithLlm } from "@/lib/ai/llm-analyze";
 import { analyzeInboundSourcesWithLlm } from "@/lib/ai/llm-inbound";
@@ -23,8 +24,17 @@ import { tAction, tActionFill } from "@/lib/i18n/action-messages";
 import type { OdooTaskRecord } from "@/lib/integrations/odoo-xmlrpc";
 import { createClient } from "@/lib/supabase/server";
 import {
+  createOdooCalendarEventViaWebLogin,
+  createOdooDocumentViaWebLogin,
+  createOdooProjectViaWebLogin,
   createOdooTaskViaWebLogin,
+  listOdooCalendarEventsViaWebLogin,
+  listOdooDocumentsViaWebLogin,
+  listOdooProjectsViaWebLogin,
   searchOdooTasksViaWebLogin,
+  updateOdooCalendarEventViaWebLogin,
+  updateOdooDocumentViaWebLogin,
+  updateOdooProjectViaWebLogin,
   updateOdooTaskStageViaWebLogin,
 } from "@/lib/integrations/odoo-client";
 import { loadOdooBrowserSessionBundle, loadOdooConnectionState } from "@/lib/ai-agent/load-user-integrations";
@@ -685,4 +695,316 @@ export async function createOdooTaskAction(input: {
   });
   revalidatePath("/dashboard/ai-agent");
   return { ok: true, message: "تم إنشاء المهمة في Odoo بنجاح.", taskId: created.taskId };
+}
+
+export async function listOdooProjectsAction(input?: {
+  text?: string;
+  limit?: number;
+}): Promise<{ ok: true; projects: Array<{ id: number; name: string; active: boolean }> } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const mode = await loadOdooConnectionState(supabase, session.id);
+  if (mode.mode !== "browser_session") {
+    return { ok: false, error: "فعّل Browser Session Mode أولاً من إعدادات التكاملات." };
+  }
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const res = await listOdooProjectsViaWebLogin({ bundle, text: input?.text, limit: input?.limit ?? 80 });
+  if (res.error) return { ok: false, error: res.error };
+  return {
+    ok: true,
+    projects: res.projects.map((p) => ({ id: p.id, name: p.name, active: Boolean(p.active ?? true) })),
+  };
+}
+
+export async function createOdooProjectAction(input: {
+  name: string;
+}): Promise<{ ok: true; projectId: number; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const created = await createOdooProjectViaWebLogin({ bundle, name: String(input.name ?? "").trim() });
+  if (!created.ok) return created;
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_action_success",
+    message: `تم إنشاء مشروع Odoo جديد (#${created.projectId})`,
+  });
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, projectId: created.projectId, message: "تم إنشاء المشروع في Odoo بنجاح." };
+}
+
+export async function updateOdooProjectAction(input: {
+  projectId: number;
+  name?: string;
+  active?: boolean;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const upd = await updateOdooProjectViaWebLogin({
+    bundle,
+    projectId: Number(input.projectId),
+    name: input.name,
+    active: input.active,
+  });
+  if (!upd.ok) return upd;
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, message: "تم تحديث المشروع في Odoo." };
+}
+
+export async function listOdooCalendarEventsAction(input?: {
+  text?: string;
+  limit?: number;
+}): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean }> } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const res = await listOdooCalendarEventsViaWebLogin({ bundle, text: input?.text, limit: input?.limit ?? 120 });
+  if (res.error) return { ok: false, error: res.error };
+  return {
+    ok: true,
+    events: res.events.map((e) => ({
+      id: e.id,
+      name: e.name,
+      start: String(e.start ?? ""),
+      stop: String(e.stop ?? ""),
+      allday: Boolean(e.allday ?? false),
+    })),
+  };
+}
+
+export async function createOdooCalendarEventAction(input: {
+  name: string;
+  start: string;
+  stop: string;
+  allday?: boolean;
+}): Promise<{ ok: true; eventId: number; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const created = await createOdooCalendarEventViaWebLogin({
+    bundle,
+    name: input.name,
+    start: input.start,
+    stop: input.stop,
+    allday: input.allday,
+  });
+  if (!created.ok) return created;
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, eventId: created.eventId, message: "تم إنشاء حدث التقويم في Odoo بنجاح." };
+}
+
+export async function updateOdooCalendarEventAction(input: {
+  eventId: number;
+  name?: string;
+  start?: string;
+  stop?: string;
+  allday?: boolean;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const upd = await updateOdooCalendarEventViaWebLogin({
+    bundle,
+    eventId: Number(input.eventId),
+    name: input.name,
+    start: input.start,
+    stop: input.stop,
+    allday: input.allday,
+  });
+  if (!upd.ok) return upd;
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, message: "تم تحديث حدث التقويم في Odoo." };
+}
+
+export async function listOdooDocumentsAction(input?: {
+  text?: string;
+  limit?: number;
+}): Promise<{ ok: true; documents: Array<{ id: number; name: string; type: string; createdAt: string }> } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const res = await listOdooDocumentsViaWebLogin({ bundle, text: input?.text, limit: input?.limit ?? 80 });
+  if (res.error) return { ok: false, error: res.error };
+  return {
+    ok: true,
+    documents: res.documents.map((d) => ({
+      id: d.id,
+      name: d.name,
+      type: String(d.type ?? ""),
+      createdAt: String(d.create_date ?? ""),
+    })),
+  };
+}
+
+export async function createOdooDocumentAction(input: {
+  name: string;
+}): Promise<{ ok: true; documentId: number; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const created = await createOdooDocumentViaWebLogin({ bundle, name: input.name });
+  if (!created.ok) return created;
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, documentId: created.documentId, message: "تم إنشاء مستند Odoo بنجاح." };
+}
+
+export async function updateOdooDocumentAction(input: {
+  documentId: number;
+  name: string;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const upd = await updateOdooDocumentViaWebLogin({
+    bundle,
+    documentId: Number(input.documentId),
+    name: input.name,
+  });
+  if (!upd.ok) return upd;
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, message: "تم تحديث المستند في Odoo." };
+}
+
+export async function exportOdooWorkspaceExcelAction(): Promise<
+  { ok: true; fileName: string; base64: string } | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+
+  const [tasksRes, projectsRes, eventsRes, docsRes] = await Promise.all([
+    searchOdooTasksViaWebLogin({ bundle, limit: 500 }),
+    listOdooProjectsViaWebLogin({ bundle, limit: 500 }),
+    listOdooCalendarEventsViaWebLogin({ bundle, limit: 500 }),
+    listOdooDocumentsViaWebLogin({ bundle, limit: 500 }),
+  ]);
+
+  if (tasksRes.error) return { ok: false, error: tasksRes.error };
+  if (projectsRes.error) return { ok: false, error: projectsRes.error };
+  if (eventsRes.error) return { ok: false, error: eventsRes.error };
+  if (docsRes.error) return { ok: false, error: docsRes.error };
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Odoo Control Center";
+
+  const wsTasks = wb.addWorksheet("Tasks");
+  wsTasks.addRow(["id", "name", "project", "stage", "deadline"]);
+  tasksRes.tasks.forEach((t) => {
+    wsTasks.addRow([
+      t.id,
+      t.name ?? "",
+      Array.isArray(t.project_id) ? t.project_id[1] : "",
+      Array.isArray(t.stage_id) ? t.stage_id[1] : "",
+      typeof t.date_deadline === "string" ? t.date_deadline : "",
+    ]);
+  });
+
+  const wsProjects = wb.addWorksheet("Projects");
+  wsProjects.addRow(["id", "name", "active", "create_date"]);
+  projectsRes.projects.forEach((p) => wsProjects.addRow([p.id, p.name, p.active ? 1 : 0, p.create_date ?? ""]));
+
+  const wsEvents = wb.addWorksheet("Calendar");
+  wsEvents.addRow(["id", "name", "start", "stop", "allday"]);
+  eventsRes.events.forEach((e) => wsEvents.addRow([e.id, e.name, e.start ?? "", e.stop ?? "", e.allday ? 1 : 0]));
+
+  const wsDocs = wb.addWorksheet("Documents");
+  wsDocs.addRow(["id", "name", "type", "mimetype", "create_date"]);
+  docsRes.documents.forEach((d) =>
+    wsDocs.addRow([d.id, d.name, d.type ?? "", typeof d.mimetype === "string" ? d.mimetype : "", d.create_date ?? ""])
+  );
+
+  const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+  return {
+    ok: true,
+    fileName: `odoo-workspace-${new Date().toISOString().slice(0, 10)}.xlsx`,
+    base64: buffer.toString("base64"),
+  };
+}
+
+export async function importOdooWorkspaceExcelAction(input: {
+  base64: string;
+}): Promise<{ ok: true; message: string; created: Record<string, number> } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  if (!input.base64?.trim()) return { ok: false, error: "ملف Excel غير صالح." };
+
+  const wb = new ExcelJS.Workbook();
+  await (wb.xlsx as unknown as { load: (data: unknown) => Promise<void> }).load(
+    Buffer.from(input.base64, "base64")
+  );
+
+  const created = { tasks: 0, projects: 0, calendar: 0, documents: 0 };
+
+  const taskSheet = wb.getWorksheet("Tasks");
+  if (taskSheet) {
+    for (let i = 2; i <= taskSheet.rowCount; i++) {
+      const row = taskSheet.getRow(i);
+      const title = String(row.getCell(2).value ?? "").trim();
+      if (!title) continue;
+      const out = await createOdooTaskViaWebLogin({ bundle, title });
+      if (out.ok) created.tasks += 1;
+    }
+  }
+
+  const projectSheet = wb.getWorksheet("Projects");
+  if (projectSheet) {
+    for (let i = 2; i <= projectSheet.rowCount; i++) {
+      const row = projectSheet.getRow(i);
+      const name = String(row.getCell(2).value ?? "").trim();
+      if (!name) continue;
+      const out = await createOdooProjectViaWebLogin({ bundle, name });
+      if (out.ok) created.projects += 1;
+    }
+  }
+
+  const calendarSheet = wb.getWorksheet("Calendar");
+  if (calendarSheet) {
+    for (let i = 2; i <= calendarSheet.rowCount; i++) {
+      const row = calendarSheet.getRow(i);
+      const name = String(row.getCell(2).value ?? "").trim();
+      const start = String(row.getCell(3).value ?? "").trim();
+      const stop = String(row.getCell(4).value ?? "").trim();
+      const alldayRaw = String(row.getCell(5).value ?? "").trim();
+      if (!name || !start || !stop) continue;
+      const out = await createOdooCalendarEventViaWebLogin({
+        bundle,
+        name,
+        start,
+        stop,
+        allday: alldayRaw === "1" || alldayRaw.toLowerCase() === "true",
+      });
+      if (out.ok) created.calendar += 1;
+    }
+  }
+
+  const docsSheet = wb.getWorksheet("Documents");
+  if (docsSheet) {
+    for (let i = 2; i <= docsSheet.rowCount; i++) {
+      const row = docsSheet.getRow(i);
+      const name = String(row.getCell(2).value ?? "").trim();
+      if (!name) continue;
+      const out = await createOdooDocumentViaWebLogin({ bundle, name });
+      if (out.ok) created.documents += 1;
+    }
+  }
+
+  revalidatePath("/dashboard/ai-agent");
+  return {
+    ok: true,
+    message: `تم الاستيراد: مهام ${created.tasks}، مشاريع ${created.projects}، تقويم ${created.calendar}، مستندات ${created.documents}.`,
+    created,
+  };
 }
