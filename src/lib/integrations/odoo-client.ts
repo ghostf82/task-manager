@@ -1075,7 +1075,7 @@ export async function searchOdooTasksViaWebLogin(params: {
           method: "search_read",
           args: [
             params.mineOnly
-              ? ["|", ["user_id", "=", session.uid], ["user_ids", "in", [session.uid]], ...domain]
+              ? [["create_uid", "=", session.uid], ...domain]
               : domain,
           ],
           kwargs: {
@@ -1105,7 +1105,7 @@ export async function searchOdooTasksViaWebLogin(params: {
           method: "search_read",
           args: [
             params.mineOnly
-              ? ["|", ["user_id", "=", session.uid], ["user_ids", "in", [session.uid]], ...domain]
+              ? [["create_uid", "=", session.uid], ...domain]
               : domain,
           ],
           kwargs: {
@@ -1236,7 +1236,7 @@ export async function listOdooProjectsViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: "project.project",
           method: "search_read",
-          args: [params.mineOnly ? ["|", ["user_id", "=", session.uid], ["create_uid", "=", session.uid], ...domain] : domain],
+          args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
             fields: ["id", "name", "active", "create_date", "create_uid", "user_id", "privacy_visibility"],
             order: "id desc",
@@ -1251,7 +1251,7 @@ export async function listOdooProjectsViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: "project.project",
           method: "search_read",
-          args: [params.mineOnly ? ["|", ["user_id", "=", session.uid], ["create_uid", "=", session.uid], ...domain] : domain],
+          args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
             fields: ["id", "name", "active", "create_date"],
             order: "id desc",
@@ -1351,7 +1351,7 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: "calendar.event",
           method: "search_read",
-          args: [params.mineOnly ? ["|", ["user_id", "=", session.uid], ["create_uid", "=", session.uid], ...domain] : domain],
+          args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
             fields: [
               "id",
@@ -1378,7 +1378,7 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: "calendar.event",
           method: "search_read",
-          args: [params.mineOnly ? ["|", ["user_id", "=", session.uid], ["create_uid", "=", session.uid], ...domain] : domain],
+          args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
             fields: ["id", "name", "start", "stop", "allday"],
             order: "start desc",

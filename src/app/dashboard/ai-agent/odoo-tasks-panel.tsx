@@ -1,6 +1,6 @@
-"use client";
+ "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -52,6 +52,7 @@ type ProjectRow = {
   visibility: string;
   createdAt: string;
 };
+
 type CalendarRow = {
   id: number;
   name: string;
@@ -65,7 +66,52 @@ type CalendarRow = {
   description: string;
   active: boolean;
 };
+
 type DocumentRow = { id: number; name: string; type: string; createdAt: string; creator: string };
+
+function cleanName(v: string): string {
+  const x = String(v || "").trim();
+  return x && x !== "—" && x !== "-" ? x : "";
+}
+
+function parseOdooDateTime(v: string): Date | null {
+  const txt = String(v || "").trim();
+  if (!txt) return null;
+  const d = new Date(txt.replace(" ", "T"));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function toOdooDateTime(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function shiftToTargetMonth(input: string, sourceMonth: string, targetMonth: string): string {
+  const d = parseOdooDateTime(input);
+  if (!d) return input;
+  const [srcY, srcM] = sourceMonth.split("-").map(Number);
+  const [tgtY, tgtM] = targetMonth.split("-").map(Number);
+  if (!srcY || !srcM || !tgtY || !tgtM) return input;
+  const monthDelta = (tgtY - srcY) * 12 + (tgtM - srcM);
+  const year = d.getFullYear();
+  const month = d.getMonth();
+  const day = d.getDate();
+  const hours = d.getHours();
+  const mins = d.getMinutes();
+  const secs = d.getSeconds();
+
+  const targetMonthIndex = month + monthDelta;
+  const first = new Date(year, targetMonthIndex, 1, hours, mins, secs);
+  const lastDay = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const safeDay = Math.min(day, lastDay);
+  const out = new Date(first.getFullYear(), first.getMonth(), safeDay, hours, mins, secs);
+  return toOdooDateTime(out);
+}
 
 export function OdooTasksPanel() {
   const [pending, start] = useTransition();
@@ -89,18 +135,22 @@ export function OdooTasksPanel() {
   const [docName, setDocName] = useState("");
   const [docIdForUpdate, setDocIdForUpdate] = useState("");
   const [docNameForUpdate, setDocNameForUpdate] = useState("");
-  const [selectedDetails, setSelectedDetails] = useState<Record<string, unknown> | null>(null);
   const [mineOnly, setMineOnly] = useState(false);
   const [needsRefresh, setNeedsRefresh] = useState(false);
 
-  function showDetails(data: Record<string, unknown>) {
-    setSelectedDetails(data);
-    if (typeof window !== "undefined") {
-      setTimeout(() => {
-        document.getElementById("odoo-record-details")?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 10);
-    }
-  }
+  const [expandedTaskId, setExpandedTaskId] = useState<number | null>(null);
+  const [expandedProjectId, setExpandedProjectId] = useState<number | null>(null);
+  const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
+  const [expandedDocId, setExpandedDocId] = useState<number | null>(null);
+
+  const [selectedPeople, setSelectedPeople] = useState<string[]>([]);
+  const [sourceMonth, setSourceMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [targetMonth, setTargetMonth] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString().slice(0, 7);
+  });
+  const [selectedCalendarIds, setSelectedCalendarIds] = useState<number[]>([]);
 
   function loadTasks() {
     start(async () => {
@@ -412,6 +462,110 @@ export function OdooTasksPanel() {
     });
   }
 
+  function togglePerson(name: string) {
+    setSelectedPeople((prev) => (prev.includes(name) ? prev.filter((v) => v !== name) : [...prev, name]));
+  }
+
+  function toggleCalendarPick(id: number) {
+    setSelectedCalendarIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  const peoplePool = useMemo(() => {
+    const bag = new Set<string>();
+    for (const t of tasks) {
+      const c = cleanName(t.creator);
+      const r = cleanName(t.responsible);
+      if (c) bag.add(c);
+      if (r) bag.add(r);
+    }
+    for (const p of projects) {
+      const c = cleanName(p.creator);
+      const m = cleanName(p.manager);
+      if (c) bag.add(c);
+      if (m) bag.add(m);
+    }
+    for (const e of events) {
+      const c = cleanName(e.creator);
+      const r = cleanName(e.responsible);
+      if (c) bag.add(c);
+      if (r) bag.add(r);
+    }
+    for (const d of documents) {
+      const c = cleanName(d.creator);
+      if (c) bag.add(c);
+    }
+    return [...bag].sort((a, b) => a.localeCompare(b, "ar"));
+  }, [tasks, projects, events, documents]);
+
+  const passPeople = (...names: string[]) => {
+    if (!selectedPeople.length) return true;
+    const normalized = names.map(cleanName).filter(Boolean);
+    return normalized.some((n) => selectedPeople.includes(n));
+  };
+
+  const filteredTasks = tasks.filter((t) => passPeople(t.creator, t.responsible));
+  const filteredProjects = projects.filter((p) => passPeople(p.creator, p.manager));
+  const filteredEvents = events.filter((e) => passPeople(e.creator, e.responsible));
+  const filteredDocuments = documents.filter((d) => passPeople(d.creator));
+
+  const sourceMonthEvents = filteredEvents.filter((e) => {
+    const d = parseOdooDateTime(e.start);
+    if (!d) return false;
+    const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return month === sourceMonth;
+  });
+
+  function suggestEventAutomation(e: CalendarRow): string[] {
+    const tips: string[] = [];
+    const text = `${e.name} ${e.description}`.toLowerCase();
+    if (text.includes("شهر") || text.includes("monthly") || text.includes("agenda")) {
+      tips.push("يفضل تحويل هذا الحدث إلى قالب شهري قابل للنسخ الآلي.");
+    }
+    if (!cleanName(e.description)) {
+      tips.push("أضف قائمة مهام قياسية داخل الوصف لتسهيل النسخ والتتبع.");
+    } else if (e.description.split("\n").length >= 5) {
+      tips.push("الوصف يحتوي نقاط متعددة؛ يمكن تقسيمها إلى checklist واضحة مع حالة إنجاز.");
+    }
+    if (!tips.length) {
+      tips.push("الحدث جيد، ويمكن نسخه للشهر التالي مباشرة من قسم النسخ الشهري أدناه.");
+    }
+    return tips;
+  }
+
+  function cloneSelectedMonthEvents() {
+    if (!sourceMonth || !targetMonth || sourceMonth === targetMonth) {
+      toast.error("اختر شهر مصدر وهدف مختلفين.");
+      return;
+    }
+    if (!selectedCalendarIds.length) {
+      toast.error("اختر حدثًا واحدًا على الأقل لنسخه.");
+      return;
+    }
+    start(async () => {
+      let okCount = 0;
+      let failCount = 0;
+      for (const id of selectedCalendarIds) {
+        const row = sourceMonthEvents.find((e) => e.id === id);
+        if (!row) continue;
+        const nextStart = shiftToTargetMonth(row.start, sourceMonth, targetMonth);
+        const nextStop = shiftToTargetMonth(row.stop, sourceMonth, targetMonth);
+        const created = await createOdooCalendarEventAction({
+          name: row.name,
+          start: nextStart,
+          stop: nextStop || nextStart,
+          allday: row.allday,
+        });
+        if (created.ok) {
+          okCount += 1;
+        } else {
+          failCount += 1;
+        }
+      }
+      setNeedsRefresh(true);
+      toast.success(`تم نسخ ${okCount} حدث إلى شهر ${targetMonth}.${failCount ? ` فشل ${failCount} حدث.` : ""}`);
+    });
+  }
+
   return (
     <Card className="border-border/80 shadow-sm ring-1 ring-violet-500/10">
       <CardHeader>
@@ -480,6 +634,36 @@ export function OdooTasksPanel() {
             توجد تغييرات جديدة. اضغط &quot;تحديث الآن&quot; عند الانتهاء من جميع الإجراءات.
           </p>
         ) : null}
+
+        <div className="rounded-md border p-3">
+          <Label className="mb-2 block">تصفية العرض بالأشخاص (من البيانات الحالية)</Label>
+          <div className="mb-2 flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" onClick={() => setSelectedPeople(peoplePool)} disabled={pending || !peoplePool.length}>
+              اختيار الكل
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setSelectedPeople([])} disabled={pending}>
+              مسح التصفية
+            </Button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {peoplePool.length ? (
+              peoplePool.map((name) => (
+                <Button
+                  key={name}
+                  type="button"
+                  size="sm"
+                  variant={selectedPeople.includes(name) ? "default" : "outline"}
+                  onClick={() => togglePerson(name)}
+                  disabled={pending}
+                >
+                  {name}
+                </Button>
+              ))
+            ) : (
+              <p className="text-xs text-muted-foreground">اجلب البيانات أولاً لتظهر أسماء المنشئين/المسؤولين.</p>
+            )}
+          </div>
+        </div>
 
         <div className="grid gap-2 rounded-md border p-3">
           <Label>إنشاء مهمة جديدة</Label>
@@ -575,31 +759,52 @@ export function OdooTasksPanel() {
               </tr>
             </thead>
             <tbody>
-              {!tasks.length ? (
+              {!filteredTasks.length ? (
                 <tr>
                   <td colSpan={8} className="py-3 text-center text-muted-foreground">
                     لا توجد نتائج حتى الآن.
                   </td>
                 </tr>
               ) : (
-                tasks.map((t) => (
-                  <tr key={t.id} className="border-b">
-                    <td className="py-2">{t.id}</td>
-                    <td className="py-2">{t.name}</td>
-                    <td className="py-2">{t.stage}</td>
-                    <td className="py-2">{t.project}</td>
-                    <td className="py-2">{t.deadline}</td>
-                    <td className="py-2">{t.creator}</td>
-                    <td className="py-2">{t.responsible}</td>
-                    <td className="py-2">
-                      <div className="flex flex-wrap gap-1">
-                        <Button type="button" size="sm" variant="outline" onClick={() => showDetails(t as unknown as Record<string, unknown>)}>استعراض</Button>
-                        <Button type="button" size="sm" variant="outline" onClick={() => editTaskRow(t)}>تعديل</Button>
-                        <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("project.task", t.id)}>أرشفة</Button>
-                        <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("project.task", t.id)}>حذف</Button>
-                      </div>
-                    </td>
-                  </tr>
+                filteredTasks.map((t) => (
+                  <Fragment key={`task-${t.id}`}>
+                    <tr className="border-b">
+                      <td className="py-2">{t.id}</td>
+                      <td className="py-2">{t.name}</td>
+                      <td className="py-2">{t.stage}</td>
+                      <td className="py-2">{t.project}</td>
+                      <td className="py-2">{t.deadline}</td>
+                      <td className="py-2">{t.creator}</td>
+                      <td className="py-2">{t.responsible}</td>
+                      <td className="py-2">
+                        <div className="flex flex-wrap gap-1">
+                          <Button type="button" size="sm" variant="outline" onClick={() => setExpandedTaskId((id) => (id === t.id ? null : t.id))}>
+                            {expandedTaskId === t.id ? "إخفاء" : "استعراض"}
+                          </Button>
+                          <Button type="button" size="sm" variant="outline" onClick={() => editTaskRow(t)}>تعديل</Button>
+                          <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("project.task", t.id)}>أرشفة</Button>
+                          <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("project.task", t.id)}>حذف</Button>
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedTaskId === t.id ? (
+                      <tr key={`task-expanded-${t.id}`} className="border-b bg-muted/30">
+                        <td colSpan={8} className="p-3">
+                          <div className="grid gap-2 text-sm sm:grid-cols-2">
+                            <p><span className="font-medium">عنوان المهمة:</span> {t.name}</p>
+                            <p><span className="font-medium">المشروع:</span> {t.project}</p>
+                            <p><span className="font-medium">المرحلة:</span> {t.stage}</p>
+                            <p><span className="font-medium">الأولوية:</span> {t.priority || "—"}</p>
+                            <p><span className="font-medium">المنشئ:</span> {t.creator}</p>
+                            <p><span className="font-medium">المسؤول:</span> {t.responsible}</p>
+                            <p><span className="font-medium">الحالة:</span> {t.active ? "نشطة" : "مؤرشفة"}</p>
+                            <p><span className="font-medium">الاستحقاق:</span> {t.deadline}</p>
+                            <p className="sm:col-span-2"><span className="font-medium">الوصف:</span> {t.description || "لا يوجد وصف."}</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 ))
               )}
             </tbody>
@@ -608,14 +813,16 @@ export function OdooTasksPanel() {
 
         <div className="grid gap-2 lg:grid-cols-3">
           <div className="rounded-md border p-3">
-            <Label className="mb-2 block">المشاريع ({projects.length})</Label>
+            <Label className="mb-2 block">المشاريع ({filteredProjects.length})</Label>
             <div className="max-h-64 overflow-auto text-sm">
-              {projects.map((p) => (
+              {filteredProjects.map((p) => (
                 <div key={p.id} className="mb-2 border-b pb-2">
                   <p>#{p.id} - {p.name}</p>
                   <p className="text-xs text-muted-foreground">المدير: {p.manager} | المنشئ: {p.creator}</p>
                   <div className="mt-1 flex flex-wrap gap-1">
-                    <Button type="button" size="sm" variant="outline" onClick={() => showDetails(p as unknown as Record<string, unknown>)}>استعراض</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setExpandedProjectId((id) => (id === p.id ? null : p.id))}>
+                      {expandedProjectId === p.id ? "إخفاء" : "استعراض"}
+                    </Button>
                     <Button type="button" size="sm" variant="outline" onClick={() => {
                       const next = prompt("اسم المشروع الجديد", p.name) ?? p.name;
                       start(async () => {
@@ -631,21 +838,30 @@ export function OdooTasksPanel() {
                     <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("project.project", p.id)}>أرشفة</Button>
                     <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("project.project", p.id)}>حذف</Button>
                   </div>
+                  {expandedProjectId === p.id ? (
+                    <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs space-y-1">
+                      <p><span className="font-medium">الحالة:</span> {p.active ? "نشط" : "مؤرشف"}</p>
+                      <p><span className="font-medium">الرؤية:</span> {p.visibility || "—"}</p>
+                      <p><span className="font-medium">تاريخ الإنشاء:</span> {p.createdAt || "—"}</p>
+                    </div>
+                  ) : null}
                 </div>
               ))}
-              {!projects.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
+              {!filteredProjects.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
             </div>
           </div>
           <div className="rounded-md border p-3">
-            <Label className="mb-2 block">التقويم ({events.length})</Label>
+            <Label className="mb-2 block">التقويم ({filteredEvents.length})</Label>
             <div className="max-h-64 overflow-auto text-sm">
-              {events.map((e) => (
+              {filteredEvents.map((e) => (
                 <div key={e.id} className="mb-2 border-b pb-2">
                   <p>#{e.id} - {e.name}</p>
                   <p className="text-xs text-muted-foreground">{e.start} → {e.stop}</p>
                   <p className="text-xs text-muted-foreground">المسؤول: {e.responsible} | المنشئ: {e.creator}</p>
                   <div className="mt-1 flex flex-wrap gap-1">
-                    <Button type="button" size="sm" variant="outline" onClick={() => showDetails(e as unknown as Record<string, unknown>)}>استعراض</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setExpandedEventId((id) => (id === e.id ? null : e.id))}>
+                      {expandedEventId === e.id ? "إخفاء" : "استعراض"}
+                    </Button>
                     <Button type="button" size="sm" variant="outline" onClick={() => {
                       const next = prompt("اسم الحدث الجديد", e.name) ?? e.name;
                       start(async () => {
@@ -661,20 +877,35 @@ export function OdooTasksPanel() {
                     <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("calendar.event", e.id)}>أرشفة</Button>
                     <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("calendar.event", e.id)}>حذف</Button>
                   </div>
+                  {expandedEventId === e.id ? (
+                    <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs space-y-1">
+                      <p><span className="font-medium">الموقع:</span> {e.location || "—"}</p>
+                      <p><span className="font-medium">الوصف/الملاحظات:</span> {e.description || "لا توجد ملاحظات."}</p>
+                      <p><span className="font-medium">الحضور (IDs):</span> {e.partnerIds.length ? e.partnerIds.join(", ") : "—"}</p>
+                      <p><span className="font-medium">اقتراح تحسين:</span></p>
+                      <ul className="list-disc ps-5">
+                        {suggestEventAutomation(e).map((tip) => (
+                          <li key={tip}>{tip}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
               ))}
-              {!events.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
+              {!filteredEvents.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
             </div>
           </div>
           <div className="rounded-md border p-3">
-            <Label className="mb-2 block">المستندات ({documents.length})</Label>
+            <Label className="mb-2 block">المستندات ({filteredDocuments.length})</Label>
             <div className="max-h-64 overflow-auto text-sm">
-              {documents.map((d) => (
+              {filteredDocuments.map((d) => (
                 <div key={d.id} className="mb-2 border-b pb-2">
                   <p>#{d.id} - {d.name}</p>
                   <p className="text-xs text-muted-foreground">النوع: {d.type || "—"} | المنشئ: {d.creator}</p>
                   <div className="mt-1 flex flex-wrap gap-1">
-                    <Button type="button" size="sm" variant="outline" onClick={() => showDetails(d as unknown as Record<string, unknown>)}>استعراض</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setExpandedDocId((id) => (id === d.id ? null : d.id))}>
+                      {expandedDocId === d.id ? "إخفاء" : "استعراض"}
+                    </Button>
                     <Button type="button" size="sm" variant="outline" onClick={() => {
                       const next = prompt("اسم المستند الجديد", d.name) ?? d.name;
                       start(async () => {
@@ -690,22 +921,53 @@ export function OdooTasksPanel() {
                     <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("documents.document", d.id)}>أرشفة</Button>
                     <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("documents.document", d.id)}>حذف</Button>
                   </div>
+                  {expandedDocId === d.id ? (
+                    <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs space-y-1">
+                      <p><span className="font-medium">نوع المستند:</span> {d.type || "—"}</p>
+                      <p><span className="font-medium">تاريخ الإنشاء:</span> {d.createdAt || "—"}</p>
+                    </div>
+                  ) : null}
                 </div>
               ))}
-              {!documents.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
+              {!filteredDocuments.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
             </div>
           </div>
         </div>
 
-        <div id="odoo-record-details" className="rounded-md border p-3">
-          <Label className="mb-2 block">تفاصيل السجل المحدد</Label>
-          {selectedDetails ? (
-            <pre className="max-h-72 overflow-auto rounded bg-muted p-2 text-xs" dir="ltr">
-              {JSON.stringify(selectedDetails, null, 2)}
-            </pre>
-          ) : (
-            <p className="text-sm text-muted-foreground">اضغط استعراض على أي سطر لعرض التفاصيل الكاملة.</p>
-          )}
+        <div className="rounded-md border p-3 space-y-3">
+          <Label className="block">نسخ مهام/أحداث الشهر السابق للشهر الجديد</Label>
+          <p className="text-xs text-muted-foreground">
+            هذه الميزة تساعدك على تكرار أعمال الأجندة الشهرية بدل الإدخال اليدوي. اختر المصدر والهدف ثم حدّد الأحداث التي تريد نسخها.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Input type="month" value={sourceMonth} onChange={(e) => setSourceMonth(e.target.value)} className="w-44" />
+            <Input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)} className="w-44" />
+            <Button type="button" variant="outline" onClick={() => setSelectedCalendarIds(sourceMonthEvents.map((e) => e.id))}>
+              اختيار كل أحداث شهر المصدر
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setSelectedCalendarIds([])}>
+              إلغاء الاختيار
+            </Button>
+            <Button type="button" onClick={cloneSelectedMonthEvents} disabled={pending}>
+              نسخ المحدد إلى الشهر الهدف
+            </Button>
+          </div>
+          <div className="max-h-56 overflow-auto rounded-md border p-2 space-y-2">
+            {sourceMonthEvents.length ? (
+              sourceMonthEvents.map((e) => (
+                <label key={e.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={selectedCalendarIds.includes(e.id)}
+                    onChange={() => toggleCalendarPick(e.id)}
+                  />
+                  <span>#{e.id} - {e.name} ({e.start})</span>
+                </label>
+              ))
+            ) : (
+              <p className="text-xs text-muted-foreground">لا توجد أحداث في شهر المصدر ضمن النتائج الحالية.</p>
+            )}
+          </div>
         </div>
       </CardContent>
     </Card>
