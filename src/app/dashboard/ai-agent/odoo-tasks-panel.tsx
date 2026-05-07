@@ -5,10 +5,12 @@ import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  archiveOdooEntityAction,
   createOdooCalendarEventAction,
   createOdooDocumentAction,
   createOdooProjectAction,
   createOdooTaskAction,
+  deleteOdooEntityAction,
   exportOdooWorkspaceExcelAction,
   importOdooWorkspaceExcelAction,
   listOdooCalendarEventsAction,
@@ -18,6 +20,7 @@ import {
   updateOdooCalendarEventAction,
   updateOdooDocumentAction,
   updateOdooProjectAction,
+  updateOdooTaskAction,
   updateOdooTaskStageAction,
 } from "@/app/dashboard/ai-agent/actions";
 import { Button } from "@/components/ui/button";
@@ -31,11 +34,37 @@ type TaskRow = {
   stage: string;
   project: string;
   deadline: string;
+  creator: string;
+  responsible: string;
+  assigneeIds: number[];
+  description: string;
+  priority: string;
+  active: boolean;
 };
 
-type ProjectRow = { id: number; name: string; active: boolean };
-type CalendarRow = { id: number; name: string; start: string; stop: string; allday: boolean };
-type DocumentRow = { id: number; name: string; type: string; createdAt: string };
+type ProjectRow = {
+  id: number;
+  name: string;
+  active: boolean;
+  creator: string;
+  manager: string;
+  visibility: string;
+  createdAt: string;
+};
+type CalendarRow = {
+  id: number;
+  name: string;
+  start: string;
+  stop: string;
+  allday: boolean;
+  creator: string;
+  responsible: string;
+  partnerIds: number[];
+  location: string;
+  description: string;
+  active: boolean;
+};
+type DocumentRow = { id: number; name: string; type: string; createdAt: string; creator: string };
 
 export function OdooTasksPanel() {
   const [pending, start] = useTransition();
@@ -59,6 +88,11 @@ export function OdooTasksPanel() {
   const [docName, setDocName] = useState("");
   const [docIdForUpdate, setDocIdForUpdate] = useState("");
   const [docNameForUpdate, setDocNameForUpdate] = useState("");
+  const [selectedDetails, setSelectedDetails] = useState<Record<string, unknown> | null>(null);
+
+  function showDetails(data: Record<string, unknown>) {
+    setSelectedDetails(data);
+  }
 
   function loadTasks() {
     start(async () => {
@@ -110,6 +144,59 @@ export function OdooTasksPanel() {
       toast.success(res.message);
       const refreshed = await listOdooTasksAction({ text: query, limit: 50 });
       if (refreshed.ok) setTasks(refreshed.tasks);
+    });
+  }
+
+  function editTaskRow(row: TaskRow) {
+    const nextName = prompt("اسم المهمة", row.name) ?? row.name;
+    const nextDesc = prompt("الوصف", row.description ?? "") ?? row.description;
+    const nextDeadline = prompt("تاريخ الاستحقاق YYYY-MM-DD", row.deadline === "—" ? "" : row.deadline) ?? "";
+    start(async () => {
+      const res = await updateOdooTaskAction({
+        taskId: row.id,
+        name: nextName.trim(),
+        description: nextDesc,
+        deadline: nextDeadline.trim() || undefined,
+      });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(res.message);
+      loadTasks();
+    });
+  }
+
+  function archiveEntity(model: "project.task" | "project.project" | "calendar.event" | "documents.document" | "ir.attachment", id: number) {
+    start(async () => {
+      const res = await archiveOdooEntityAction({ model, id });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(res.message);
+      loadTasks();
+      loadProjects();
+      loadCalendar();
+      loadDocuments();
+    });
+  }
+
+  function deleteEntity(model: "project.task" | "project.project" | "calendar.event" | "documents.document" | "ir.attachment", id: number) {
+    start(async () => {
+      let res = await deleteOdooEntityAction({ model, id });
+      if (!res.ok && model === "documents.document") {
+        res = await deleteOdooEntityAction({ model: "ir.attachment", id });
+      }
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(res.message);
+      loadTasks();
+      loadProjects();
+      loadCalendar();
+      loadDocuments();
     });
   }
 
@@ -451,12 +538,15 @@ export function OdooTasksPanel() {
                 <th className="py-2 text-start">المرحلة</th>
                 <th className="py-2 text-start">المشروع</th>
                 <th className="py-2 text-start">الاستحقاق</th>
+                <th className="py-2 text-start">المنشئ</th>
+                <th className="py-2 text-start">المسؤول</th>
+                <th className="py-2 text-start">إجراءات</th>
               </tr>
             </thead>
             <tbody>
               {!tasks.length ? (
                 <tr>
-                  <td colSpan={5} className="py-3 text-center text-muted-foreground">
+                  <td colSpan={8} className="py-3 text-center text-muted-foreground">
                     لا توجد نتائج حتى الآن.
                   </td>
                 </tr>
@@ -468,6 +558,16 @@ export function OdooTasksPanel() {
                     <td className="py-2">{t.stage}</td>
                     <td className="py-2">{t.project}</td>
                     <td className="py-2">{t.deadline}</td>
+                    <td className="py-2">{t.creator}</td>
+                    <td className="py-2">{t.responsible}</td>
+                    <td className="py-2">
+                      <div className="flex flex-wrap gap-1">
+                        <Button type="button" size="sm" variant="outline" onClick={() => showDetails(t as unknown as Record<string, unknown>)}>استعراض</Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => editTaskRow(t)}>تعديل</Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("project.task", t.id)}>أرشفة</Button>
+                        <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("project.task", t.id)}>حذف</Button>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
@@ -478,31 +578,103 @@ export function OdooTasksPanel() {
         <div className="grid gap-2 lg:grid-cols-3">
           <div className="rounded-md border p-3">
             <Label className="mb-2 block">المشاريع ({projects.length})</Label>
-            <div className="max-h-48 space-y-1 overflow-auto text-sm">
+            <div className="max-h-64 overflow-auto text-sm">
               {projects.map((p) => (
-                <p key={p.id}>#{p.id} - {p.name}</p>
+                <div key={p.id} className="mb-2 border-b pb-2">
+                  <p>#{p.id} - {p.name}</p>
+                  <p className="text-xs text-muted-foreground">المدير: {p.manager} | المنشئ: {p.creator}</p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <Button type="button" size="sm" variant="outline" onClick={() => showDetails(p as unknown as Record<string, unknown>)}>استعراض</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => {
+                      const next = prompt("اسم المشروع الجديد", p.name) ?? p.name;
+                      start(async () => {
+                        const res = await updateOdooProjectAction({ projectId: p.id, name: next });
+                        if (!res.ok) {
+                          toast.error(res.error);
+                          return;
+                        }
+                        toast.success(res.message);
+                        loadProjects();
+                      });
+                    }}>تعديل</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("project.project", p.id)}>أرشفة</Button>
+                    <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("project.project", p.id)}>حذف</Button>
+                  </div>
+                </div>
               ))}
               {!projects.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
             </div>
           </div>
           <div className="rounded-md border p-3">
             <Label className="mb-2 block">التقويم ({events.length})</Label>
-            <div className="max-h-48 space-y-1 overflow-auto text-sm">
+            <div className="max-h-64 overflow-auto text-sm">
               {events.map((e) => (
-                <p key={e.id}>#{e.id} - {e.name}</p>
+                <div key={e.id} className="mb-2 border-b pb-2">
+                  <p>#{e.id} - {e.name}</p>
+                  <p className="text-xs text-muted-foreground">{e.start} → {e.stop}</p>
+                  <p className="text-xs text-muted-foreground">المسؤول: {e.responsible} | المنشئ: {e.creator}</p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <Button type="button" size="sm" variant="outline" onClick={() => showDetails(e as unknown as Record<string, unknown>)}>استعراض</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => {
+                      const next = prompt("اسم الحدث الجديد", e.name) ?? e.name;
+                      start(async () => {
+                        const res = await updateOdooCalendarEventAction({ eventId: e.id, name: next });
+                        if (!res.ok) {
+                          toast.error(res.error);
+                          return;
+                        }
+                        toast.success(res.message);
+                        loadCalendar();
+                      });
+                    }}>تعديل</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("calendar.event", e.id)}>أرشفة</Button>
+                    <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("calendar.event", e.id)}>حذف</Button>
+                  </div>
+                </div>
               ))}
               {!events.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
             </div>
           </div>
           <div className="rounded-md border p-3">
             <Label className="mb-2 block">المستندات ({documents.length})</Label>
-            <div className="max-h-48 space-y-1 overflow-auto text-sm">
+            <div className="max-h-64 overflow-auto text-sm">
               {documents.map((d) => (
-                <p key={d.id}>#{d.id} - {d.name}</p>
+                <div key={d.id} className="mb-2 border-b pb-2">
+                  <p>#{d.id} - {d.name}</p>
+                  <p className="text-xs text-muted-foreground">النوع: {d.type || "—"} | المنشئ: {d.creator}</p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <Button type="button" size="sm" variant="outline" onClick={() => showDetails(d as unknown as Record<string, unknown>)}>استعراض</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => {
+                      const next = prompt("اسم المستند الجديد", d.name) ?? d.name;
+                      start(async () => {
+                        const res = await updateOdooDocumentAction({ documentId: d.id, name: next });
+                        if (!res.ok) {
+                          toast.error(res.error);
+                          return;
+                        }
+                        toast.success(res.message);
+                        loadDocuments();
+                      });
+                    }}>تعديل</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("documents.document", d.id)}>أرشفة</Button>
+                    <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("documents.document", d.id)}>حذف</Button>
+                  </div>
+                </div>
               ))}
               {!documents.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
             </div>
           </div>
+        </div>
+
+        <div className="rounded-md border p-3">
+          <Label className="mb-2 block">تفاصيل السجل المحدد</Label>
+          {selectedDetails ? (
+            <pre className="max-h-72 overflow-auto rounded bg-muted p-2 text-xs" dir="ltr">
+              {JSON.stringify(selectedDetails, null, 2)}
+            </pre>
+          ) : (
+            <p className="text-sm text-muted-foreground">اضغط استعراض على أي سطر لعرض التفاصيل الكاملة.</p>
+          )}
         </div>
       </CardContent>
     </Card>

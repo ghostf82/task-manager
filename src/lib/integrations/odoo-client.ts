@@ -26,6 +26,12 @@ export type OdooWebTaskLite = {
   stage_id?: [number, string] | false;
   project_id?: [number, string] | false;
   date_deadline?: string | false;
+  create_uid?: [number, string] | false;
+  user_id?: [number, string] | false;
+  user_ids?: number[];
+  description?: string | false;
+  priority?: string | false;
+  active?: boolean;
 };
 
 export type OdooWebProjectLite = {
@@ -33,6 +39,9 @@ export type OdooWebProjectLite = {
   name: string;
   active?: boolean;
   create_date?: string;
+  create_uid?: [number, string] | false;
+  user_id?: [number, string] | false;
+  privacy_visibility?: string;
 };
 
 export type OdooWebCalendarEventLite = {
@@ -41,6 +50,12 @@ export type OdooWebCalendarEventLite = {
   start?: string;
   stop?: string;
   allday?: boolean;
+  create_uid?: [number, string] | false;
+  user_id?: [number, string] | false;
+  partner_ids?: number[];
+  description?: string | false;
+  location?: string | false;
+  active?: boolean;
 };
 
 export type OdooWebDocumentLite = {
@@ -49,6 +64,7 @@ export type OdooWebDocumentLite = {
   type?: string;
   mimetype?: string | false;
   create_date?: string;
+  create_uid?: [number, string] | false;
 };
 
 export type OdooGatewayErrorCode =
@@ -1048,24 +1064,58 @@ export async function searchOdooTasksViaWebLogin(params: {
     if (Number.isFinite(Number(params.stageId))) {
       domain.push(["stage_id", "=", Number(params.stageId)]);
     }
-    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
-      webCallKw({
-        baseUrl: session.baseUrl,
-        cookieHeader: session.cookieHeader,
-        model: TASK_MODEL,
-        method: "search_read",
-        args: [domain],
-        kwargs: {
-          fields: ["id", "name", "stage_id", "project_id", "date_deadline"],
-          limit: Math.min(100, Math.max(1, Number(params.limit ?? 40))),
-        },
-      })
-    );
+    let json: Record<string, unknown>;
+    try {
+      json = await callKwWithSessionRetry(params.bundle, async (session) =>
+        webCallKw({
+          baseUrl: session.baseUrl,
+          cookieHeader: session.cookieHeader,
+          model: TASK_MODEL,
+          method: "search_read",
+          args: [domain],
+          kwargs: {
+            fields: [
+              "id",
+              "name",
+              "stage_id",
+              "project_id",
+              "date_deadline",
+              "create_uid",
+              "user_id",
+              "user_ids",
+              "description",
+              "priority",
+              "active",
+            ],
+            limit: Math.min(100, Math.max(1, Number(params.limit ?? 40))),
+          },
+        })
+      );
+    } catch {
+      json = await callKwWithSessionRetry(params.bundle, async (session) =>
+        webCallKw({
+          baseUrl: session.baseUrl,
+          cookieHeader: session.cookieHeader,
+          model: TASK_MODEL,
+          method: "search_read",
+          args: [domain],
+          kwargs: {
+            fields: ["id", "name", "stage_id", "project_id", "date_deadline"],
+            limit: Math.min(100, Math.max(1, Number(params.limit ?? 40))),
+          },
+        })
+      );
+    }
     const rows = Array.isArray(json.result) ? json.result : [];
     const tasks = rows
       .filter((x) => x && typeof x === "object")
       .map((r) => r as OdooWebTaskLite)
-      .map((r) => ({ ...r, id: Number(r.id), name: String(r.name ?? "") }));
+      .map((r) => ({
+        ...r,
+        id: Number(r.id),
+        name: String(r.name ?? ""),
+        user_ids: Array.isArray(r.user_ids) ? r.user_ids.map(Number) : [],
+      }));
     return { tasks };
   } catch (e) {
     return { tasks: [], error: humanizeGatewayError(e) };
@@ -1090,6 +1140,39 @@ export async function updateOdooTaskStageViaWebLogin(params: {
     if (json.result !== true) {
       return { ok: false, error: "فشل تحديث مرحلة المهمة في Odoo." };
     }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: humanizeGatewayError(e) };
+  }
+}
+
+export async function updateOdooTaskViaWebLogin(params: {
+  bundle: OdooCredentialBundle;
+  taskId: number;
+  name?: string;
+  description?: string;
+  stageId?: number;
+  deadline?: string;
+  active?: boolean;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const values: Record<string, unknown> = {};
+    if (typeof params.name === "string" && params.name.trim()) values.name = params.name.trim();
+    if (typeof params.description === "string") values.description = params.description.trim();
+    if (Number.isFinite(Number(params.stageId))) values.stage_id = Number(params.stageId);
+    if (typeof params.deadline === "string" && params.deadline.trim()) values.date_deadline = params.deadline.trim();
+    if (typeof params.active === "boolean") values.active = params.active;
+    if (!Object.keys(values).length) return { ok: false, error: "لا توجد بيانات تعديل للمهمة." };
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: TASK_MODEL,
+        method: "write",
+        args: [[Number(params.taskId)], values],
+      })
+    );
+    if (json.result !== true) return { ok: false, error: "فشل تحديث بيانات المهمة في Odoo." };
     return { ok: true };
   } catch (e) {
     return { ok: false, error: humanizeGatewayError(e) };
@@ -1135,20 +1218,38 @@ export async function listOdooProjectsViaWebLogin(params: {
   try {
     const domain: unknown[] = [];
     if (params.text?.trim()) domain.push(["name", "ilike", params.text.trim()]);
-    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
-      webCallKw({
-        baseUrl: session.baseUrl,
-        cookieHeader: session.cookieHeader,
-        model: "project.project",
-        method: "search_read",
-        args: [domain],
-        kwargs: {
-          fields: ["id", "name", "active", "create_date"],
-          order: "id desc",
-          limit: Math.min(200, Math.max(1, Number(params.limit ?? 80))),
-        },
-      })
-    );
+    let json: Record<string, unknown>;
+    try {
+      json = await callKwWithSessionRetry(params.bundle, async (session) =>
+        webCallKw({
+          baseUrl: session.baseUrl,
+          cookieHeader: session.cookieHeader,
+          model: "project.project",
+          method: "search_read",
+          args: [domain],
+          kwargs: {
+            fields: ["id", "name", "active", "create_date", "create_uid", "user_id", "privacy_visibility"],
+            order: "id desc",
+            limit: Math.min(200, Math.max(1, Number(params.limit ?? 80))),
+          },
+        })
+      );
+    } catch {
+      json = await callKwWithSessionRetry(params.bundle, async (session) =>
+        webCallKw({
+          baseUrl: session.baseUrl,
+          cookieHeader: session.cookieHeader,
+          model: "project.project",
+          method: "search_read",
+          args: [domain],
+          kwargs: {
+            fields: ["id", "name", "active", "create_date"],
+            order: "id desc",
+            limit: Math.min(200, Math.max(1, Number(params.limit ?? 80))),
+          },
+        })
+      );
+    }
     const rows = Array.isArray(json.result) ? json.result : [];
     const projects = rows
       .filter((x) => x && typeof x === "object")
@@ -1158,6 +1259,15 @@ export async function listOdooProjectsViaWebLogin(params: {
         name: String(r.name ?? ""),
         active: Boolean(r.active ?? true),
         create_date: typeof r.create_date === "string" ? r.create_date : "",
+        create_uid:
+          Array.isArray(r.create_uid) && typeof r.create_uid[0] === "number" && typeof r.create_uid[1] === "string"
+            ? ([Number(r.create_uid[0]), String(r.create_uid[1])] as [number, string])
+            : (false as const),
+        user_id:
+          Array.isArray(r.user_id) && typeof r.user_id[0] === "number" && typeof r.user_id[1] === "string"
+            ? ([Number(r.user_id[0]), String(r.user_id[1])] as [number, string])
+            : (false as const),
+        privacy_visibility: typeof r.privacy_visibility === "string" ? r.privacy_visibility : "",
       }));
     return { projects };
   } catch (e) {
@@ -1222,20 +1332,50 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
   try {
     const domain: unknown[] = [];
     if (params.text?.trim()) domain.push(["name", "ilike", params.text.trim()]);
-    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
-      webCallKw({
-        baseUrl: session.baseUrl,
-        cookieHeader: session.cookieHeader,
-        model: "calendar.event",
-        method: "search_read",
-        args: [domain],
-        kwargs: {
-          fields: ["id", "name", "start", "stop", "allday"],
-          order: "start desc",
-          limit: Math.min(300, Math.max(1, Number(params.limit ?? 120))),
-        },
-      })
-    );
+    let json: Record<string, unknown>;
+    try {
+      json = await callKwWithSessionRetry(params.bundle, async (session) =>
+        webCallKw({
+          baseUrl: session.baseUrl,
+          cookieHeader: session.cookieHeader,
+          model: "calendar.event",
+          method: "search_read",
+          args: [domain],
+          kwargs: {
+            fields: [
+              "id",
+              "name",
+              "start",
+              "stop",
+              "allday",
+              "create_uid",
+              "user_id",
+              "partner_ids",
+              "description",
+              "location",
+              "active",
+            ],
+            order: "start desc",
+            limit: Math.min(300, Math.max(1, Number(params.limit ?? 120))),
+          },
+        })
+      );
+    } catch {
+      json = await callKwWithSessionRetry(params.bundle, async (session) =>
+        webCallKw({
+          baseUrl: session.baseUrl,
+          cookieHeader: session.cookieHeader,
+          model: "calendar.event",
+          method: "search_read",
+          args: [domain],
+          kwargs: {
+            fields: ["id", "name", "start", "stop", "allday"],
+            order: "start desc",
+            limit: Math.min(300, Math.max(1, Number(params.limit ?? 120))),
+          },
+        })
+      );
+    }
     const rows = Array.isArray(json.result) ? json.result : [];
     const events = rows
       .filter((x) => x && typeof x === "object")
@@ -1246,6 +1386,18 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
         start: typeof r.start === "string" ? r.start : "",
         stop: typeof r.stop === "string" ? r.stop : "",
         allday: Boolean(r.allday ?? false),
+        create_uid:
+          Array.isArray(r.create_uid) && typeof r.create_uid[0] === "number" && typeof r.create_uid[1] === "string"
+            ? ([Number(r.create_uid[0]), String(r.create_uid[1])] as [number, string])
+            : (false as const),
+        user_id:
+          Array.isArray(r.user_id) && typeof r.user_id[0] === "number" && typeof r.user_id[1] === "string"
+            ? ([Number(r.user_id[0]), String(r.user_id[1])] as [number, string])
+            : (false as const),
+        partner_ids: Array.isArray(r.partner_ids) ? r.partner_ids.map(Number) : [],
+        description: typeof r.description === "string" ? r.description : (false as const),
+        location: typeof r.location === "string" ? r.location : (false as const),
+        active: Boolean(r.active ?? true),
       }));
     return { events };
   } catch (e) {
@@ -1334,7 +1486,7 @@ export async function listOdooDocumentsViaWebLogin(params: {
           method: "search_read",
           args: [domain],
           kwargs: {
-            fields: ["id", "name", "type", "mimetype", "create_date"],
+            fields: ["id", "name", "type", "mimetype", "create_date", "create_uid"],
             order: "id desc",
             limit: Math.min(200, Math.max(1, Number(params.limit ?? 80))),
           },
@@ -1350,7 +1502,7 @@ export async function listOdooDocumentsViaWebLogin(params: {
           method: "search_read",
           args: [domain],
           kwargs: {
-            fields: ["id", "name", "type", "mimetype", "create_date"],
+            fields: ["id", "name", "type", "mimetype", "create_date", "create_uid"],
             order: "id desc",
             limit: Math.min(200, Math.max(1, Number(params.limit ?? 80))),
           },
@@ -1367,6 +1519,10 @@ export async function listOdooDocumentsViaWebLogin(params: {
         type: typeof r.type === "string" ? r.type : "",
         mimetype: typeof r.mimetype === "string" ? r.mimetype : (false as const),
         create_date: typeof r.create_date === "string" ? r.create_date : "",
+        create_uid:
+          Array.isArray(r.create_uid) && typeof r.create_uid[0] === "number" && typeof r.create_uid[1] === "string"
+            ? ([Number(r.create_uid[0]), String(r.create_uid[1])] as [number, string])
+            : (false as const),
       }));
     return { documents };
   } catch (e) {
@@ -1438,6 +1594,50 @@ export async function updateOdooDocumentViaWebLogin(params: {
       );
     }
     if (json.result !== true) return { ok: false, error: "فشل تحديث المستند في Odoo." };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: humanizeGatewayError(e) };
+  }
+}
+
+export async function archiveOdooRecordViaWebLogin(params: {
+  bundle: OdooCredentialBundle;
+  model: string;
+  id: number;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: params.model,
+        method: "write",
+        args: [[Number(params.id)], { active: false }],
+      })
+    );
+    if (json.result !== true) return { ok: false, error: `فشل أرشفة السجل #${params.id} (${params.model}).` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: humanizeGatewayError(e) };
+  }
+}
+
+export async function deleteOdooRecordViaWebLogin(params: {
+  bundle: OdooCredentialBundle;
+  model: string;
+  id: number;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: params.model,
+        method: "unlink",
+        args: [[Number(params.id)]],
+      })
+    );
+    if (json.result !== true) return { ok: false, error: `فشل حذف السجل #${params.id} (${params.model}).` };
     return { ok: true };
   } catch (e) {
     return { ok: false, error: humanizeGatewayError(e) };

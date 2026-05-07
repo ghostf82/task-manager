@@ -24,10 +24,12 @@ import { tAction, tActionFill } from "@/lib/i18n/action-messages";
 import type { OdooTaskRecord } from "@/lib/integrations/odoo-xmlrpc";
 import { createClient } from "@/lib/supabase/server";
 import {
+  archiveOdooRecordViaWebLogin,
   createOdooCalendarEventViaWebLogin,
   createOdooDocumentViaWebLogin,
   createOdooProjectViaWebLogin,
   createOdooTaskViaWebLogin,
+  deleteOdooRecordViaWebLogin,
   listOdooCalendarEventsViaWebLogin,
   listOdooDocumentsViaWebLogin,
   listOdooProjectsViaWebLogin,
@@ -35,6 +37,7 @@ import {
   updateOdooCalendarEventViaWebLogin,
   updateOdooDocumentViaWebLogin,
   updateOdooProjectViaWebLogin,
+  updateOdooTaskViaWebLogin,
   updateOdooTaskStageViaWebLogin,
 } from "@/lib/integrations/odoo-client";
 import { loadOdooBrowserSessionBundle, loadOdooConnectionState } from "@/lib/ai-agent/load-user-integrations";
@@ -567,7 +570,7 @@ export async function listOdooTasksAction(input?: {
   projectId?: number | null;
   stageId?: number | null;
   limit?: number;
-}): Promise<{ ok: true; tasks: Array<{ id: number; name: string; stage: string; project: string; deadline: string }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; tasks: Array<{ id: number; name: string; stage: string; project: string; deadline: string; creator: string; responsible: string; assigneeIds: number[]; description: string; priority: string; active: boolean }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const mode = await loadOdooConnectionState(supabase, session.id);
@@ -611,6 +614,12 @@ export async function listOdooTasksAction(input?: {
       stage: Array.isArray(t.stage_id) ? String(t.stage_id[1]) : "—",
       project: Array.isArray(t.project_id) ? String(t.project_id[1]) : "—",
       deadline: typeof t.date_deadline === "string" ? t.date_deadline : "—",
+      creator: Array.isArray(t.create_uid) ? String(t.create_uid[1]) : "—",
+      responsible: Array.isArray(t.user_id) ? String(t.user_id[1]) : "—",
+      assigneeIds: Array.isArray(t.user_ids) ? t.user_ids.map(Number) : [],
+      description: typeof t.description === "string" ? t.description : "",
+      priority: typeof t.priority === "string" ? t.priority : "",
+      active: Boolean(t.active ?? true),
     })),
   };
 }
@@ -652,6 +661,37 @@ export async function updateOdooTaskStageAction(input: {
   });
   revalidatePath("/dashboard/ai-agent");
   return { ok: true, message: "تم تحديث مرحلة المهمة في Odoo بنجاح." };
+}
+
+export async function updateOdooTaskAction(input: {
+  taskId: number;
+  name?: string;
+  description?: string;
+  stageId?: number;
+  deadline?: string;
+  active?: boolean;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const upd = await updateOdooTaskViaWebLogin({
+    bundle,
+    taskId: Number(input.taskId),
+    name: input.name,
+    description: input.description,
+    stageId: input.stageId,
+    deadline: input.deadline,
+    active: input.active,
+  });
+  if (!upd.ok) return upd;
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_action_success",
+    message: `تم تعديل بيانات مهمة Odoo #${input.taskId}.`,
+  });
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, message: "تم تعديل المهمة بنجاح." };
 }
 
 export async function createOdooTaskAction(input: {
@@ -700,7 +740,7 @@ export async function createOdooTaskAction(input: {
 export async function listOdooProjectsAction(input?: {
   text?: string;
   limit?: number;
-}): Promise<{ ok: true; projects: Array<{ id: number; name: string; active: boolean }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; projects: Array<{ id: number; name: string; active: boolean; creator: string; manager: string; visibility: string; createdAt: string }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const mode = await loadOdooConnectionState(supabase, session.id);
@@ -711,9 +751,22 @@ export async function listOdooProjectsAction(input?: {
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
   const res = await listOdooProjectsViaWebLogin({ bundle, text: input?.text, limit: input?.limit ?? 80 });
   if (res.error) return { ok: false, error: res.error };
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_sync_projects",
+    message: `تمت مزامنة ${res.projects.length} مشروع من Odoo.`,
+  });
   return {
     ok: true,
-    projects: res.projects.map((p) => ({ id: p.id, name: p.name, active: Boolean(p.active ?? true) })),
+    projects: res.projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      active: Boolean(p.active ?? true),
+      creator: Array.isArray(p.create_uid) ? String(p.create_uid[1]) : "—",
+      manager: Array.isArray(p.user_id) ? String(p.user_id[1]) : "—",
+      visibility: typeof p.privacy_visibility === "string" ? p.privacy_visibility : "—",
+      createdAt: typeof p.create_date === "string" ? p.create_date : "",
+    })),
   };
 }
 
@@ -758,13 +811,18 @@ export async function updateOdooProjectAction(input: {
 export async function listOdooCalendarEventsAction(input?: {
   text?: string;
   limit?: number;
-}): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; partnerIds: number[]; location: string; description: string; active: boolean }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
   const res = await listOdooCalendarEventsViaWebLogin({ bundle, text: input?.text, limit: input?.limit ?? 120 });
   if (res.error) return { ok: false, error: res.error };
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_sync_calendar",
+    message: `تمت مزامنة ${res.events.length} حدث تقويم من Odoo.`,
+  });
   return {
     ok: true,
     events: res.events.map((e) => ({
@@ -773,6 +831,12 @@ export async function listOdooCalendarEventsAction(input?: {
       start: String(e.start ?? ""),
       stop: String(e.stop ?? ""),
       allday: Boolean(e.allday ?? false),
+      creator: Array.isArray(e.create_uid) ? String(e.create_uid[1]) : "—",
+      responsible: Array.isArray(e.user_id) ? String(e.user_id[1]) : "—",
+      partnerIds: Array.isArray(e.partner_ids) ? e.partner_ids.map(Number) : [],
+      location: typeof e.location === "string" ? e.location : "",
+      description: typeof e.description === "string" ? e.description : "",
+      active: Boolean(e.active ?? true),
     })),
   };
 }
@@ -826,13 +890,18 @@ export async function updateOdooCalendarEventAction(input: {
 export async function listOdooDocumentsAction(input?: {
   text?: string;
   limit?: number;
-}): Promise<{ ok: true; documents: Array<{ id: number; name: string; type: string; createdAt: string }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; documents: Array<{ id: number; name: string; type: string; createdAt: string; creator: string }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
   const res = await listOdooDocumentsViaWebLogin({ bundle, text: input?.text, limit: input?.limit ?? 80 });
   if (res.error) return { ok: false, error: res.error };
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_sync_documents",
+    message: `تمت مزامنة ${res.documents.length} مستند من Odoo.`,
+  });
   return {
     ok: true,
     documents: res.documents.map((d) => ({
@@ -840,8 +909,55 @@ export async function listOdooDocumentsAction(input?: {
       name: d.name,
       type: String(d.type ?? ""),
       createdAt: String(d.create_date ?? ""),
+      creator: Array.isArray(d.create_uid) ? String(d.create_uid[1]) : "—",
     })),
   };
+}
+
+export async function archiveOdooEntityAction(input: {
+  model: "project.task" | "project.project" | "calendar.event" | "documents.document" | "ir.attachment";
+  id: number;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const res = await archiveOdooRecordViaWebLogin({
+    bundle,
+    model: input.model,
+    id: Number(input.id),
+  });
+  if (!res.ok) return res;
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_action_success",
+    message: `تمت أرشفة ${input.model}#${input.id}`,
+  });
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, message: "تمت الأرشفة بنجاح." };
+}
+
+export async function deleteOdooEntityAction(input: {
+  model: "project.task" | "project.project" | "calendar.event" | "documents.document" | "ir.attachment";
+  id: number;
+}): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const res = await deleteOdooRecordViaWebLogin({
+    bundle,
+    model: input.model,
+    id: Number(input.id),
+  });
+  if (!res.ok) return res;
+  await appendAgentActivity(supabase, {
+    userId: session.id,
+    eventType: "odoo_action_success",
+    message: `تم حذف ${input.model}#${input.id}`,
+  });
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, message: "تم الحذف بنجاح." };
 }
 
 export async function createOdooDocumentAction(input: {
