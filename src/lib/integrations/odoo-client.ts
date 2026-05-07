@@ -1339,10 +1339,14 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
   text?: string;
   limit?: number;
   mineOnly?: boolean;
+  startFrom?: string;
+  startBefore?: string;
 }): Promise<{ events: OdooWebCalendarEventLite[]; error?: string }> {
   try {
     const domain: unknown[] = [];
     if (params.text?.trim()) domain.push(["name", "ilike", params.text.trim()]);
+    if (params.startFrom?.trim()) domain.push(["start", ">=", params.startFrom.trim()]);
+    if (params.startBefore?.trim()) domain.push(["start", "<", params.startBefore.trim()]);
     let json: Record<string, unknown>;
     try {
       json = await callKwWithSessionRetry(params.bundle, async (session) =>

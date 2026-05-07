@@ -14,6 +14,7 @@ import {
   exportOdooWorkspaceExcelAction,
   importOdooWorkspaceExcelAction,
   listOdooCalendarEventsAction,
+  listOdooCalendarEventsMonthAction,
   listOdooDocumentsAction,
   listOdooProjectsAction,
   listOdooTasksAction,
@@ -151,6 +152,8 @@ export function OdooTasksPanel() {
     return d.toISOString().slice(0, 7);
   });
   const [selectedCalendarIds, setSelectedCalendarIds] = useState<number[]>([]);
+  const [monthEvents, setMonthEvents] = useState<CalendarRow[]>([]);
+  const [selectedSourceDay, setSelectedSourceDay] = useState("");
 
   function loadTasks() {
     start(async () => {
@@ -508,12 +511,44 @@ export function OdooTasksPanel() {
   const filteredEvents = events.filter((e) => passPeople(e.creator, e.responsible));
   const filteredDocuments = documents.filter((d) => passPeople(d.creator));
 
-  const sourceMonthEvents = filteredEvents.filter((e) => {
-    const d = parseOdooDateTime(e.start);
-    if (!d) return false;
-    const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    return month === sourceMonth;
-  });
+  const sourceMonthDays = useMemo(() => {
+    const days = new Set<string>();
+    for (const e of monthEvents) {
+      const d = parseOdooDateTime(e.start);
+      if (!d) continue;
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      days.add(k);
+    }
+    return [...days].sort((a, b) => a.localeCompare(b));
+  }, [monthEvents]);
+
+  const sourceMonthEvents = useMemo(() => {
+    if (!selectedSourceDay) return monthEvents;
+    return monthEvents.filter((e) => {
+      const d = parseOdooDateTime(e.start);
+      if (!d) return false;
+      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      return k === selectedSourceDay;
+    });
+  }, [monthEvents, selectedSourceDay]);
+
+  function loadSourceMonthEvents() {
+    if (!sourceMonth) {
+      toast.error("اختر شهر المصدر أولاً.");
+      return;
+    }
+    start(async () => {
+      const res = await listOdooCalendarEventsMonthAction({ yearMonth: sourceMonth, mineOnly: false });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setMonthEvents(res.events.filter((e) => passPeople(e.creator, e.responsible)));
+      setSelectedSourceDay("");
+      setSelectedCalendarIds([]);
+      toast.success(`تم جلب ${res.events.length} حدثًا لشهر ${sourceMonth}.`);
+    });
+  }
 
   function suggestEventAutomation(e: CalendarRow): string[] {
     const tips: string[] = [];
@@ -942,6 +977,9 @@ export function OdooTasksPanel() {
           <div className="flex flex-wrap gap-2">
             <Input type="month" value={sourceMonth} onChange={(e) => setSourceMonth(e.target.value)} className="w-44" />
             <Input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)} className="w-44" />
+            <Button type="button" variant="outline" onClick={loadSourceMonthEvents} disabled={pending}>
+              جلب كل أيام شهر المصدر
+            </Button>
             <Button type="button" variant="outline" onClick={() => setSelectedCalendarIds(sourceMonthEvents.map((e) => e.id))}>
               اختيار كل أحداث شهر المصدر
             </Button>
@@ -951,6 +989,23 @@ export function OdooTasksPanel() {
             <Button type="button" onClick={cloneSelectedMonthEvents} disabled={pending}>
               نسخ المحدد إلى الشهر الهدف
             </Button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {sourceMonthDays.length ? (
+              sourceMonthDays.map((day) => (
+                <Button
+                  key={day}
+                  type="button"
+                  size="sm"
+                  variant={selectedSourceDay === day ? "default" : "outline"}
+                  onClick={() => setSelectedSourceDay((curr) => (curr === day ? "" : day))}
+                >
+                  {day}
+                </Button>
+              ))
+            ) : (
+              <p className="text-xs text-muted-foreground">بعد الجلب ستظهر كل أيام الشهر هنا لتختار اليوم المناسب (مثل نهاية الشهر).</p>
+            )}
           </div>
           <div className="max-h-56 overflow-auto rounded-md border p-2 space-y-2">
             {sourceMonthEvents.length ? (

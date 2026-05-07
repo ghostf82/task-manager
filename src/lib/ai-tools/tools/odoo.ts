@@ -7,7 +7,11 @@ import {
   loadOdooConnectionState,
   loadOdooCredentialBundle,
 } from "@/lib/ai-agent/load-user-integrations";
-import { fetchOdooOpenTasksForUser, fetchOdooOpenTasksViaWebLogin } from "@/lib/integrations/odoo-client";
+import {
+  fetchOdooOpenTasksForUser,
+  fetchOdooOpenTasksViaWebLogin,
+  searchOdooTasksViaWebLogin,
+} from "@/lib/integrations/odoo-client";
 import type { AIToolModule } from "@/lib/ai-tools/types";
 
 export const odooAiTool: AIToolModule = {
@@ -24,6 +28,27 @@ export const odooAiTool: AIToolModule = {
       const browserBundle = await loadOdooBrowserSessionBundle(supabase, userId);
       if (browserBundle) {
         const viaSession = await fetchOdooOpenTasksViaWebLogin(browserBundle);
+        // Fallback to a broader search if strict "open tasks for me" returns empty.
+        if (!viaSession.error && viaSession.tasks.length === 0) {
+          const broad = await searchOdooTasksViaWebLogin({
+            bundle: browserBundle,
+            limit: 120,
+          });
+          if (!broad.error && broad.tasks.length > 0) {
+            return {
+              tasks: broad.tasks.map((t) => ({
+                id: t.id,
+                name: t.name,
+                date_deadline: t.date_deadline ?? false,
+                stage_id: t.stage_id ?? false,
+                user_ids: Array.isArray(t.user_ids) ? t.user_ids : [],
+                user_id: t.user_id ?? false,
+                project_id: t.project_id ?? false,
+                description: t.description ?? false,
+              })),
+            };
+          }
+        }
         const scanErrors =
           viaSession.error != null && viaSession.error !== ""
             ? [{ kind: "scan_odoo_error" as const, message: viaSession.error }]

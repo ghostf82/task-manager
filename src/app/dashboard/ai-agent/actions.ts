@@ -828,6 +828,8 @@ export async function listOdooCalendarEventsAction(input?: {
   text?: string;
   limit?: number;
   mineOnly?: boolean;
+  startFrom?: string;
+  startBefore?: string;
 }): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; partnerIds: number[]; location: string; description: string; active: boolean }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
@@ -838,6 +840,8 @@ export async function listOdooCalendarEventsAction(input?: {
     text: input?.text,
     limit: input?.limit ?? 120,
     mineOnly: Boolean(input?.mineOnly ?? false),
+    startFrom: input?.startFrom,
+    startBefore: input?.startBefore,
   });
   if (res.error) return { ok: false, error: res.error };
   await appendAgentActivity(supabase, {
@@ -861,6 +865,26 @@ export async function listOdooCalendarEventsAction(input?: {
       active: Boolean(e.active ?? true),
     })),
   };
+}
+
+export async function listOdooCalendarEventsMonthAction(input: {
+  yearMonth: string;
+  mineOnly?: boolean;
+}): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; partnerIds: number[]; location: string; description: string; active: boolean }> } | { ok: false; error: string }> {
+  const ym = String(input.yearMonth || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(ym)) {
+    return { ok: false, error: "صيغة الشهر غير صحيحة. استخدم YYYY-MM." };
+  }
+  const [y, m] = ym.split("-").map(Number);
+  const start = `${ym}-01 00:00:00`;
+  const nextMonth = new Date(y, m, 1);
+  const end = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}-01 00:00:00`;
+  return listOdooCalendarEventsAction({
+    limit: 500,
+    mineOnly: Boolean(input.mineOnly ?? false),
+    startFrom: start,
+    startBefore: end,
+  });
 }
 
 export async function createOdooCalendarEventAction(input: {
