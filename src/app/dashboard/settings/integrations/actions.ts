@@ -17,6 +17,30 @@ import { createClient } from "@/lib/supabase/server";
 const ODOO_DEBUG_BUILD = "odoo-jsonrpc-debug-v2";
 const ODOO_BROWSER_MODE_DB = "__browser_session__";
 
+function makeOdooTraceId(userId: string): string {
+  const shortUser = userId.slice(0, 6) || "anon";
+  return `odoo-${Date.now().toString(36)}-${shortUser}`;
+}
+
+async function safeAppendActivity(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  payload: { userId: string; eventType: string; message: string }
+) {
+  try {
+    await appendAgentActivity(supabase, {
+      userId: payload.userId,
+      eventType: payload.eventType,
+      message: payload.message,
+    });
+  } catch (e) {
+    console.error("[odoo-debug] activity_log_failed", {
+      eventType: payload.eventType,
+      message: payload.message.slice(0, 180),
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
 function num(v: FormDataEntryValue | null, fallback: number) {
   const n = Number(typeof v === "string" ? v.trim() : "");
   return Number.isFinite(n) ? n : fallback;
@@ -29,6 +53,7 @@ function bool(v: FormDataEntryValue | null) {
 export async function saveOdooCredentialsAction(formData: FormData) {
   const session = await requireSession();
   const supabase = await createClient();
+  const traceId = makeOdooTraceId(session.id);
 
   const odooLicensed = await userHasAiToolLicense(supabase, session.id, "odoo");
   if (!odooLicensed) {
@@ -78,13 +103,20 @@ export async function saveOdooCredentialsAction(formData: FormData) {
   );
 
   if (error) {
+    console.error("[odoo-debug] save upsert failed", {
+      traceId,
+      baseUrl,
+      browserMode,
+      db: browserMode ? ODOO_BROWSER_MODE_DB : databaseName || null,
+      message: error.message,
+    });
     redirect("/dashboard/settings/integrations?err=odoo_save");
   }
 
-  await appendAgentActivity(supabase, {
+  await safeAppendActivity(supabase, {
     userId: session.id,
     eventType: "vault",
-    message: await tAction("integrationsActions.activityOdooSaved"),
+    message: `[${traceId}] ${await tAction("integrationsActions.activityOdooSaved")}`,
   });
 
   revalidatePath("/dashboard/settings/integrations");
@@ -218,7 +250,9 @@ export async function testOdooConnectionAction(input: {
 }): Promise<ConnectionTestResult> {
   const session = await requireSession();
   const supabase = await createClient();
+  const traceId = makeOdooTraceId(session.id);
   console.error("[odoo-debug] action start", {
+    traceId,
     build: ODOO_DEBUG_BUILD,
     baseUrl: String(input.base_url ?? "").trim(),
     databaseName: String(input.database_name ?? "").trim(),
@@ -228,17 +262,17 @@ export async function testOdooConnectionAction(input: {
 
   const dbInput = String(input.database_name ?? "").trim();
   if (dbInput === ODOO_BROWSER_MODE_DB || !dbInput) {
-    await appendAgentActivity(supabase, {
+    await safeAppendActivity(supabase, {
       userId: session.id,
       eventType: "odoo_handshake_start",
-      message: "بدء اختبار Odoo عبر Browser Session.",
+      message: `[${traceId}] بدء اختبار Odoo عبر Browser Session.`,
     });
     const browserBundle = await loadOdooBrowserSessionBundle(supabase, session.id);
     if (!browserBundle) {
-      await appendAgentActivity(supabase, {
+      await safeAppendActivity(supabase, {
         userId: session.id,
         eventType: "odoo_handshake_fail",
-        message: "Browser Session Mode مفعّل لكن البيانات غير مكتملة.",
+        message: `[${traceId}] Browser Session Mode مفعّل لكن البيانات غير مكتملة.`,
       });
       return {
         ok: false,
@@ -246,19 +280,22 @@ export async function testOdooConnectionAction(input: {
           "Browser Session Mode مفعّل لكن بياناته غير مكتملة (اسم المستخدم/كلمة المرور). أعد الحفظ من صفحة الربط.",
       };
     }
-    const probe = await fetchOdooOpenTasksViaWebLogin(browserBundle);
+    const probe = await fetchOdooOpenTasksViaWebLogin({
+      ...browserBundle,
+      traceId,
+    });
     if (probe.error) {
-      await appendAgentActivity(supabase, {
+      await safeAppendActivity(supabase, {
         userId: session.id,
         eventType: "odoo_handshake_fail",
-        message: probe.error,
+        message: `[${traceId}] ${probe.error}`,
       });
       return { ok: false, message: probe.error };
     }
-    await appendAgentActivity(supabase, {
+    await safeAppendActivity(supabase, {
       userId: session.id,
       eventType: "odoo_handshake_ok",
-      message: `تم إنشاء جلسة Odoo بنجاح وقراءة ${probe.tasks.length} مهمة.`,
+      message: `[${traceId}] تم إنشاء جلسة Odoo بنجاح وقراءة ${probe.tasks.length} مهمة.`,
     });
     return {
       ok: true,
@@ -296,7 +333,7 @@ export async function testOdooConnectionAction(input: {
     loginUsername: input.login_username.trim(),
     passwordPlain,
   });
-  console.error("[odoo-debug] action result", r);
+  console.error("[odoo-debug] action result", { traceId, ...r });
 
   return r.ok
     ? { ok: true, message: await tAction("integrationsActions.testOdooSuccess") }

@@ -48,6 +48,7 @@ export default async function IntegrationsSettingsPage({
     .eq("user_id", session.id)
     .maybeSingle();
   const isOdooBrowserMode = odoo?.database_name === "__browser_session__";
+  const canToggleOdooMode = Boolean(odoo?.base_url && odoo?.login_username);
 
   const { data: email } = await supabase
     .from("user_email_credentials")
@@ -214,14 +215,26 @@ export default async function IntegrationsSettingsPage({
             {!isOdooBrowserMode ? (
               <form action={saveOdooCredentialsAction} className="pt-1">
                 <input type="hidden" name="base_url" value={odoo?.base_url ?? ""} />
+                <input type="hidden" name="login_username" value={odoo?.login_username ?? ""} />
                 <input type="hidden" name="connection_mode" value="browser_session" />
-                <PendingSubmitButton label="تفعيل Browser Session Mode" pendingLabel="جارٍ التفعيل..." variant="outline" />
+                <PendingSubmitButton
+                  label="تفعيل Browser Session Mode"
+                  pendingLabel="جارٍ التفعيل..."
+                  variant="outline"
+                  disabled={!canToggleOdooMode}
+                />
               </form>
             ) : (
               <form action={saveOdooCredentialsAction} className="pt-1 grid gap-2 sm:grid-cols-[1fr_auto]">
                 <input type="hidden" name="connection_mode" value="api" />
+                <input type="hidden" name="login_username" value={odoo?.login_username ?? ""} />
                 <Input name="base_url" dir="ltr" className="font-mono text-sm" defaultValue={odoo?.base_url ?? ""} />
-                <PendingSubmitButton label="الرجوع إلى API Mode" pendingLabel="جارٍ التفعيل..." variant="outline" />
+                <PendingSubmitButton
+                  label="الرجوع إلى API Mode"
+                  pendingLabel="جارٍ التفعيل..."
+                  variant="outline"
+                  disabled={!canToggleOdooMode}
+                />
               </form>
             )}
             {odoo ? (

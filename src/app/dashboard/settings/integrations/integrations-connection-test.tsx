@@ -64,14 +64,17 @@ export function PendingSubmitButton({
   label,
   pendingLabel,
   variant = "default",
+  disabled = false,
 }: {
   label: string;
   pendingLabel: string;
   variant?: "default" | "outline" | "ghost";
+  disabled?: boolean;
 }) {
   const { pending } = useFormStatus();
+  const isDisabled = pending || disabled;
   return (
-    <Button type="submit" variant={variant} disabled={pending} aria-busy={pending}>
+    <Button type="submit" variant={variant} disabled={isDisabled} aria-busy={pending}>
       {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
       {pending ? pendingLabel : label}
     </Button>
