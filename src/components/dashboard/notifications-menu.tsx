@@ -7,7 +7,6 @@ import { Bell } from "lucide-react";
 import { markNotificationsReadAction } from "@/app/dashboard/notifications/actions";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -75,22 +74,17 @@ export function NotificationsMenu({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger>
-        <button
-          type="button"
-          className={cn(
-            buttonVariants({ variant: "outline", size: "sm" }),
-            "relative gap-1.5"
-          )}
-        >
-          <Bell className="size-4" />
-          <span className="hidden sm:inline">{displayLabel}</span>
-          {unread.length > 0 ? (
-            <span className="absolute -top-1 -end-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
-              {unread.length > 9 ? "9+" : unread.length}
-            </span>
-          ) : null}
-        </button>
+      <DropdownMenuTrigger
+        type="button"
+        className={`${buttonVariants({ variant: "outline", size: "sm" })} relative gap-1.5`}
+      >
+        <Bell className="size-4" />
+        <span className="hidden sm:inline">{displayLabel}</span>
+        {unread.length > 0 ? (
+          <span className="absolute -top-1 -end-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+            {unread.length > 9 ? "9+" : unread.length}
+          </span>
+        ) : null}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80">
         <DropdownMenuLabel className="flex items-center justify-between gap-2">

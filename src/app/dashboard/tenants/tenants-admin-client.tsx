@@ -181,10 +181,11 @@ export function TenantsAdminClient({ tenants }: { tenants: TenantRow[] }) {
                   </TableCell>
                   <TableCell className="text-end">
                     <DropdownMenu>
-                      <DropdownMenuTrigger>
-                        <Button variant="ghost" size="sm" type="button">
-                          ⋮
-                        </Button>
+                      <DropdownMenuTrigger
+                        type="button"
+                        className="inline-flex h-7 items-center justify-center rounded-xl px-2.5 text-sm hover:bg-muted"
+                      >
+                        ⋮
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem
