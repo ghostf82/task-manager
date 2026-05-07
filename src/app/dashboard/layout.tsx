@@ -15,6 +15,7 @@ import { NotificationsMenu } from "@/components/dashboard/notifications-menu";
 import { requireSession } from "@/lib/dashboard-auth";
 import { DASHBOARD_NAV_LINKS } from "@/lib/i18n/nav-config";
 import { getTranslator } from "@/lib/i18n/get-translator";
+import { designSystem } from "@/lib/design-system";
 
 export default async function DashboardLayout({
   children,
@@ -92,7 +93,7 @@ export default async function DashboardLayout({
 
   return (
     <DashboardI18nProvider locale={locale} catalog={catalog}>
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen flex-col bg-background" style={{ backgroundColor: designSystem.colors.background }}>
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <AppSidebar {...shell} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -107,10 +108,32 @@ export default async function DashboardLayout({
                 {shell.panelTitle}
               </Link>
             </div>
-            <NotificationsMenu
-              initialItems={notifs ?? []}
-              label={t("dashboard.notifications")}
-            />
+            <div className="flex items-center gap-2">
+              <div className="hidden items-center gap-2 rounded-xl border border-white/45 bg-white/65 px-2.5 py-1.5 text-xs shadow-sm md:flex">
+                <div className="flex size-7 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-500/80 to-cyan-500/80 text-white">
+                  {shell.userFooter.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={shell.userFooter.avatarUrl} alt={shell.userFooter.displayName ?? "User"} className="size-full object-cover" />
+                  ) : (
+                    <span className="text-[11px] font-semibold">
+                      {(shell.userFooter.displayName ?? shell.userFooter.fallbackName).slice(0, 1)}
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="max-w-[11rem] truncate font-medium text-foreground">
+                    {shell.userFooter.displayName ?? shell.userFooter.fallbackName}
+                  </p>
+                  <p className="max-w-[11rem] truncate text-[10px] text-muted-foreground">
+                    {shell.userFooter.jobTitle ?? shell.userFooter.tenantLabel ?? shell.userFooter.email ?? ""}
+                  </p>
+                </div>
+              </div>
+              <NotificationsMenu
+                initialItems={notifs ?? []}
+                label={t("dashboard.notifications")}
+              />
+            </div>
           </header>
           <main className="min-h-0 flex-1 overflow-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-6 md:pb-6 lg:p-8 lg:pb-8">
             <Suspense fallback={<DashboardPageSkeleton />}>{children}</Suspense>

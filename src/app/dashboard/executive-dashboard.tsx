@@ -138,7 +138,7 @@ export function ExecutiveDashboard({
   lastScanAt?: string | null;
   lastScanMessage?: string | null;
 }) {
-  const { t } = useDashboardI18n();
+  const { t, dateLocale } = useDashboardI18n();
   const pieSlices = useMemo(
     () =>
       taskPie.map((s) => ({
@@ -188,7 +188,14 @@ export function ExecutiveDashboard({
         </div>
         {lastScanAt ? (
           <p className="relative mt-3 text-xs text-white/80">
-            آخر مزامنة: {new Date(lastScanAt).toLocaleString()} {lastScanMessage ? `- ${lastScanMessage}` : ""}
+            <span>{t("executiveDashboard.lastSyncLabel")} </span>
+            <span suppressHydrationWarning>
+              {new Date(lastScanAt).toLocaleString(dateLocale, {
+                dateStyle: "short",
+                timeStyle: "short",
+              })}
+            </span>
+            {lastScanMessage ? ` - ${lastScanMessage}` : ""}
           </p>
         ) : null}
       </div>

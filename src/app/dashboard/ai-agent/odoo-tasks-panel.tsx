@@ -63,6 +63,7 @@ type CalendarRow = {
   allday: boolean;
   creator: string;
   responsible: string;
+  responsibleId?: number;
   partnerIds: number[];
   location: string;
   description: string;
@@ -589,6 +590,10 @@ export function OdooTasksPanel() {
             start: nextStart,
             stop: nextStop || nextStart,
             allday: row.allday,
+            description: row.description,
+            location: row.location,
+            partnerIds: row.partnerIds,
+            responsibleId: row.responsibleId,
           };
         });
       const cloned = await cloneOdooCalendarEventsAction({ events: payload });
@@ -1010,13 +1015,19 @@ export function OdooTasksPanel() {
           <div className="max-h-56 overflow-auto rounded-md border p-2 space-y-2">
             {sourceMonthEvents.length ? (
               sourceMonthEvents.map((e) => (
-                <label key={e.id} className="flex items-center gap-2 text-sm">
+                <label key={e.id} className="flex items-start gap-2 rounded-md border border-border/60 p-2 text-sm">
                   <input
                     type="checkbox"
                     checked={selectedCalendarIds.includes(e.id)}
                     onChange={() => toggleCalendarPick(e.id)}
+                    className="mt-1"
                   />
-                  <span>#{e.id} - {e.name} ({e.start})</span>
+                  <span>
+                    <span className="block">#{e.id} - {e.name} ({e.start})</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {e.description ? e.description.slice(0, 180) : "لا توجد ملاحظات داخل الحدث"}
+                    </span>
+                  </span>
                 </label>
               ))
             ) : (

@@ -16,7 +16,7 @@
     "integrations": "ربط الأنظمة"
   },
   "dashboard": {
-    "brand": "ERP المهام",
+    "brand": "Fared Task Intelligence",
     "panelTitle": "لوحة التحكم",
     "mobileNav": "التنقل",
     "notifications": "الإشعارات"
@@ -27,7 +27,7 @@
     "en": "English"
   },
   "footer": {
-    "tagline": "منصة موحّدة لإدارة المهام والامتثال"
+    "tagline": "This program idea and design by Fareed Yousef"
   },
   "profileBar": {
     "fallbackName": "مستخدم",
@@ -254,6 +254,7 @@
     "shortcutsAdminGovernance": "حوكمة أدوات الذكاء",
     "shortcutsReminders": "التذكيرات الشخصية",
     "shortcutsProfile": "الملف الشخصي",
+    "lastSyncLabel": "آخر مزامنة:",
     "pie": {
       "completed": "مكتملة",
       "inProgress": "قيد التنفيذ",

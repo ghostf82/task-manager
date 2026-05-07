@@ -1426,22 +1426,37 @@ export async function createOdooCalendarEventViaWebLogin(params: {
   start: string;
   stop: string;
   allday?: boolean;
+  description?: string;
+  location?: string;
+  partnerIds?: number[];
+  userId?: number;
 }): Promise<{ ok: true; eventId: number } | { ok: false; error: string }> {
   try {
+    const values: Record<string, unknown> = {
+      name: params.name.trim(),
+      start: params.start,
+      stop: params.stop,
+      allday: Boolean(params.allday ?? false),
+    };
+    if (typeof params.description === "string" && params.description.trim()) {
+      values.description = params.description.trim();
+    }
+    if (typeof params.location === "string" && params.location.trim()) {
+      values.location = params.location.trim();
+    }
+    if (Array.isArray(params.partnerIds) && params.partnerIds.length) {
+      values.partner_ids = params.partnerIds.map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    }
+    if (Number.isFinite(params.userId) && Number(params.userId) > 0) {
+      values.user_id = Number(params.userId);
+    }
     const json = await callKwWithSessionRetry(params.bundle, async (session) =>
       webCallKw({
         baseUrl: session.baseUrl,
         cookieHeader: session.cookieHeader,
         model: "calendar.event",
         method: "create",
-        args: [
-          {
-            name: params.name.trim(),
-            start: params.start,
-            stop: params.stop,
-            allday: Boolean(params.allday ?? false),
-          },
-        ],
+        args: [values],
       })
     );
     const eventId = Number(json.result ?? 0);
@@ -1459,6 +1474,10 @@ export async function updateOdooCalendarEventViaWebLogin(params: {
   start?: string;
   stop?: string;
   allday?: boolean;
+  description?: string;
+  location?: string;
+  partnerIds?: number[];
+  userId?: number;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const values: Record<string, unknown> = {};
@@ -1466,6 +1485,14 @@ export async function updateOdooCalendarEventViaWebLogin(params: {
     if (typeof params.start === "string" && params.start.trim()) values.start = params.start.trim();
     if (typeof params.stop === "string" && params.stop.trim()) values.stop = params.stop.trim();
     if (typeof params.allday === "boolean") values.allday = params.allday;
+    if (typeof params.description === "string") values.description = params.description.trim();
+    if (typeof params.location === "string") values.location = params.location.trim();
+    if (Array.isArray(params.partnerIds)) {
+      values.partner_ids = params.partnerIds.map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    }
+    if (Number.isFinite(params.userId) && Number(params.userId) > 0) {
+      values.user_id = Number(params.userId);
+    }
     if (!Object.keys(values).length) return { ok: false, error: "لا توجد بيانات تعديل للتقويم." };
     const json = await callKwWithSessionRetry(params.bundle, async (session) =>
       webCallKw({
@@ -1490,6 +1517,10 @@ export async function copyOdooCalendarEventViaWebLogin(params: {
   start?: string;
   stop?: string;
   allday?: boolean;
+  description?: string;
+  location?: string;
+  partnerIds?: number[];
+  userId?: number;
 }): Promise<{ ok: true; eventId: number } | { ok: false; error: string }> {
   try {
     const defaults: Record<string, unknown> = {};
@@ -1497,6 +1528,14 @@ export async function copyOdooCalendarEventViaWebLogin(params: {
     if (typeof params.start === "string" && params.start.trim()) defaults.start = params.start.trim();
     if (typeof params.stop === "string" && params.stop.trim()) defaults.stop = params.stop.trim();
     if (typeof params.allday === "boolean") defaults.allday = params.allday;
+    if (typeof params.description === "string") defaults.description = params.description.trim();
+    if (typeof params.location === "string") defaults.location = params.location.trim();
+    if (Array.isArray(params.partnerIds)) {
+      defaults.partner_ids = params.partnerIds.map(Number).filter((v) => Number.isFinite(v) && v > 0);
+    }
+    if (Number.isFinite(params.userId) && Number(params.userId) > 0) {
+      defaults.user_id = Number(params.userId);
+    }
     const json = await callKwWithSessionRetry(params.bundle, async (session) =>
       webCallKw({
         baseUrl: session.baseUrl,

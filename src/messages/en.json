@@ -16,7 +16,7 @@
     "integrations": "System connections"
   },
   "dashboard": {
-    "brand": "ERP Tasks",
+    "brand": "Fared Task Intelligence",
     "panelTitle": "Dashboard",
     "mobileNav": "Navigation",
     "notifications": "Notifications"
@@ -27,7 +27,7 @@
     "en": "English"
   },
   "footer": {
-    "tagline": "Unified workspace for tasks and compliance"
+    "tagline": "This program idea and design by Fareed Yousef"
   },
   "profileBar": {
     "fallbackName": "User",
@@ -254,6 +254,7 @@
     "shortcutsAdminGovernance": "AI tool governance",
     "shortcutsReminders": "Personal reminders",
     "shortcutsProfile": "Profile",
+    "lastSyncLabel": "Last sync:",
     "pie": {
       "completed": "Completed",
       "inProgress": "In progress",

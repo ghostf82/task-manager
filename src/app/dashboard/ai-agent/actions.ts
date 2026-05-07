@@ -831,7 +831,7 @@ export async function listOdooCalendarEventsAction(input?: {
   mineOnly?: boolean;
   startFrom?: string;
   startBefore?: string;
-}): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; partnerIds: number[]; location: string; description: string; active: boolean }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; responsibleId?: number; partnerIds: number[]; location: string; description: string; active: boolean }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
@@ -860,6 +860,7 @@ export async function listOdooCalendarEventsAction(input?: {
       allday: Boolean(e.allday ?? false),
       creator: Array.isArray(e.create_uid) ? String(e.create_uid[1]) : "—",
       responsible: Array.isArray(e.user_id) ? String(e.user_id[1]) : "—",
+      responsibleId: Array.isArray(e.user_id) ? Number(e.user_id[0]) : undefined,
       partnerIds: Array.isArray(e.partner_ids) ? e.partner_ids.map(Number) : [],
       location: typeof e.location === "string" ? e.location : "",
       description: typeof e.description === "string" ? e.description : "",
@@ -917,6 +918,10 @@ export async function cloneOdooCalendarEventsAction(input: {
     start: string;
     stop: string;
     allday?: boolean;
+    description?: string;
+    location?: string;
+    partnerIds?: number[];
+    responsibleId?: number;
   }>;
 }): Promise<{ ok: true; copied: number; failed: number; message: string } | { ok: false; error: string }> {
   const session = await requireSession();
@@ -937,6 +942,10 @@ export async function cloneOdooCalendarEventsAction(input: {
       start: row.start,
       stop: row.stop,
       allday: row.allday,
+      description: row.description,
+      location: row.location,
+      partnerIds: row.partnerIds,
+      userId: row.responsibleId,
     });
     if (cloned.ok) {
       copied += 1;
@@ -950,6 +959,10 @@ export async function cloneOdooCalendarEventsAction(input: {
       start: row.start,
       stop: row.stop,
       allday: row.allday,
+      description: row.description,
+      location: row.location,
+      partnerIds: row.partnerIds,
+      userId: row.responsibleId,
     });
     if (created.ok) copied += 1;
     else failed += 1;
