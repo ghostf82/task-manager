@@ -385,7 +385,7 @@ export function ChatClient({
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row">
-      <Card className="lg:w-72 shrink-0">
+      <Card className="premium-surface lg:w-72 shrink-0">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">{t("chatClient.membersTitle")}</CardTitle>
           <CardDescription className="text-xs">{t("chatClient.membersSubtitle")}</CardDescription>
@@ -466,7 +466,7 @@ export function ChatClient({
         </CardContent>
       </Card>
 
-      <Card className="flex min-h-[min(460px,calc(100dvh-12rem))] flex-1 flex-col overflow-hidden shadow-sm ring-1 ring-border/40">
+      <Card className="premium-surface flex min-h-[min(460px,calc(100dvh-12rem))] flex-1 flex-col overflow-hidden">
         <CardHeader className="shrink-0 border-b border-border pb-3">
           <CardTitle className="text-base">
             {isAiThread

@@ -117,8 +117,8 @@ export default async function AiAgentPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      <div className="relative overflow-hidden rounded-2xl border border-violet-500/25 bg-gradient-to-br from-violet-500/10 via-background to-cyan-500/5 p-6 shadow-sm md:p-8">
-        <div className="pointer-events-none absolute -end-20 -top-20 size-64 rounded-full bg-violet-500/15 blur-3xl" />
+      <div className="premium-hero p-6 md:p-8">
+        <div className="pointer-events-none absolute -end-20 -top-20 size-64 rounded-full bg-white/20 blur-3xl" />
         <div className="relative flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-muted-foreground text-xs font-medium uppercase tracking-widest">
@@ -139,15 +139,15 @@ export default async function AiAgentPage({
               {t("aiAgentPage.vaultLink")}
             </Link>
             {!licensedSlugs.length ? (
-              <p className="max-w-xs text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+              <p className="max-w-xs text-[11px] leading-relaxed text-amber-100">
                 {t("aiAgentPage.bannerNoTools")}
               </p>
             ) : !vaultReadyOdoo && !vaultReadyEmail ? (
-              <p className="max-w-xs text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+              <p className="max-w-xs text-[11px] leading-relaxed text-amber-100">
                 {t("aiAgentPage.bannerVaultNeeded").replace("{tools}", licensedToolLabels)}
               </p>
             ) : (
-              <p className="text-muted-foreground max-w-xs text-[11px] leading-relaxed">
+              <p className="max-w-xs text-[11px] leading-relaxed text-white/85">
                 {t("aiAgentPage.bannerReady").replace("{tools}", licensedToolLabels)}
               </p>
             )}
@@ -188,7 +188,7 @@ export default async function AiAgentPage({
                 <select
                   id="tenant_id"
                   name="tenant_id"
-                  className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm shadow-xs"
+                  className="h-9 w-full rounded-xl border border-input/80 bg-white/75 px-3 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-sm"
                   defaultValue=""
                 >
                   <option value="">{t("aiAgentPage.tenantNone")}</option>

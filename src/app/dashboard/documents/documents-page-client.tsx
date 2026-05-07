@@ -195,7 +195,7 @@ export function DocumentsPageClient({
         <div className="flex flex-wrap items-center gap-2">
           {isSuperAdmin ? (
             <select
-              className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+              className="h-9 rounded-xl border border-input/80 bg-white/75 px-2.5 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] backdrop-blur-sm"
               value={filterTenant}
               onChange={(e) => setFilterTenant(e.target.value)}
             >
@@ -229,7 +229,7 @@ export function DocumentsPageClient({
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card shadow-sm">
+      <div className="premium-surface">
         {filtered.length === 0 ? (
           <div className="p-4 sm:p-6">
             <EmptyState

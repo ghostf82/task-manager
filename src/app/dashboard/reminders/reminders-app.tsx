@@ -124,7 +124,7 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
       </div>
 
       {nextLabel ? (
-        <Card className="border-primary/25 bg-primary/5">
+        <Card className="border-primary/25 bg-linear-to-br from-primary/8 via-white/65 to-cyan-500/8">
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
               <Bell className="size-4" />
@@ -146,7 +146,7 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
 
       <div className="grid gap-3">
         {rows.length === 0 ? (
-          <Card>
+          <Card className="premium-surface">
             <CardContent className="text-muted-foreground py-10 text-center text-sm">
               {t("remindersPage.emptyTitle")}. {t("remindersPage.emptyDescription")}
             </CardContent>
@@ -155,7 +155,7 @@ export function RemindersApp({ initial }: { initial: ReminderRow[] }) {
           rows.map((r) => (
             <Card
               key={r.id}
-              className={r.is_active ? "" : "opacity-60 border-dashed"}
+              className={r.is_active ? "premium-surface" : "premium-surface opacity-60 border-dashed"}
             >
               <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0 pb-2">
                 <div className="min-w-0 space-y-1">

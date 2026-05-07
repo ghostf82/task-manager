@@ -129,7 +129,7 @@ export function TenantsAdminClient({ tenants }: { tenants: TenantRow[] }) {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-card shadow-sm">
+      <div className="premium-surface">
         <Table>
           <TableHeader>
             <TableRow>

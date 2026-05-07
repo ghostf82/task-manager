@@ -140,7 +140,7 @@ export function UsersAdminClient({
         <p className="text-destructive text-sm">{tenantsError}</p>
       ) : null}
 
-      <div className="rounded-xl border border-border bg-card shadow-sm">
+      <div className="premium-surface">
         <Table>
           <TableHeader>
             <TableRow>
