@@ -30,6 +30,7 @@ import {
   createOdooProjectViaWebLogin,
   createOdooTaskViaWebLogin,
   copyOdooCalendarEventViaWebLogin,
+  duplicateCalendarMeetingAgendaViaWebLogin,
   deleteOdooRecordViaWebLogin,
   listOdooCalendarEventsViaWebLogin,
   listOdooDocumentsViaWebLogin,
@@ -972,7 +973,14 @@ export async function cloneOdooCalendarEventsAction(input: {
     partnerIds?: number[];
     responsibleId?: number;
   }>;
-}): Promise<{ ok: true; copied: number; failed: number; message: string } | { ok: false; error: string }> {
+}): Promise<{
+  ok: true;
+  copied: number;
+  failed: number;
+  agendaActivitiesCreated: number;
+  agendaDescriptionFallbackCount: number;
+  message: string;
+} | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
@@ -982,6 +990,8 @@ export async function cloneOdooCalendarEventsAction(input: {
 
   let copied = 0;
   let failed = 0;
+  let agendaActivitiesCreated = 0;
+  let agendaDescriptionFallbackCount = 0;
 
   for (const row of rows) {
     const cloned = await copyOdooCalendarEventViaWebLogin({
@@ -996,33 +1006,54 @@ export async function cloneOdooCalendarEventsAction(input: {
       partnerIds: row.partnerIds,
       userId: row.responsibleId,
     });
+    let newEventId: number | null = null;
     if (cloned.ok) {
-      copied += 1;
-      continue;
+      newEventId = cloned.eventId;
+    } else {
+      // Fallback for tenants where copy is blocked by model rules.
+      const created = await createOdooCalendarEventViaWebLogin({
+        bundle,
+        name: row.name,
+        start: row.start,
+        stop: row.stop,
+        allday: row.allday,
+        description: row.description,
+        location: row.location,
+        partnerIds: row.partnerIds,
+        userId: row.responsibleId,
+      });
+      if (created.ok) newEventId = created.eventId;
+      else failed += 1;
     }
 
-    // Fallback for tenants where copy is blocked by model rules.
-    const created = await createOdooCalendarEventViaWebLogin({
-      bundle,
-      name: row.name,
-      start: row.start,
-      stop: row.stop,
-      allday: row.allday,
-      description: row.description,
-      location: row.location,
-      partnerIds: row.partnerIds,
-      userId: row.responsibleId,
-    });
-    if (created.ok) copied += 1;
-    else failed += 1;
+    if (newEventId) {
+      copied += 1;
+      const dup = await duplicateCalendarMeetingAgendaViaWebLogin({
+        bundle,
+        sourceEventId: Number(row.eventId),
+        targetEventId: newEventId,
+        targetEventStart: row.start,
+        targetDescriptionForFallback: row.description,
+      });
+      agendaActivitiesCreated += dup.created;
+      if (dup.fallbackDescriptionUpdated) agendaDescriptionFallbackCount += 1;
+    }
   }
 
   revalidatePath("/dashboard/ai-agent");
+  const agendaPart =
+    agendaActivitiesCreated > 0
+      ? ` وتم إنشاء ${agendaActivitiesCreated} بند أجندة (أنشطة) على الأحداث الجديدة.`
+      : agendaDescriptionFallbackCount > 0
+        ? ` وتم لصق نص الأجندة في الوصف لـ ${agendaDescriptionFallbackCount} حدث (تعذّر إنشاء الأنشطة في Odoo).`
+        : "";
   return {
     ok: true,
     copied,
     failed,
-    message: `تم نسخ ${copied} حدث${failed ? `، وفشل ${failed}` : ""}.`,
+    agendaActivitiesCreated,
+    agendaDescriptionFallbackCount,
+    message: `تم نسخ ${copied} حدث${failed ? `، وفشل ${failed}` : ""}.${agendaPart}`,
   };
 }
 

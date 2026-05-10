@@ -663,7 +663,7 @@ export function OdooTasksPanel() {
         return;
       }
       setNeedsRefresh(true);
-      toast.success(`تم نسخ ${cloned.copied} حدث إلى شهر ${targetMonth}.${cloned.failed ? ` فشل ${cloned.failed} حدث.` : ""}`);
+      toast.success(cloned.message);
     });
   }
 
