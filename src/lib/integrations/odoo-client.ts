@@ -52,6 +52,15 @@ export type OdooCalendarAgendaLineLite = {
   dateDeadline: string;
 };
 
+/** Odoo.sh / enterprise-style meeting agenda lines (`calendar.event.agenda.item`). */
+export type OdooCalendarAgendaItemLite = {
+  id: number;
+  sequence: number;
+  name: string;
+  descriptionPlain: string;
+  discussed: boolean;
+};
+
 export type OdooWebCalendarEventLite = {
   id: number;
   name: string;
@@ -69,6 +78,8 @@ export type OdooWebCalendarEventLite = {
   res_id?: number | false;
   /** Odoo meeting "Activities" / agenda rows linked via `calendar_event_id` on `mail.activity`. */
   agendaLines?: OdooCalendarAgendaLineLite[];
+  /** Meeting agenda table rows (`calendar.event.agenda.item` on Odoo.sh). */
+  agendaItems?: OdooCalendarAgendaItemLite[];
 };
 
 export type OdooWebDocumentLite = {
@@ -216,6 +227,126 @@ async function fetchMailActivitiesForCalendarEvents(params: {
   return out;
 }
 
+/** Odoo.sh calendar meeting "Agenda" tab rows (see `call_kw/calendar.event.agenda.item/...`). */
+const AGENDA_ITEM_MODEL = "calendar.event.agenda.item";
+const agendaItemEventFkCache = new Map<string, string | null>();
+
+async function resolveAgendaItemEventFkField(bundle: OdooCredentialBundle): Promise<string | null> {
+  const base = sanitizeOdooBaseUrl(bundle.baseUrl);
+  if (agendaItemEventFkCache.has(base)) return agendaItemEventFkCache.get(base) ?? null;
+  try {
+    const json = await callKwWithSessionRetry(bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: AGENDA_ITEM_MODEL,
+        method: "fields_get",
+        args: [[]],
+        kwargs: { attributes: ["type", "relation"] },
+      })
+    );
+    const meta = json.result as Record<string, { type?: string; relation?: string }> | undefined;
+    if (!meta || typeof meta !== "object") {
+      agendaItemEventFkCache.set(base, null);
+      return null;
+    }
+    const candidates = Object.entries(meta).filter(
+      ([, v]) => v && v.type === "many2one" && v.relation === "calendar.event"
+    );
+    const fk =
+      candidates.find(([n]) => n === "event_id")?.[0] ??
+      candidates.find(([n]) => n.toLowerCase().includes("event"))?.[0] ??
+      candidates[0]?.[0] ??
+      null;
+    agendaItemEventFkCache.set(base, fk);
+    return fk;
+  } catch {
+    agendaItemEventFkCache.set(base, null);
+    return null;
+  }
+}
+
+async function fetchCalendarEventAgendaItemsForEvents(params: {
+  bundle: OdooCredentialBundle;
+  eventIds: number[];
+}): Promise<Map<number, OdooCalendarAgendaItemLite[]>> {
+  const out = new Map<number, OdooCalendarAgendaItemLite[]>();
+  const ids = [...new Set(params.eventIds.filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return out;
+  const fk = await resolveAgendaItemEventFkField(params.bundle);
+  if (!fk) return out;
+  try {
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: AGENDA_ITEM_MODEL,
+        method: "search_read",
+        args: [[[fk, "in", ids]]],
+        kwargs: {
+          fields: [fk, "id", "sequence", "name", "description", "discussed"],
+          order: "sequence asc, id asc",
+          limit: Math.min(4000, ids.length * 200),
+        },
+      })
+    );
+    const rows = Array.isArray(json.result) ? json.result : [];
+    for (const raw of rows) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      const m2o = r[fk];
+      const eventId =
+        Array.isArray(m2o) && typeof m2o[0] === "number" ? Number(m2o[0]) : 0;
+      if (!eventId) continue;
+      const nameRaw = r.name;
+      const name =
+        typeof nameRaw === "string"
+          ? nameRaw
+          : nameRaw === false
+            ? ""
+            : String(nameRaw ?? "");
+      const descRaw = r.description;
+      const descriptionPlain =
+        typeof descRaw === "string" ? htmlToPlainText(descRaw) : descRaw === false ? "" : "";
+      const line: OdooCalendarAgendaItemLite = {
+        id: Number(r.id),
+        sequence: typeof r.sequence === "number" ? r.sequence : Number(r.sequence) || 10,
+        name,
+        descriptionPlain,
+        discussed: Boolean(r.discussed),
+      };
+      const arr = out.get(eventId) ?? [];
+      arr.push(line);
+      out.set(eventId, arr);
+    }
+  } catch {
+    /* Model absent or no access */
+  }
+  return out;
+}
+
+async function searchReadAgendaItemsForSingleEvent(
+  bundle: OdooCredentialBundle,
+  eventId: number,
+  fk: string
+): Promise<Record<string, unknown>[]> {
+  const json = await callKwWithSessionRetry(bundle, async (session) =>
+    webCallKw({
+      baseUrl: session.baseUrl,
+      cookieHeader: session.cookieHeader,
+      model: AGENDA_ITEM_MODEL,
+      method: "search_read",
+      args: [[[fk, "=", Number(eventId)]]],
+      kwargs: {
+        fields: [fk, "id", "sequence", "name", "description", "discussed"],
+        order: "sequence asc, id asc",
+        limit: 500,
+      },
+    })
+  );
+  return Array.isArray(json.result) ? (json.result as Record<string, unknown>[]) : [];
+}
+
 const irModelIdCache = new Map<string, number>();
 
 function parseOdooNaiveLocalDateTime(s: string): Date | null {
@@ -349,8 +480,9 @@ function buildAgendaFallbackDescription(lines: { summary: string; notePlain: str
 }
 
 /**
- * After `calendar.event` copy/create, recreate `mail.activity` rows linked to the source meeting.
- * Odoo's default `copy()` on meetings does not duplicate agenda activities.
+ * After `calendar.event` copy/create, duplicate meeting content Odoo does not copy by default:
+ * - `calendar.event.agenda.item` (Agenda tab on Odoo.sh)
+ * - `mail.activity` lines linked via `calendar_event_id`
  */
 export async function duplicateCalendarMeetingAgendaViaWebLogin(params: {
   bundle: OdooCredentialBundle;
@@ -359,10 +491,16 @@ export async function duplicateCalendarMeetingAgendaViaWebLogin(params: {
   targetEventStart: string;
   /** If omitted, `start` is read from the source `calendar.event` in Odoo. */
   sourceEventStart?: string;
-  /** Appended to `description` if every `mail.activity` create fails (e.g. ACL). */
+  /** Appended to `description` if no rows could be recreated (e.g. ACL). */
   targetDescriptionForFallback?: string;
-}): Promise<{ created: number; skipped: number; fallbackDescriptionUpdated: boolean }> {
+}): Promise<{
+  created: number;
+  agendaItemsCreated: number;
+  skipped: number;
+  fallbackDescriptionUpdated: boolean;
+}> {
   let created = 0;
+  let agendaItemsCreated = 0;
   let skipped = 0;
   let fallbackDescriptionUpdated = false;
   let srcStart = params.sourceEventStart?.trim() || "";
@@ -376,89 +514,158 @@ export async function duplicateCalendarMeetingAgendaViaWebLogin(params: {
       .trim()
       .slice(0, 10) || new Date().toISOString().slice(0, 10);
 
-  let rows: Record<string, unknown>[] = [];
-  try {
-    rows = await searchReadMailActivitiesForCalendarEventClone(params.bundle, params.sourceEventId);
-  } catch {
-    return { created: 0, skipped: 0, fallbackDescriptionUpdated: false };
+  const itemFk = await resolveAgendaItemEventFkField(params.bundle);
+  let agendaRows: Record<string, unknown>[] = [];
+  if (itemFk) {
+    try {
+      agendaRows = await searchReadAgendaItemsForSingleEvent(
+        params.bundle,
+        params.sourceEventId,
+        itemFk
+      );
+    } catch {
+      agendaRows = [];
+    }
   }
-  if (!rows.length) return { created: 0, skipped: 0, fallbackDescriptionUpdated: false };
 
-  const calendarIrModelId = await getIrModelIdForModelViaWebLogin(params.bundle, "calendar.event");
-  if (!calendarIrModelId) return { created: 0, skipped: rows.length, fallbackDescriptionUpdated: false };
+  const itemFallbackLines = agendaRows.map((r) => {
+    const nameRaw = r.name;
+    const summary =
+      typeof nameRaw === "string" ? nameRaw : nameRaw === false ? "" : String(nameRaw ?? "");
+    const descRaw = r.description;
+    const notePlain =
+      typeof descRaw === "string" ? htmlToPlainText(String(descRaw)) : descRaw === false ? "" : "";
+    return { summary, notePlain };
+  });
 
-  const linesForFallback = rows.map((r) => ({
-    summary: typeof r.summary === "string" ? r.summary : "",
-    notePlain: typeof r.note === "string" ? htmlToPlainText(String(r.note)) : "",
-  }));
-
-  for (const r of rows) {
-    const type = r.activity_type_id;
-    const activityTypeId =
-      Array.isArray(type) && typeof type[0] === "number" ? Number(type[0]) : 0;
-    const user = r.user_id;
-    const userId = Array.isArray(user) && typeof user[0] === "number" ? Number(user[0]) : 0;
-    if (!activityTypeId || !userId) {
-      skipped += 1;
-      continue;
-    }
-    let dateDeadline = typeof r.date_deadline === "string" ? r.date_deadline : "";
-    if (dateDeadline && /^\d{4}-\d{2}-\d{2}$/.test(dateDeadline)) {
-      dateDeadline = shiftIsoDateByDays(dateDeadline, delta);
-    }
-
+  for (const r of agendaRows) {
+    if (!itemFk) break;
+    const seq = typeof r.sequence === "number" ? r.sequence : Number(r.sequence) || 10;
+    const nameRaw = r.name;
+    const name =
+      typeof nameRaw === "string" && nameRaw.trim()
+        ? nameRaw.trim()
+        : nameRaw === false
+          ? "—"
+          : String(nameRaw ?? "—").trim() || "—";
+    const descRaw = r.description;
     const vals: Record<string, unknown> = {
-      res_model_id: calendarIrModelId,
-      res_id: Number(params.targetEventId),
-      activity_type_id: activityTypeId,
-      summary:
-        typeof r.summary === "string" && r.summary.trim()
-          ? r.summary.trim()
-          : "—",
-      user_id: userId,
-      date_deadline: dateDeadline && /^\d{4}-\d{2}-\d{2}$/.test(dateDeadline) ? dateDeadline : defaultDeadline,
-      calendar_event_id: Number(params.targetEventId),
+      [itemFk]: Number(params.targetEventId),
+      sequence: seq,
+      name,
+      discussed: Boolean(r.discussed),
     };
-    if (typeof r.note === "string" && r.note.trim()) vals.note = r.note;
+    if (typeof descRaw === "string" && descRaw.trim()) vals.description = descRaw;
 
     try {
       const json = await callKwWithSessionRetry(params.bundle, async (session) =>
         webCallKw({
           baseUrl: session.baseUrl,
           cookieHeader: session.cookieHeader,
-          model: "mail.activity",
+          model: AGENDA_ITEM_MODEL,
           method: "create",
           args: [vals],
         })
       );
       const newId = Number(json.result ?? 0);
-      if (newId) created += 1;
+      if (newId) agendaItemsCreated += 1;
       else skipped += 1;
     } catch {
       skipped += 1;
     }
   }
 
-  if (!created && linesForFallback.length) {
-    const appendix = buildAgendaFallbackDescription(linesForFallback);
-    const base = String(params.targetDescriptionForFallback ?? "").trimEnd();
-    try {
-      const json = await callKwWithSessionRetry(params.bundle, async (session) =>
-        webCallKw({
-          baseUrl: session.baseUrl,
-          cookieHeader: session.cookieHeader,
-          model: "calendar.event",
-          method: "write",
-          args: [[Number(params.targetEventId)], { description: `${base}${appendix}` }],
-        })
-      );
-      if (json.result === true) fallbackDescriptionUpdated = true;
-    } catch {
-      /* ignore */
+  let mailRows: Record<string, unknown>[] = [];
+  try {
+    mailRows = await searchReadMailActivitiesForCalendarEventClone(params.bundle, params.sourceEventId);
+  } catch {
+    mailRows = [];
+  }
+
+  const linesForFallback = mailRows.map((r) => ({
+    summary: typeof r.summary === "string" ? r.summary : "",
+    notePlain: typeof r.note === "string" ? htmlToPlainText(String(r.note)) : "",
+  }));
+
+  const calendarIrModelId = await getIrModelIdForModelViaWebLogin(params.bundle, "calendar.event");
+
+  if (calendarIrModelId) {
+    for (const r of mailRows) {
+      const type = r.activity_type_id;
+      const activityTypeId =
+        Array.isArray(type) && typeof type[0] === "number" ? Number(type[0]) : 0;
+      const user = r.user_id;
+      const userId = Array.isArray(user) && typeof user[0] === "number" ? Number(user[0]) : 0;
+      if (!activityTypeId || !userId) {
+        skipped += 1;
+        continue;
+      }
+      let dateDeadline = typeof r.date_deadline === "string" ? r.date_deadline : "";
+      if (dateDeadline && /^\d{4}-\d{2}-\d{2}$/.test(dateDeadline)) {
+        dateDeadline = shiftIsoDateByDays(dateDeadline, delta);
+      }
+
+      const vals: Record<string, unknown> = {
+        res_model_id: calendarIrModelId,
+        res_id: Number(params.targetEventId),
+        activity_type_id: activityTypeId,
+        summary:
+          typeof r.summary === "string" && r.summary.trim()
+            ? r.summary.trim()
+            : "—",
+        user_id: userId,
+        date_deadline: dateDeadline && /^\d{4}-\d{2}-\d{2}$/.test(dateDeadline) ? dateDeadline : defaultDeadline,
+        calendar_event_id: Number(params.targetEventId),
+      };
+      if (typeof r.note === "string" && r.note.trim()) vals.note = r.note;
+
+      try {
+        const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+          webCallKw({
+            baseUrl: session.baseUrl,
+            cookieHeader: session.cookieHeader,
+            model: "mail.activity",
+            method: "create",
+            args: [vals],
+          })
+        );
+        const newId = Number(json.result ?? 0);
+        if (newId) created += 1;
+        else skipped += 1;
+      } catch {
+        skipped += 1;
+      }
+    }
+  } else if (mailRows.length) {
+    skipped += mailRows.length;
+  }
+
+  if (!agendaItemsCreated && !created) {
+    const merged = [
+      ...itemFallbackLines.filter((l) => l.summary?.trim() || l.notePlain?.trim()),
+      ...linesForFallback.filter((l) => l.summary?.trim() || l.notePlain?.trim()),
+    ];
+    if (merged.length) {
+      const appendix = buildAgendaFallbackDescription(merged);
+      const base = String(params.targetDescriptionForFallback ?? "").trimEnd();
+      try {
+        const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+          webCallKw({
+            baseUrl: session.baseUrl,
+            cookieHeader: session.cookieHeader,
+            model: "calendar.event",
+            method: "write",
+            args: [[Number(params.targetEventId)], { description: `${base}${appendix}` }],
+          })
+        );
+        if (json.result === true) fallbackDescriptionUpdated = true;
+      } catch {
+        /* ignore */
+      }
     }
   }
 
-  return { created, skipped, fallbackDescriptionUpdated };
+  return { created, agendaItemsCreated, skipped, fallbackDescriptionUpdated };
 }
 
 function asGatewayError(error: unknown): OdooGatewayError {
@@ -1746,9 +1953,15 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
       bundle: params.bundle,
       eventIds: events.map((e) => e.id),
     });
+    const agendaItemsByEvent = await fetchCalendarEventAgendaItemsForEvents({
+      bundle: params.bundle,
+      eventIds: events.map((e) => e.id),
+    });
     for (const e of events) {
       const lines = agendaByEvent.get(e.id);
       if (lines?.length) e.agendaLines = lines;
+      const items = agendaItemsByEvent.get(e.id);
+      if (items?.length) e.agendaItems = items;
     }
     return { events };
   } catch (e) {

@@ -842,6 +842,14 @@ export type OdooCalendarEventRow = {
   resModel: string;
   resId: number | null;
   agendaLines: Array<{ id: number; summary: string; note: string; state: string; dateDeadline: string }>;
+  /** `calendar.event.agenda.item` (Odoo.sh agenda tab). */
+  agendaItems: Array<{
+    id: number;
+    sequence: number;
+    name: string;
+    description: string;
+    discussed: boolean;
+  }>;
 };
 
 export async function listOdooCalendarEventsAction(input?: {
@@ -893,6 +901,15 @@ export async function listOdooCalendarEventsAction(input?: {
             note: a.notePlain,
             state: a.state,
             dateDeadline: a.dateDeadline,
+          }))
+        : [],
+      agendaItems: Array.isArray(e.agendaItems)
+        ? e.agendaItems.map((it) => ({
+            id: it.id,
+            sequence: it.sequence,
+            name: it.name,
+            description: it.descriptionPlain,
+            discussed: it.discussed,
           }))
         : [],
     })),
@@ -978,6 +995,7 @@ export async function cloneOdooCalendarEventsAction(input: {
   copied: number;
   failed: number;
   agendaActivitiesCreated: number;
+  agendaTableItemsCreated: number;
   agendaDescriptionFallbackCount: number;
   message: string;
 } | { ok: false; error: string }> {
@@ -991,6 +1009,7 @@ export async function cloneOdooCalendarEventsAction(input: {
   let copied = 0;
   let failed = 0;
   let agendaActivitiesCreated = 0;
+  let agendaTableItemsCreated = 0;
   let agendaDescriptionFallbackCount = 0;
 
   for (const row of rows) {
@@ -1036,22 +1055,32 @@ export async function cloneOdooCalendarEventsAction(input: {
         targetDescriptionForFallback: row.description,
       });
       agendaActivitiesCreated += dup.created;
+      agendaTableItemsCreated += dup.agendaItemsCreated;
       if (dup.fallbackDescriptionUpdated) agendaDescriptionFallbackCount += 1;
     }
   }
 
   revalidatePath("/dashboard/ai-agent");
+  const agendaBits: string[] = [];
+  if (agendaTableItemsCreated > 0) {
+    agendaBits.push(`تم إنشاء ${agendaTableItemsCreated} سطرًا في جدول الأجندة (Odoo)`);
+  }
+  if (agendaActivitiesCreated > 0) {
+    agendaBits.push(`تم إنشاء ${agendaActivitiesCreated} نشاطًا بريديًا مرتبطًا بالاجتماع`);
+  }
+  const agendaRich = agendaBits.length ? ` ${agendaBits.join("، ")}.` : "";
   const agendaPart =
-    agendaActivitiesCreated > 0
-      ? ` وتم إنشاء ${agendaActivitiesCreated} بند أجندة (أنشطة) على الأحداث الجديدة.`
+    agendaBits.length > 0
+      ? agendaRich
       : agendaDescriptionFallbackCount > 0
-        ? ` وتم لصق نص الأجندة في الوصف لـ ${agendaDescriptionFallbackCount} حدث (تعذّر إنشاء الأنشطة في Odoo).`
+        ? ` وتم لصق نص الأجندة في الوصف لـ ${agendaDescriptionFallbackCount} حدث (تعذّر نسخ بنود الأجندة آلياً في Odoo).`
         : "";
   return {
     ok: true,
     copied,
     failed,
     agendaActivitiesCreated,
+    agendaTableItemsCreated,
     agendaDescriptionFallbackCount,
     message: `تم نسخ ${copied} حدث${failed ? `، وفشل ${failed}` : ""}.${agendaPart}`,
   };

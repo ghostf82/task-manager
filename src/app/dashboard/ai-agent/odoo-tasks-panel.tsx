@@ -72,6 +72,7 @@ type CalendarRow = {
   resModel: string;
   resId: number | null;
   agendaLines: Array<{ id: number; summary: string; note: string; state: string; dateDeadline: string }>;
+  agendaItems: Array<{ id: number; sequence: number; name: string; description: string; discussed: boolean }>;
 };
 
 type DocumentRow = { id: number; name: string; type: string; createdAt: string; creator: string };
@@ -615,11 +616,12 @@ export function OdooTasksPanel() {
   function suggestEventAutomation(e: CalendarRow): string[] {
     const tips: string[] = [];
     const agendaText = (e.agendaLines ?? []).map((a) => `${a.summary} ${a.note}`).join(" ");
-    const text = `${e.name} ${e.description} ${agendaText}`.toLowerCase();
+    const itemsText = (e.agendaItems ?? []).map((it) => `${it.name} ${it.description}`).join(" ");
+    const text = `${e.name} ${e.description} ${agendaText} ${itemsText}`.toLowerCase();
     if (text.includes("شهر") || text.includes("monthly") || text.includes("agenda")) {
       tips.push("يفضل تحويل هذا الحدث إلى قالب شهري قابل للنسخ الآلي.");
     }
-    if (!cleanName(e.description)) {
+    if (!(e.agendaItems?.length || e.agendaLines?.length) && !cleanName(e.description)) {
       tips.push("أضف قائمة مهام قياسية داخل الوصف لتسهيل النسخ والتتبع.");
     } else if (e.description.split("\n").length >= 5) {
       tips.push("الوصف يحتوي نقاط متعددة؛ يمكن تقسيمها إلى checklist واضحة مع حالة إنجاز.");
@@ -988,6 +990,22 @@ export function OdooTasksPanel() {
                       ) : null}
                       <p><span className="font-medium">الموقع:</span> {e.location || "—"}</p>
                       <p className="whitespace-pre-wrap"><span className="font-medium">الوصف/الملاحظات:</span> {e.description || "لا توجد ملاحظات."}</p>
+                      {e.agendaItems?.length ? (
+                        <div className="space-y-1">
+                          <p className="font-medium">جدول الأجندة (calendar.event.agenda.item):</p>
+                          <ul className="list-disc ps-4 space-y-0.5">
+                            {e.agendaItems.map((it) => (
+                              <li key={it.id}>
+                                {it.name || "—"}
+                                {it.description ? (
+                                  <span className="text-muted-foreground"> — {it.description}</span>
+                                ) : null}
+                                <span className="text-muted-foreground"> [{it.discussed ? "تمت المناقشة" : "لم تُناقش"}]</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                       {e.agendaLines?.length ? (
                         <div className="space-y-1">
                           <p className="font-medium">بنود الأجندة (mail.activity على الاجتماع):</p>
@@ -1084,9 +1102,23 @@ export function OdooTasksPanel() {
                   <p className="text-xs"><span className="font-medium">المسؤول:</span> {e.responsible || "—"}</p>
                   <p className="text-xs"><span className="font-medium">الموقع:</span> {e.location || "—"}</p>
                   <p className="text-xs whitespace-pre-wrap"><span className="font-medium">الوصف:</span> {e.description || "لا توجد ملاحظات في الوصف."}</p>
+                  {e.agendaItems?.length ? (
+                    <div className="mt-1 text-xs border-t border-border/50 pt-1">
+                      <p className="font-medium mb-0.5">جدول الأجندة (Odoo):</p>
+                      <ul className="list-disc ps-4 space-y-0.5">
+                        {e.agendaItems.map((it) => (
+                          <li key={it.id}>
+                            {it.name || "—"}
+                            {it.description ? <span className="text-muted-foreground"> — {it.description}</span> : null}
+                            <span className="text-muted-foreground"> [{it.discussed ? "مناقش" : "—"}]</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   {e.agendaLines?.length ? (
                     <div className="mt-1 text-xs border-t border-border/50 pt-1">
-                      <p className="font-medium mb-0.5">الأجندة (أنشطة الاجتماع في Odoo):</p>
+                      <p className="font-medium mb-0.5">أنشطة بريد مرتبطة بالاجتماع:</p>
                       <ul className="list-disc ps-4 space-y-0.5">
                         {e.agendaLines.map((a) => (
                           <li key={a.id}>
@@ -1097,9 +1129,10 @@ export function OdooTasksPanel() {
                         ))}
                       </ul>
                     </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground mt-1">لا توجد بنود أجندة مرتبطة كأنشطة على هذا الحدث (قد تكون الأجندة في حقل مخصص آخر في Odoo).</p>
-                  )}
+                  ) : null}
+                  {!e.agendaItems?.length && !e.agendaLines?.length ? (
+                    <p className="text-xs text-muted-foreground mt-1">لا توجد بنود أجندة في جدول Odoo ولا أنشطة بريد على هذا الحدث.</p>
+                  ) : null}
                 </div>
               ))
             ) : (
@@ -1163,7 +1196,8 @@ export function OdooTasksPanel() {
                     ) : null}
                     <span className="block text-xs text-muted-foreground">
                       {e.description ? e.description.slice(0, 180) : "لا توجد ملاحظات في الوصف"}
-                      {e.agendaLines?.length ? ` — ${e.agendaLines.length} بند أجندة` : ""}
+                      {e.agendaItems?.length ? ` — ${e.agendaItems.length} بند جدول أجندة` : ""}
+                      {e.agendaLines?.length ? ` — ${e.agendaLines.length} نشاط بريد` : ""}
                     </span>
                   </span>
                 </label>
