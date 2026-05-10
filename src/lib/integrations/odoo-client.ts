@@ -468,6 +468,19 @@ async function searchReadMailActivitiesForCalendarEventClone(
   return Array.isArray(json.result) ? (json.result as Record<string, unknown>[]) : [];
 }
 
+/** Odoo `create` with a list of dicts returns a list of new integer ids (or a single id on older stacks). */
+function countOdooBatchCreateIds(result: unknown): number {
+  if (Array.isArray(result)) {
+    return result.filter((x) => {
+      const n = typeof x === "number" ? x : typeof x === "string" ? Number(x) : 0;
+      return Number.isFinite(n) && n > 0;
+    }).length;
+  }
+  if (typeof result === "number" && result > 0) return 1;
+  if (typeof result === "string" && Number(result) > 0) return 1;
+  return 0;
+}
+
 function buildAgendaFallbackDescription(lines: { summary: string; notePlain: string }[]): string {
   const body = lines
     .map((l, i) => {
@@ -538,25 +551,26 @@ export async function duplicateCalendarMeetingAgendaViaWebLogin(params: {
     return { summary, notePlain };
   });
 
-  for (const r of agendaRows) {
-    if (!itemFk) break;
-    const seq = typeof r.sequence === "number" ? r.sequence : Number(r.sequence) || 10;
-    const nameRaw = r.name;
-    const name =
-      typeof nameRaw === "string" && nameRaw.trim()
-        ? nameRaw.trim()
-        : nameRaw === false
-          ? "—"
-          : String(nameRaw ?? "—").trim() || "—";
-    const descRaw = r.description;
-    const vals: Record<string, unknown> = {
-      [itemFk]: Number(params.targetEventId),
-      sequence: seq,
-      name,
-      discussed: Boolean(r.discussed),
-    };
-    if (typeof descRaw === "string" && descRaw.trim()) vals.description = descRaw;
-
+  if (itemFk && agendaRows.length) {
+    const valsList: Record<string, unknown>[] = agendaRows.map((r) => {
+      const seq = typeof r.sequence === "number" ? r.sequence : Number(r.sequence) || 10;
+      const nameRaw = r.name;
+      const name =
+        typeof nameRaw === "string" && nameRaw.trim()
+          ? nameRaw.trim()
+          : nameRaw === false
+            ? "—"
+            : String(nameRaw ?? "—").trim() || "—";
+      const descRaw = r.description;
+      const o: Record<string, unknown> = {
+        [itemFk]: Number(params.targetEventId),
+        sequence: seq,
+        name,
+        discussed: Boolean(r.discussed),
+      };
+      if (typeof descRaw === "string" && descRaw.trim()) o.description = descRaw;
+      return o;
+    });
     try {
       const json = await callKwWithSessionRetry(params.bundle, async (session) =>
         webCallKw({
@@ -564,14 +578,29 @@ export async function duplicateCalendarMeetingAgendaViaWebLogin(params: {
           cookieHeader: session.cookieHeader,
           model: AGENDA_ITEM_MODEL,
           method: "create",
-          args: [vals],
+          args: [valsList],
         })
       );
-      const newId = Number(json.result ?? 0);
-      if (newId) agendaItemsCreated += 1;
-      else skipped += 1;
+      agendaItemsCreated = countOdooBatchCreateIds(json.result);
+      if (!agendaItemsCreated) skipped += agendaRows.length;
     } catch {
-      skipped += 1;
+      for (const vals of valsList) {
+        try {
+          const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+            webCallKw({
+              baseUrl: session.baseUrl,
+              cookieHeader: session.cookieHeader,
+              model: AGENDA_ITEM_MODEL,
+              method: "create",
+              args: [vals],
+            })
+          );
+          if (Number(json.result ?? 0)) agendaItemsCreated += 1;
+          else skipped += 1;
+        } catch {
+          skipped += 1;
+        }
+      }
     }
   }
 
@@ -592,7 +621,10 @@ export async function duplicateCalendarMeetingAgendaViaWebLogin(params: {
       ? await getIrModelIdForModelViaWebLogin(params.bundle, "calendar.event")
       : null;
 
-  if (calendarIrModelId) {
+  if (!calendarIrModelId) {
+    if (mailRows.length) skipped += mailRows.length;
+  } else {
+    const mailValsList: Record<string, unknown>[] = [];
     for (const r of mailRows) {
       const type = r.activity_type_id;
       const activityTypeId =
@@ -621,7 +653,10 @@ export async function duplicateCalendarMeetingAgendaViaWebLogin(params: {
         calendar_event_id: Number(params.targetEventId),
       };
       if (typeof r.note === "string" && r.note.trim()) vals.note = r.note;
+      mailValsList.push(vals);
+    }
 
+    if (mailValsList.length) {
       try {
         const json = await callKwWithSessionRetry(params.bundle, async (session) =>
           webCallKw({
@@ -629,18 +664,31 @@ export async function duplicateCalendarMeetingAgendaViaWebLogin(params: {
             cookieHeader: session.cookieHeader,
             model: "mail.activity",
             method: "create",
-            args: [vals],
+            args: [mailValsList],
           })
         );
-        const newId = Number(json.result ?? 0);
-        if (newId) created += 1;
-        else skipped += 1;
+        created = countOdooBatchCreateIds(json.result);
+        if (!created) skipped += mailValsList.length;
       } catch {
-        skipped += 1;
+        for (const vals of mailValsList) {
+          try {
+            const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+              webCallKw({
+                baseUrl: session.baseUrl,
+                cookieHeader: session.cookieHeader,
+                model: "mail.activity",
+                method: "create",
+                args: [vals],
+              })
+            );
+            if (Number(json.result ?? 0)) created += 1;
+            else skipped += 1;
+          } catch {
+            skipped += 1;
+          }
+        }
       }
     }
-  } else if (mailRows.length) {
-    skipped += mailRows.length;
   }
 
   if (!agendaItemsCreated && !created) {

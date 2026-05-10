@@ -17,6 +17,9 @@ import { DASHBOARD_NAV_LINKS } from "@/lib/i18n/nav-config";
 import { getTranslator } from "@/lib/i18n/get-translator";
 import { designSystem } from "@/lib/design-system";
 
+/** Netlify / serverless: allow long-running dashboard server actions (Odoo sync, calendar clone). */
+export const maxDuration = 120;
+
 export default async function DashboardLayout({
   children,
 }: {
