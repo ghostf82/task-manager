@@ -44,6 +44,14 @@ export type OdooWebProjectLite = {
   privacy_visibility?: string;
 };
 
+export type OdooCalendarAgendaLineLite = {
+  id: number;
+  summary: string;
+  notePlain: string;
+  state: string;
+  dateDeadline: string;
+};
+
 export type OdooWebCalendarEventLite = {
   id: number;
   name: string;
@@ -56,6 +64,11 @@ export type OdooWebCalendarEventLite = {
   description?: string | false;
   location?: string | false;
   active?: boolean;
+  /** Linked business record when the meeting mirrors e.g. Time Off (`hr.leave`). */
+  res_model?: string | false;
+  res_id?: number | false;
+  /** Odoo meeting "Activities" / agenda rows linked via `calendar_event_id` on `mail.activity`. */
+  agendaLines?: OdooCalendarAgendaLineLite[];
 };
 
 export type OdooWebDocumentLite = {
@@ -145,6 +158,61 @@ function parseJsonOrThrow(raw: string, context: string): Record<string, unknown>
     }
     throw new OdooGatewayError("OdooUnknown", `${context}: استجابة غير JSON: ${raw.slice(0, 220)}`);
   }
+}
+
+function htmlToPlainText(html: string): string {
+  const t = String(html || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+  return t.replace(/\s+\n/g, "\n").replace(/\n\s+/g, "\n").replace(/[ \t]{2,}/g, " ").trim();
+}
+
+async function fetchMailActivitiesForCalendarEvents(params: {
+  bundle: OdooCredentialBundle;
+  eventIds: number[];
+}): Promise<Map<number, OdooCalendarAgendaLineLite[]>> {
+  const out = new Map<number, OdooCalendarAgendaLineLite[]>();
+  const ids = [...new Set(params.eventIds.filter((n) => Number.isFinite(n) && n > 0))];
+  if (!ids.length) return out;
+  try {
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: "mail.activity",
+        method: "search_read",
+        args: [[["calendar_event_id", "in", ids]]],
+        kwargs: {
+          fields: ["id", "calendar_event_id", "summary", "note", "state", "date_deadline"],
+          order: "date_deadline asc, id asc",
+          limit: Math.min(4000, ids.length * 250),
+        },
+      })
+    );
+    const rows = Array.isArray(json.result) ? json.result : [];
+    for (const raw of rows) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      const cal = r.calendar_event_id;
+      const eventId =
+        Array.isArray(cal) && typeof cal[0] === "number" ? Number(cal[0]) : 0;
+      if (!eventId) continue;
+      const line: OdooCalendarAgendaLineLite = {
+        id: Number(r.id),
+        summary: typeof r.summary === "string" ? r.summary : "",
+        notePlain: typeof r.note === "string" ? htmlToPlainText(r.note) : "",
+        state: typeof r.state === "string" ? r.state : "",
+        dateDeadline: typeof r.date_deadline === "string" ? r.date_deadline : "",
+      };
+      const arr = out.get(eventId) ?? [];
+      arr.push(line);
+      out.set(eventId, arr);
+    }
+  } catch {
+    /* Older Odoo / restricted mail.activity: skip agenda enrichment */
+  }
+  return out;
 }
 
 function asGatewayError(error: unknown): OdooGatewayError {
@@ -1345,17 +1413,26 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
   try {
     const domain: unknown[] = [];
     if (params.text?.trim()) domain.push(["name", "ilike", params.text.trim()]);
-    if (params.startFrom?.trim()) domain.push(["start", ">=", params.startFrom.trim()]);
-    if (params.startBefore?.trim()) domain.push(["start", "<", params.startBefore.trim()]);
+    const fromT = params.startFrom?.trim();
+    const beforeT = params.startBefore?.trim();
+    // Match Odoo calendar UI: include events that *overlap* the window, not only those whose `start` falls inside it.
+    if (fromT && beforeT) {
+      domain.push(["start", "<", beforeT]);
+      domain.push(["stop", ">", fromT]);
+    } else {
+      if (fromT) domain.push(["start", ">=", fromT]);
+      if (beforeT) domain.push(["start", "<", beforeT]);
+    }
     let json: Record<string, unknown>;
     try {
-      json = await callKwWithSessionRetry(params.bundle, async (session) =>
-        webCallKw({
+      json = await callKwWithSessionRetry(params.bundle, async (session) => {
+        const baseDomain = params.mineOnly ? [["create_uid", "=", session.uid] as const, ...domain] : domain;
+        return webCallKw({
           baseUrl: session.baseUrl,
           cookieHeader: session.cookieHeader,
           model: "calendar.event",
           method: "search_read",
-          args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
+          args: [baseDomain],
           kwargs: {
             fields: [
               "id",
@@ -1369,30 +1446,33 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
               "description",
               "location",
               "active",
+              "res_model",
+              "res_id",
             ],
             order: "start desc",
             limit: Math.min(300, Math.max(1, Number(params.limit ?? 120))),
           },
-        })
-      );
+        });
+      });
     } catch {
-      json = await callKwWithSessionRetry(params.bundle, async (session) =>
-        webCallKw({
+      json = await callKwWithSessionRetry(params.bundle, async (session) => {
+        const baseDomain = params.mineOnly ? [["create_uid", "=", session.uid] as const, ...domain] : domain;
+        return webCallKw({
           baseUrl: session.baseUrl,
           cookieHeader: session.cookieHeader,
           model: "calendar.event",
           method: "search_read",
-          args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
+          args: [baseDomain],
           kwargs: {
             fields: ["id", "name", "start", "stop", "allday"],
             order: "start desc",
             limit: Math.min(300, Math.max(1, Number(params.limit ?? 120))),
           },
-        })
-      );
+        });
+      });
     }
     const rows = Array.isArray(json.result) ? json.result : [];
-    const events = rows
+    const events: OdooWebCalendarEventLite[] = rows
       .filter((x) => x && typeof x === "object")
       .map((r) => r as OdooWebCalendarEventLite)
       .map((r) => ({
@@ -1413,7 +1493,17 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
         description: typeof r.description === "string" ? r.description : (false as const),
         location: typeof r.location === "string" ? r.location : (false as const),
         active: Boolean(r.active ?? true),
+        res_model: typeof r.res_model === "string" && r.res_model.trim() ? r.res_model : (false as const),
+        res_id: typeof r.res_id === "number" && Number.isFinite(r.res_id) ? Number(r.res_id) : (false as const),
       }));
+    const agendaByEvent = await fetchMailActivitiesForCalendarEvents({
+      bundle: params.bundle,
+      eventIds: events.map((e) => e.id),
+    });
+    for (const e of events) {
+      const lines = agendaByEvent.get(e.id);
+      if (lines?.length) e.agendaLines = lines;
+    }
     return { events };
   } catch (e) {
     return { events: [], error: humanizeGatewayError(e) };

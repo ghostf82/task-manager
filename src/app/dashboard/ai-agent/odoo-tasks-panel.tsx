@@ -69,6 +69,9 @@ type CalendarRow = {
   location: string;
   description: string;
   active: boolean;
+  resModel: string;
+  resId: number | null;
+  agendaLines: Array<{ id: number; summary: string; note: string; state: string; dateDeadline: string }>;
 };
 
 type DocumentRow = { id: number; name: string; type: string; createdAt: string; creator: string };
@@ -93,6 +96,52 @@ function toOdooDateTime(d: Date): string {
   const mi = String(d.getMinutes()).padStart(2, "0");
   const ss = String(d.getSeconds()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
+function dayKeyFromDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function localDayBounds(dayKey: string): { start: Date; end: Date } | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return null;
+  const [y, m, d] = dayKey.split("-").map(Number);
+  const start = new Date(y, m - 1, d, 0, 0, 0, 0);
+  const end = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
+  return { start, end };
+}
+
+/** True if the event intersects [day 00:00, next day 00:00) in local time (matches typical Odoo calendar day grouping). */
+function eventOverlapsLocalDay(e: CalendarRow, dayKey: string): boolean {
+  const bounds = localDayBounds(dayKey);
+  if (!bounds) return false;
+  const st = parseOdooDateTime(e.start);
+  if (!st) return false;
+  const en = parseOdooDateTime(e.stop) ?? st;
+  return en > bounds.start && st < bounds.end;
+}
+
+/** Calendar day keys (YYYY-MM-DD) touched by the event within a given YYYY-MM month. */
+function dayKeysOfEventInMonth(e: CalendarRow, ym: string): string[] {
+  const st = parseOdooDateTime(e.start);
+  if (!st) return [];
+  const en = parseOdooDateTime(e.stop) ?? st;
+  const rangeStart = new Date(st.getFullYear(), st.getMonth(), st.getDate());
+  const rangeEnd = new Date(en.getFullYear(), en.getMonth(), en.getDate());
+  if (rangeStart > rangeEnd) return [];
+  const [Y, M] = ym.split("-").map(Number);
+  if (!Y || !M) return [];
+  const monthStart = new Date(Y, M - 1, 1);
+  const monthEnd = new Date(Y, M, 0);
+  const walkStart = rangeStart > monthStart ? rangeStart : monthStart;
+  const walkEnd = rangeEnd < monthEnd ? rangeEnd : monthEnd;
+  if (walkStart > walkEnd) return [];
+  const keys: string[] = [];
+  const cur = new Date(walkStart);
+  while (cur <= walkEnd) {
+    keys.push(dayKeyFromDate(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return keys;
 }
 
 function shiftToTargetMonth(input: string, sourceMonth: string, targetMonth: string): string {
@@ -519,22 +568,14 @@ export function OdooTasksPanel() {
   const sourceMonthDays = useMemo(() => {
     const days = new Set<string>();
     for (const e of monthEvents) {
-      const d = parseOdooDateTime(e.start);
-      if (!d) continue;
-      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      days.add(k);
+      for (const k of dayKeysOfEventInMonth(e, sourceMonth)) days.add(k);
     }
     return [...days].sort((a, b) => a.localeCompare(b));
-  }, [monthEvents]);
+  }, [monthEvents, sourceMonth]);
 
   const sourceMonthEvents = useMemo(() => {
     if (!selectedSourceDay) return monthEvents;
-    return monthEvents.filter((e) => {
-      const d = parseOdooDateTime(e.start);
-      if (!d) return false;
-      const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      return k === selectedSourceDay;
-    });
+    return monthEvents.filter((e) => eventOverlapsLocalDay(e, selectedSourceDay));
   }, [monthEvents, selectedSourceDay]);
 
   function loadSourceMonthEvents() {
@@ -573,7 +614,8 @@ export function OdooTasksPanel() {
 
   function suggestEventAutomation(e: CalendarRow): string[] {
     const tips: string[] = [];
-    const text = `${e.name} ${e.description}`.toLowerCase();
+    const agendaText = (e.agendaLines ?? []).map((a) => `${a.summary} ${a.note}`).join(" ");
+    const text = `${e.name} ${e.description} ${agendaText}`.toLowerCase();
     if (text.includes("شهر") || text.includes("monthly") || text.includes("agenda")) {
       tips.push("يفضل تحويل هذا الحدث إلى قالب شهري قابل للنسخ الآلي.");
     }
@@ -938,8 +980,31 @@ export function OdooTasksPanel() {
                   </div>
                   {expandedEventId === e.id ? (
                     <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs space-y-1">
+                      {e.resModel ? (
+                        <p>
+                          <span className="font-medium">مرتبط بسجل Odoo:</span> {e.resModel}
+                          {e.resId != null ? ` #${e.resId}` : ""} (مثال: hr.leave لإجازة تظهر كحدث تقويم)
+                        </p>
+                      ) : null}
                       <p><span className="font-medium">الموقع:</span> {e.location || "—"}</p>
-                      <p><span className="font-medium">الوصف/الملاحظات:</span> {e.description || "لا توجد ملاحظات."}</p>
+                      <p className="whitespace-pre-wrap"><span className="font-medium">الوصف/الملاحظات:</span> {e.description || "لا توجد ملاحظات."}</p>
+                      {e.agendaLines?.length ? (
+                        <div className="space-y-1">
+                          <p className="font-medium">بنود الأجندة (mail.activity على الاجتماع):</p>
+                          <ul className="list-disc ps-4 space-y-0.5">
+                            {e.agendaLines.map((a) => (
+                              <li key={a.id}>
+                                {a.summary || "—"}
+                                {a.note ? <span className="text-muted-foreground"> — {a.note}</span> : null}
+                                <span className="text-muted-foreground">
+                                  {" "}
+                                  [{a.state === "done" ? "تمت المناقشة" : a.state}]
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                       <p><span className="font-medium">الحضور (IDs):</span> {e.partnerIds.length ? e.partnerIds.join(", ") : "—"}</p>
                       <p><span className="font-medium">اقتراح تحسين:</span></p>
                       <ul className="list-disc ps-5">
@@ -1010,9 +1075,31 @@ export function OdooTasksPanel() {
                 <div key={`day-${e.id}`} className="rounded-md border border-border/60 p-2 text-sm">
                   <p className="font-medium">#{e.id} - {e.name}</p>
                   <p className="text-xs text-muted-foreground">{e.start} → {e.stop}</p>
+                  {e.resModel ? (
+                    <p className="text-xs text-muted-foreground">
+                      مرتبط: {e.resModel}
+                      {e.resId != null ? ` #${e.resId}` : ""}
+                    </p>
+                  ) : null}
                   <p className="text-xs"><span className="font-medium">المسؤول:</span> {e.responsible || "—"}</p>
                   <p className="text-xs"><span className="font-medium">الموقع:</span> {e.location || "—"}</p>
-                  <p className="text-xs whitespace-pre-wrap"><span className="font-medium">الأجندة/الملاحظات:</span> {e.description || "لا توجد ملاحظات."}</p>
+                  <p className="text-xs whitespace-pre-wrap"><span className="font-medium">الوصف:</span> {e.description || "لا توجد ملاحظات في الوصف."}</p>
+                  {e.agendaLines?.length ? (
+                    <div className="mt-1 text-xs border-t border-border/50 pt-1">
+                      <p className="font-medium mb-0.5">الأجندة (أنشطة الاجتماع في Odoo):</p>
+                      <ul className="list-disc ps-4 space-y-0.5">
+                        {e.agendaLines.map((a) => (
+                          <li key={a.id}>
+                            {a.summary || "—"}
+                            {a.note ? <span className="text-muted-foreground"> — {a.note}</span> : null}
+                            <span className="text-muted-foreground"> [{a.state === "done" ? "مناقش" : a.state}]</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-1">لا توجد بنود أجندة مرتبطة كأنشطة على هذا الحدث (قد تكون الأجندة في حقل مخصص آخر في Odoo).</p>
+                  )}
                 </div>
               ))
             ) : (
@@ -1070,9 +1157,13 @@ export function OdooTasksPanel() {
                     className="mt-1"
                   />
                   <span>
-                    <span className="block">#{e.id} - {e.name} ({e.start})</span>
+                    <span className="block">#{e.id} - {e.name} ({e.start} → {e.stop})</span>
+                    {e.resModel ? (
+                      <span className="block text-xs text-muted-foreground">مرتبط: {e.resModel}{e.resId != null ? ` #${e.resId}` : ""}</span>
+                    ) : null}
                     <span className="block text-xs text-muted-foreground">
-                      {e.description ? e.description.slice(0, 180) : "لا توجد ملاحظات داخل الحدث"}
+                      {e.description ? e.description.slice(0, 180) : "لا توجد ملاحظات في الوصف"}
+                      {e.agendaLines?.length ? ` — ${e.agendaLines.length} بند أجندة` : ""}
                     </span>
                   </span>
                 </label>

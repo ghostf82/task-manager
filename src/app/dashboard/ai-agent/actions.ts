@@ -825,13 +825,31 @@ export async function updateOdooProjectAction(input: {
   return { ok: true, message: "تم تحديث المشروع في Odoo." };
 }
 
+export type OdooCalendarEventRow = {
+  id: number;
+  name: string;
+  start: string;
+  stop: string;
+  allday: boolean;
+  creator: string;
+  responsible: string;
+  responsibleId?: number;
+  partnerIds: number[];
+  location: string;
+  description: string;
+  active: boolean;
+  resModel: string;
+  resId: number | null;
+  agendaLines: Array<{ id: number; summary: string; note: string; state: string; dateDeadline: string }>;
+};
+
 export async function listOdooCalendarEventsAction(input?: {
   text?: string;
   limit?: number;
   mineOnly?: boolean;
   startFrom?: string;
   startBefore?: string;
-}): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; responsibleId?: number; partnerIds: number[]; location: string; description: string; active: boolean }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; events: OdooCalendarEventRow[] } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
@@ -865,6 +883,17 @@ export async function listOdooCalendarEventsAction(input?: {
       location: typeof e.location === "string" ? e.location : "",
       description: typeof e.description === "string" ? e.description : "",
       active: Boolean(e.active ?? true),
+      resModel: typeof e.res_model === "string" ? e.res_model : "",
+      resId: typeof e.res_id === "number" && Number.isFinite(e.res_id) ? e.res_id : null,
+      agendaLines: Array.isArray(e.agendaLines)
+        ? e.agendaLines.map((a) => ({
+            id: a.id,
+            summary: a.summary,
+            note: a.notePlain,
+            state: a.state,
+            dateDeadline: a.dateDeadline,
+          }))
+        : [],
     })),
   };
 }
@@ -872,7 +901,7 @@ export async function listOdooCalendarEventsAction(input?: {
 export async function listOdooCalendarEventsMonthAction(input: {
   yearMonth: string;
   mineOnly?: boolean;
-}): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; partnerIds: number[]; location: string; description: string; active: boolean }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; events: OdooCalendarEventRow[] } | { ok: false; error: string }> {
   const ym = String(input.yearMonth || "").trim();
   if (!/^\d{4}-\d{2}$/.test(ym)) {
     return { ok: false, error: "صيغة الشهر غير صحيحة. استخدم YYYY-MM." };
@@ -892,7 +921,7 @@ export async function listOdooCalendarEventsMonthAction(input: {
 export async function listOdooCalendarEventsDayAction(input: {
   day: string;
   mineOnly?: boolean;
-}): Promise<{ ok: true; events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; responsibleId?: number; partnerIds: number[]; location: string; description: string; active: boolean }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; events: OdooCalendarEventRow[] } | { ok: false; error: string }> {
   const day = String(input.day || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
     return { ok: false, error: "صيغة اليوم غير صحيحة. استخدم YYYY-MM-DD." };
@@ -1062,7 +1091,7 @@ export async function listOdooWorkspaceAllAction(input?: {
       ok: true;
       tasks: Array<{ id: number; name: string; stage: string; project: string; deadline: string; creator: string; responsible: string; assigneeIds: number[]; description: string; priority: string; active: boolean }>;
       projects: Array<{ id: number; name: string; active: boolean; creator: string; manager: string; visibility: string; createdAt: string }>;
-      events: Array<{ id: number; name: string; start: string; stop: string; allday: boolean; creator: string; responsible: string; partnerIds: number[]; location: string; description: string; active: boolean }>;
+      events: OdooCalendarEventRow[];
       documents: Array<{ id: number; name: string; type: string; createdAt: string; creator: string }>;
     }
   | { ok: false; error: string }
