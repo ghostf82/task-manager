@@ -25,6 +25,12 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+/**
+ * Odoo calendar clone + many `calendar.event.agenda.item` creates can exceed default
+ * serverless limits; raise cap where the host honors Next route segment config (e.g. Netlify).
+ */
+export const maxDuration = 120;
+
 function toolLabelForLocale(locale: AppLocale, slug: string): string | undefined {
   const tool = getAiToolBySlug(slug);
   if (!tool) return undefined;

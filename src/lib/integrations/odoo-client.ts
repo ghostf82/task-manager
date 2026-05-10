@@ -587,7 +587,10 @@ export async function duplicateCalendarMeetingAgendaViaWebLogin(params: {
     notePlain: typeof r.note === "string" ? htmlToPlainText(String(r.note)) : "",
   }));
 
-  const calendarIrModelId = await getIrModelIdForModelViaWebLogin(params.bundle, "calendar.event");
+  const calendarIrModelId =
+    mailRows.length > 0
+      ? await getIrModelIdForModelViaWebLogin(params.bundle, "calendar.event")
+      : null;
 
   if (calendarIrModelId) {
     for (const r of mailRows) {

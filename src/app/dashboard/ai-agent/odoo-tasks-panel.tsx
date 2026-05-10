@@ -659,13 +659,49 @@ export function OdooTasksPanel() {
             responsibleId: row.responsibleId,
           };
         });
-      const cloned = await cloneOdooCalendarEventsAction({ events: payload });
-      if (!cloned.ok) {
-        toast.error(cloned.error);
+      // One server action per event avoids Netlify 504 when each event triggers many Odoo RPCs (agenda lines).
+      const toastId = toast.loading(`جاري نسخ ${payload.length} حدثًا إلى ${targetMonth}…`);
+      let totalCopied = 0;
+      let totalFailed = 0;
+      let totalAgendaTable = 0;
+      let totalAgendaMail = 0;
+      let totalFallback = 0;
+      const errors: string[] = [];
+      try {
+        for (const row of payload) {
+          const cloned = await cloneOdooCalendarEventsAction({ events: [row] });
+          if (!cloned.ok) {
+            errors.push(cloned.error);
+            totalFailed += 1;
+            continue;
+          }
+          totalCopied += cloned.copied;
+          totalFailed += cloned.failed;
+          totalAgendaTable += cloned.agendaTableItemsCreated;
+          totalAgendaMail += cloned.agendaActivitiesCreated;
+          totalFallback += cloned.agendaDescriptionFallbackCount;
+        }
+      } finally {
+        toast.dismiss(toastId);
+      }
+      if (totalCopied === 0) {
+        toast.error(errors[0] ?? "فشل نسخ التقويم.");
         return;
       }
       setNeedsRefresh(true);
-      toast.success(cloned.message);
+      const parts = [
+        `تم نسخ ${totalCopied} من أصل ${payload.length} إلى شهر ${targetMonth}.`,
+        totalFailed ? `فشل ${totalFailed}.` : null,
+        totalAgendaTable ? `جدول أجندة: ${totalAgendaTable} سطرًا.` : null,
+        totalAgendaMail ? `أنشطة بريد: ${totalAgendaMail}.` : null,
+        totalFallback ? `لُصق وصف احتياطي لـ ${totalFallback} حدث.` : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      toast.success(parts);
+      if (errors.length) {
+        toast.error(`فشل ${errors.length} حدثًا: ${errors[errors.length - 1]}`);
+      }
     });
   }
 
