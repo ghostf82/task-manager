@@ -626,7 +626,10 @@
   },
   "aiAgentError": {
     "toast": "Something went wrong in the assistant workspace.",
+    "toastGateway": "The server timed out or returned an unexpected response (often 504). Retry, or run smaller Odoo steps per request.",
     "title": "Could not load the assistant workspace",
+    "detailGateway": "A gateway or function timeout occurred while loading this page or running a long action. On Netlify, increase the Functions timeout or upgrade the plan if needed; split heavy calendar copies into fewer events per run.",
+    "detailFallback": "An error occurred without a detailed message.",
     "retry": "Try again",
     "backDashboard": "Back to dashboard"
   },

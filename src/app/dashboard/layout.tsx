@@ -45,6 +45,7 @@ export default async function DashboardLayout({
     supabase
       .from("notifications")
       .select("id,title,body,created_at,read_at")
+      .eq("user_id", session.id)
       .order("created_at", { ascending: false })
       .limit(12),
   ]);

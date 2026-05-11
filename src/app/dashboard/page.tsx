@@ -56,6 +56,7 @@ export default async function DashboardHomePage() {
     const { count: nc } = await supabase
       .from("notifications")
       .select("*", { count: "exact", head: true })
+      .eq("user_id", session.id)
       .is("read_at", null);
     unreadNotif = nc ?? 0;
   }

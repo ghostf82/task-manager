@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import ExcelJS from "exceljs";
 
 import { analyzeFreeTextWithLlm } from "@/lib/ai/llm-analyze";
 import { analyzeInboundSourcesWithLlm } from "@/lib/ai/llm-inbound";
@@ -858,6 +857,8 @@ export async function listOdooCalendarEventsAction(input?: {
   mineOnly?: boolean;
   startFrom?: string;
   startBefore?: string;
+  /** Default true. Set false for month/day bulk lists to avoid Netlify timeouts. */
+  includeAgendaDetails?: boolean;
 }): Promise<{ ok: true; events: OdooCalendarEventRow[] } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
@@ -870,13 +871,9 @@ export async function listOdooCalendarEventsAction(input?: {
     mineOnly: Boolean(input?.mineOnly ?? false),
     startFrom: input?.startFrom,
     startBefore: input?.startBefore,
+    includeAgendaDetails: input?.includeAgendaDetails !== false,
   });
   if (res.error) return { ok: false, error: res.error };
-  await appendAgentActivity(supabase, {
-    userId: session.id,
-    eventType: "odoo_sync_calendar",
-    message: `تمت مزامنة ${res.events.length} حدث تقويم من Odoo.`,
-  });
   return {
     ok: true,
     events: res.events.map((e) => ({
@@ -933,6 +930,7 @@ export async function listOdooCalendarEventsMonthAction(input: {
     mineOnly: Boolean(input.mineOnly ?? false),
     startFrom: start,
     startBefore: end,
+    includeAgendaDetails: false,
   });
 }
 
@@ -953,6 +951,7 @@ export async function listOdooCalendarEventsDayAction(input: {
     mineOnly: Boolean(input.mineOnly ?? false),
     startFrom: start,
     startBefore: end,
+    includeAgendaDetails: false,
   });
 }
 
@@ -1263,7 +1262,7 @@ export async function exportOdooWorkspaceExcelAction(): Promise<
   const [tasksRes, projectsRes, eventsRes, docsRes] = await Promise.all([
     searchOdooTasksViaWebLogin({ bundle, limit: 500 }),
     listOdooProjectsViaWebLogin({ bundle, limit: 500 }),
-    listOdooCalendarEventsViaWebLogin({ bundle, limit: 500 }),
+    listOdooCalendarEventsViaWebLogin({ bundle, limit: 500, includeAgendaDetails: false }),
     listOdooDocumentsViaWebLogin({ bundle, limit: 500 }),
   ]);
 
@@ -1272,6 +1271,7 @@ export async function exportOdooWorkspaceExcelAction(): Promise<
   if (eventsRes.error) return { ok: false, error: eventsRes.error };
   if (docsRes.error) return { ok: false, error: docsRes.error };
 
+  const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
   wb.creator = "Odoo Control Center";
 
@@ -1318,6 +1318,7 @@ export async function importOdooWorkspaceExcelAction(input: {
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
   if (!input.base64?.trim()) return { ok: false, error: "ملف Excel غير صالح." };
 
+  const ExcelJS = (await import("exceljs")).default;
   const wb = new ExcelJS.Workbook();
   await (wb.xlsx as unknown as { load: (data: unknown) => Promise<void> }).load(
     Buffer.from(input.base64, "base64")

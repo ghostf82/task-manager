@@ -1913,6 +1913,11 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
   mineOnly?: boolean;
   startFrom?: string;
   startBefore?: string;
+  /**
+   * When false, skips batched `mail.activity` + `calendar.event.agenda.item` reads (much faster for large windows).
+   * Calendar clone still reloads agenda on the server from Odoo by source event id.
+   */
+  includeAgendaDetails?: boolean;
 }): Promise<{ events: OdooWebCalendarEventLite[]; error?: string }> {
   try {
     const domain: unknown[] = [];
@@ -2000,19 +2005,22 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
         res_model: typeof r.res_model === "string" && r.res_model.trim() ? r.res_model : (false as const),
         res_id: typeof r.res_id === "number" && Number.isFinite(r.res_id) ? Number(r.res_id) : (false as const),
       }));
-    const agendaByEvent = await fetchMailActivitiesForCalendarEvents({
-      bundle: params.bundle,
-      eventIds: events.map((e) => e.id),
-    });
-    const agendaItemsByEvent = await fetchCalendarEventAgendaItemsForEvents({
-      bundle: params.bundle,
-      eventIds: events.map((e) => e.id),
-    });
-    for (const e of events) {
-      const lines = agendaByEvent.get(e.id);
-      if (lines?.length) e.agendaLines = lines;
-      const items = agendaItemsByEvent.get(e.id);
-      if (items?.length) e.agendaItems = items;
+    const includeAgenda = params.includeAgendaDetails !== false;
+    if (includeAgenda && events.length) {
+      const agendaByEvent = await fetchMailActivitiesForCalendarEvents({
+        bundle: params.bundle,
+        eventIds: events.map((e) => e.id),
+      });
+      const agendaItemsByEvent = await fetchCalendarEventAgendaItemsForEvents({
+        bundle: params.bundle,
+        eventIds: events.map((e) => e.id),
+      });
+      for (const e of events) {
+        const lines = agendaByEvent.get(e.id);
+        if (lines?.length) e.agendaLines = lines;
+        const items = agendaItemsByEvent.get(e.id);
+        if (items?.length) e.agendaItems = items;
+      }
     }
     return { events };
   } catch (e) {
