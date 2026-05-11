@@ -5,7 +5,10 @@ import { CheckIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { cloneOdooCalendarEventPhaseOneAction } from "@/app/dashboard/ai-agent/actions";
-import { copyOdooMeetingAgendaInSlices } from "@/app/dashboard/ai-agent/odoo-calendar-agenda-copy-batches";
+import {
+  copyOdooMeetingAgendaInSlices,
+  type OdooAgendaCopyProgressInfo,
+} from "@/app/dashboard/ai-agent/odoo-calendar-agenda-copy-batches";
 import { withSlicePostRetries } from "@/lib/netlify-slice-retry";
 import { Button } from "@/components/ui/button";
 import {
@@ -101,6 +104,7 @@ export function CalendarDeepCopyDialog({
   const [newEventId, setNewEventId] = useState<number | null>(null);
   const [agendaSummary, setAgendaSummary] = useState<string | null>(null);
   const [progressDetail, setProgressDetail] = useState("");
+  const [progressPercent, setProgressPercent] = useState(0);
 
   useEffect(() => {
     if (!open || !source) return;
@@ -110,6 +114,8 @@ export function CalendarDeepCopyDialog({
     setProgress("idle");
     setNewEventId(null);
     setAgendaSummary(null);
+    setProgressPercent(0);
+    setProgressDetail("");
   }, [open, source]);
 
   const preview =
@@ -127,6 +133,7 @@ export function CalendarDeepCopyDialog({
     setNewEventId(null);
     setAgendaSummary(null);
     setProgressDetail("");
+    setProgressPercent(0);
 
     let createdEventId: number | undefined;
     try {
@@ -162,7 +169,10 @@ export function CalendarDeepCopyDialog({
         targetEventStart: preview.start,
         sourceEventStart: source.start,
         targetDescriptionForFallback: source.description || undefined,
-        onProgress: (label) => setProgressDetail(label),
+        onProgress: (info: OdooAgendaCopyProgressInfo) => {
+          setProgressPercent(info.percent);
+          setProgressDetail(info.message);
+        },
       });
 
       if (!p2.ok) {
@@ -178,6 +188,7 @@ export function CalendarDeepCopyDialog({
         `جدول أجندة: ${p2.agendaTableItemsCreated}، أنشطة بريد: ${p2.agendaActivitiesCreated}` +
           (p2.fallbackDescriptionUpdated ? "، وتم لصق نص احتياطي في الوصف." : "")
       );
+      setProgressPercent(100);
       setProgress("completed");
       toast.success(`تم النسخ العميق — الحدث الجديد #${p1.newEventId}`);
       onCompleted?.();
@@ -283,8 +294,27 @@ export function CalendarDeepCopyDialog({
                 <span>2) نسخ الأجندة (جدول + بريد)</span>
               </li>
             </ul>
-            {progressDetail ? (
-              <p className="text-[11px] text-muted-foreground [direction:ltr]">{progressDetail}</p>
+            {progress === "copying_agenda" ? (
+              <div className="space-y-1.5" aria-live="polite">
+                <div
+                  className="h-2 overflow-hidden rounded-full bg-muted"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progressPercent}
+                  aria-label="تقدم نسخ الأجندة"
+                >
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                {progressDetail ? (
+                  <p className="text-[11px] text-muted-foreground">{progressDetail}</p>
+                ) : null}
+              </div>
+            ) : progressDetail ? (
+              <p className="text-[11px] text-muted-foreground">{progressDetail}</p>
             ) : null}
             {agendaSummary ? <p className="text-[11px] text-muted-foreground">{agendaSummary}</p> : null}
             {progress === "failed_phase1" ? (

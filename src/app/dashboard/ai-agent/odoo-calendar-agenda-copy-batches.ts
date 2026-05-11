@@ -8,8 +8,34 @@ import {
 } from "@/app/dashboard/ai-agent/actions";
 import { withSlicePostRetries } from "@/lib/netlify-slice-retry";
 
-const TABLE_SLICE = 4;
-const MAIL_SLICE = 3;
+/** One Odoo create per server action keeps Netlify well under typical function limits. */
+const TABLE_SLICE = 1;
+const MAIL_SLICE = 1;
+
+export type OdooAgendaCopyPhase = "table" | "mail" | "fallback" | "revalidate";
+
+export type OdooAgendaCopyProgressInfo = {
+  phase: OdooAgendaCopyPhase;
+  /** Progress within the current phase (e.g. rows processed). */
+  current: number;
+  total: number;
+  /** Overall 0–100 for the agenda copy leg. */
+  percent: number;
+  message: string;
+};
+
+function microYield(): Promise<void> {
+  if (typeof requestAnimationFrame === "function") {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+  }
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function clampPercent(n: number): number {
+  return Math.min(99, Math.max(0, Math.round(n)));
+}
 
 /**
  * Copies meeting agenda using many small server actions (Netlify-friendly).
@@ -22,7 +48,7 @@ export async function copyOdooMeetingAgendaInSlices(params: {
   /** Original source event `start` (for shifting `mail.activity` deadlines). */
   sourceEventStart?: string;
   targetDescriptionForFallback?: string;
-  onProgress?: (label: string) => void;
+  onProgress?: (info: OdooAgendaCopyProgressInfo) => void;
   /** When true, skip `revalidatePath` (caller revalidates once after a bulk loop). */
   skipFinalRevalidate?: boolean;
 }): Promise<
@@ -39,7 +65,14 @@ export async function copyOdooMeetingAgendaInSlices(params: {
   let agendaActivitiesCreated = 0;
   let skippedApprox = 0;
 
-  params.onProgress?.("نسخ جدول الأجندة (دفعات)…");
+  params.onProgress?.({
+    phase: "table",
+    current: 0,
+    total: 0,
+    percent: 1,
+    message: "جاري تجهيز نسخ جدول الأجندة…",
+  });
+
   let from = 0;
   let tableTotal: number | null = null;
   while (true) {
@@ -59,10 +92,17 @@ export async function copyOdooMeetingAgendaInSlices(params: {
     }
     agendaTableItemsCreated += r.agendaItemsCreated;
     skippedApprox += r.skippedInBatch;
-    params.onProgress?.(
-      `جدول الأجندة: ${Math.min(from + TABLE_SLICE, tableTotal)}/${tableTotal}`
-    );
+    const done = Math.min(from + TABLE_SLICE, tableTotal);
+    const tablePct = tableTotal ? (done / tableTotal) * 38 : 0;
+    params.onProgress?.({
+      phase: "table",
+      current: done,
+      total: tableTotal,
+      percent: clampPercent(4 + tablePct),
+      message: `جاري نسخ بند الجدول (${done} من ${tableTotal}) — ${clampPercent(4 + tablePct)}٪`,
+    });
     from += TABLE_SLICE;
+    await microYield();
     if (tableTotal !== null && from >= tableTotal) break;
   }
 
@@ -74,7 +114,13 @@ export async function copyOdooMeetingAgendaInSlices(params: {
     };
   }
 
-  params.onProgress?.("نسخ الأنشطة البريدية (دفعات)…");
+  params.onProgress?.({
+    phase: "mail",
+    current: 0,
+    total: 0,
+    percent: 44,
+    message: "جاري تجهيز نسخ الأنشطة البريدية…",
+  });
   from = 0;
   let mailTotal: number | null = null;
   while (true) {
@@ -96,13 +142,27 @@ export async function copyOdooMeetingAgendaInSlices(params: {
     }
     agendaActivitiesCreated += r.created;
     skippedApprox += r.skippedInBatch;
-    params.onProgress?.(
-      `أنشطة بريد: ${Math.min(from + MAIL_SLICE, mailTotal)}/${mailTotal}`
-    );
+    const done = Math.min(from + MAIL_SLICE, mailTotal);
+    const mailSpan = mailTotal ? (done / mailTotal) * 36 : 0;
+    params.onProgress?.({
+      phase: "mail",
+      current: done,
+      total: mailTotal,
+      percent: clampPercent(45 + mailSpan),
+      message: `جاري نسخ نشاط البريد (${done} من ${mailTotal}) — ${clampPercent(45 + mailSpan)}٪`,
+    });
     from += MAIL_SLICE;
+    await microYield();
     if (mailTotal !== null && from >= mailTotal) break;
   }
 
+  params.onProgress?.({
+    phase: "fallback",
+    current: 1,
+    total: 1,
+    percent: 84,
+    message: "جاري التحقق من الوصف الاحتياطي…",
+  });
   const fb = await withSlicePostRetries(() =>
     appendOdooAgendaFallbackAction({
       sourceEventId: params.sourceEventId,
@@ -115,8 +175,23 @@ export async function copyOdooMeetingAgendaInSlices(params: {
   if (!fb.ok) return { ok: false, error: fb.error };
 
   if (!params.skipFinalRevalidate) {
+    params.onProgress?.({
+      phase: "revalidate",
+      current: 1,
+      total: 1,
+      percent: 92,
+      message: "جاري تحديث العرض…",
+    });
     await withSlicePostRetries(() => revalidateAiAgentOdooPanelAction());
   }
+
+  params.onProgress?.({
+    phase: "revalidate",
+    current: 1,
+    total: 1,
+    percent: 100,
+    message: "اكتمل نسخ الأجندة.",
+  });
 
   return {
     ok: true,

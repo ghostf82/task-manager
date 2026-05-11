@@ -237,6 +237,8 @@ async function fetchMailActivitiesForCalendarEvents(params: {
 
 /** Odoo.sh calendar meeting "Agenda" tab rows (see `call_kw/calendar.event.agenda.item/...`). */
 const AGENDA_ITEM_MODEL = "calendar.event.agenda.item";
+/** Full `search_read` fallback only when agenda is small enough to stay under Netlify function limits. */
+const AGENDA_SLICE_FULL_READ_FALLBACK_MAX_ROWS = 36;
 const agendaItemEventFkCache = new Map<string, string | null>();
 
 async function resolveAgendaItemEventFkField(bundle: OdooCredentialBundle): Promise<string | null> {
@@ -610,7 +612,7 @@ export async function duplicateCalendarAgendaTableSliceViaWebLogin(params: {
   const itemFk = await resolveAgendaItemEventFkField(params.bundle);
   if (!itemFk) return { totalRows: 0, agendaItemsCreated: 0, skippedInBatch: 0 };
   const start = Math.max(0, Math.floor(params.fromIndex));
-  const bs = Math.max(1, Math.min(20, Math.floor(params.batchSize)));
+  const bs = Math.max(1, Math.min(5, Math.floor(params.batchSize)));
   let totalRows =
     typeof params.knownTotalRows === "number" && params.knownTotalRows >= 0
       ? params.knownTotalRows
@@ -629,12 +631,22 @@ export async function duplicateCalendarAgendaTableSliceViaWebLogin(params: {
   let agendaRows: Record<string, unknown>[] = [];
   try {
     agendaRows = await searchReadAgendaItemsPage(params.bundle, params.sourceEventId, itemFk, start, bs);
-    if (!agendaRows.length && totalRows > start) {
-      const full = await searchReadAgendaItemsForSingleEvent(params.bundle, params.sourceEventId, itemFk);
-      agendaRows = full.slice(start, start + bs);
-    }
   } catch {
     return { totalRows, agendaItemsCreated: 0, skippedInBatch: 0 };
+  }
+  if (!agendaRows.length && totalRows > start) {
+    if (totalRows <= AGENDA_SLICE_FULL_READ_FALLBACK_MAX_ROWS) {
+      try {
+        const full = await searchReadAgendaItemsForSingleEvent(params.bundle, params.sourceEventId, itemFk);
+        agendaRows = full.slice(start, start + bs);
+      } catch {
+        agendaRows = [];
+      }
+    } else {
+      throw new Error(
+        "جدول الأجندة كبير ولم تُرجع Odoo صفوفًا للشريحة الحالية (offset). جرّب لاحقًا أو أكمل النسخ يدويًا في Odoo."
+      );
+    }
   }
   const slice = agendaRows;
   if (!slice.length) return { totalRows, agendaItemsCreated: 0, skippedInBatch: 0 };
@@ -718,7 +730,7 @@ export async function duplicateCalendarMailActivitiesSliceViaWebLogin(params: {
       .slice(0, 10) || new Date().toISOString().slice(0, 10);
 
   const start = Math.max(0, Math.floor(params.fromIndex));
-  const bs = Math.max(1, Math.min(15, Math.floor(params.batchSize)));
+  const bs = Math.max(1, Math.min(5, Math.floor(params.batchSize)));
   const mailDomain: unknown[] = [["calendar_event_id", "=", Number(params.sourceEventId)]];
   const countKwargs = { context: { active_test: false } };
   let totalRows =
@@ -744,12 +756,22 @@ export async function duplicateCalendarMailActivitiesSliceViaWebLogin(params: {
       start,
       bs
     );
-    if (!mailRows.length && totalRows > start) {
-      const full = await searchReadMailActivitiesForCalendarEventClone(params.bundle, params.sourceEventId);
-      mailRows = full.slice(start, start + bs);
-    }
   } catch {
     return { totalRows, created: 0, skippedInBatch: 0 };
+  }
+  if (!mailRows.length && totalRows > start) {
+    if (totalRows <= AGENDA_SLICE_FULL_READ_FALLBACK_MAX_ROWS) {
+      try {
+        const full = await searchReadMailActivitiesForCalendarEventClone(params.bundle, params.sourceEventId);
+        mailRows = full.slice(start, start + bs);
+      } catch {
+        mailRows = [];
+      }
+    } else {
+      throw new Error(
+        "أنشطة البريد كثيرة ولم تُرجع Odoo صفوفًا للشريحة الحالية (offset). جرّب لاحقًا أو أكمل النسخ يدويًا في Odoo."
+      );
+    }
   }
   const slice = mailRows;
   if (!slice.length) return { totalRows, created: 0, skippedInBatch: 0 };

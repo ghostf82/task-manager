@@ -1109,7 +1109,7 @@ export async function duplicateOdooAgendaTableSliceAction(input: {
       sourceEventId: Number(input.sourceEventId),
       targetEventId: Number(input.targetEventId),
       fromIndex: Number(input.fromIndex),
-      batchSize: input.batchSize ?? 4,
+      batchSize: input.batchSize ?? 1,
       knownTotalRows: input.knownTotalRows,
     });
     return { ok: true, ...out };
@@ -1145,7 +1145,7 @@ export async function duplicateOdooAgendaMailSliceAction(input: {
       targetEventStart: input.targetEventStart,
       sourceEventStart: input.sourceEventStart,
       fromIndex: Number(input.fromIndex),
-      batchSize: input.batchSize ?? 3,
+      batchSize: input.batchSize ?? 1,
       knownTotalRows: input.knownTotalRows,
     });
     return { ok: true, ...out };
