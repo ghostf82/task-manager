@@ -8,11 +8,11 @@ import { toast } from "sonner";
 import { CalendarDeepCopyDialog } from "@/app/dashboard/ai-agent/calendar-deep-copy-dialog";
 import {
   archiveOdooEntityAction,
+  cloneOdooCalendarEventPhaseOneAction,
   createOdooCalendarEventAction,
   createOdooDocumentAction,
   createOdooProjectAction,
   createOdooTaskAction,
-  cloneOdooCalendarEventsAction,
   hydrateOdooCalendarAgendaAction,
   deleteOdooEntityAction,
   exportOdooWorkspaceExcelAction,
@@ -29,7 +29,9 @@ import {
   updateOdooProjectAction,
   updateOdooTaskAction,
   updateOdooTaskStageAction,
+  revalidateAiAgentOdooPanelAction,
 } from "@/app/dashboard/ai-agent/actions";
+import { copyOdooMeetingAgendaInSlices } from "@/app/dashboard/ai-agent/odoo-calendar-agenda-copy-batches";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -180,9 +182,9 @@ type HydratedAgendaRow = {
 const CALENDAR_AGENDA_CHUNK = 28;
 
 function mergeAgendaIntoCalendarRows(prev: CalendarRow[], rows: HydratedAgendaRow[]): CalendarRow[] {
-  const by = new Map(rows.map((r) => [r.eventId, r]));
+  const by = new Map(rows.map((r) => [Number(r.eventId), r]));
   return prev.map((ev) => {
-    const r = by.get(ev.id);
+    const r = by.get(Number(ev.id));
     if (!r) return ev;
     return { ...ev, agendaLines: r.agendaLines, agendaItems: r.agendaItems };
   });
@@ -733,6 +735,7 @@ export function OdooTasksPanel() {
             name: row.name,
             start: nextStart,
             stop: nextStop || nextStart,
+            sourceEventStart: row.start,
             allday: row.allday,
             description: row.description,
             location: row.location,
@@ -750,18 +753,42 @@ export function OdooTasksPanel() {
       const errors: string[] = [];
       try {
         for (const row of payload) {
-          const cloned = await cloneOdooCalendarEventsAction({ events: [row] });
-          if (!cloned.ok) {
-            errors.push(cloned.error);
+          const p1 = await cloneOdooCalendarEventPhaseOneAction({
+            sourceEventId: row.eventId,
+            name: row.name,
+            start: row.start,
+            stop: row.stop,
+            allday: row.allday,
+            description: row.description,
+            location: row.location,
+            partnerIds: row.partnerIds,
+            responsibleId: row.responsibleId,
+            skipRevalidate: true,
+          });
+          if (!p1.ok) {
+            errors.push(p1.error);
             totalFailed += 1;
             continue;
           }
-          totalCopied += cloned.copied;
-          totalFailed += cloned.failed;
-          totalAgendaTable += cloned.agendaTableItemsCreated;
-          totalAgendaMail += cloned.agendaActivitiesCreated;
-          totalFallback += cloned.agendaDescriptionFallbackCount;
+          const p2 = await copyOdooMeetingAgendaInSlices({
+            sourceEventId: row.eventId,
+            targetEventId: p1.newEventId,
+            targetEventStart: row.start,
+            sourceEventStart: row.sourceEventStart,
+            targetDescriptionForFallback: row.description,
+            skipFinalRevalidate: true,
+          });
+          if (!p2.ok) {
+            errors.push(p2.error);
+            totalFailed += 1;
+            continue;
+          }
+          totalCopied += 1;
+          totalAgendaTable += p2.agendaTableItemsCreated;
+          totalAgendaMail += p2.agendaActivitiesCreated;
+          if (p2.fallbackDescriptionUpdated) totalFallback += 1;
         }
+        await revalidateAiAgentOdooPanelAction();
       } finally {
         toast.dismiss(toastId);
       }
@@ -1387,6 +1414,7 @@ export function OdooTasksPanel() {
         onCompleted={() => {
           setNeedsRefresh(true);
           setDeepCopySource(null);
+          loadSourceMonthEvents();
         }}
       />
     </Card>

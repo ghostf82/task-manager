@@ -9,7 +9,8 @@
     "build": "npm run i18n:check && next build --turbopack",
     "start": "next start",
     "lint": "eslint",
-    "db:seed": "tsx --env-file=.env.local scripts/seed-super-admin.ts"
+    "db:seed": "tsx --env-file=.env.local scripts/seed-super-admin.ts",
+    "test:odoo-agenda": "node scripts/odoo-agenda-self-test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

@@ -29,7 +29,9 @@ import {
   createOdooProjectViaWebLogin,
   createOdooTaskViaWebLogin,
   copyOdooCalendarEventViaWebLogin,
-  duplicateCalendarMeetingAgendaViaWebLogin,
+  appendCalendarAgendaFallbackViaWebLogin,
+  duplicateCalendarAgendaTableSliceViaWebLogin,
+  duplicateCalendarMailActivitiesSliceViaWebLogin,
   deleteOdooRecordViaWebLogin,
   listOdooCalendarEventsViaWebLogin,
   fetchOdooCalendarAgendaEnrichmentByEventIds,
@@ -1086,21 +1088,15 @@ export async function cloneOdooCalendarEventPhaseOneAction(input: {
   return { ok: true, newEventId };
 }
 
-/** Phase 2 only: duplicate `calendar.event.agenda.item` + related `mail.activity` onto an existing event. */
-export async function duplicateOdooCalendarAgendaPhaseTwoAction(input: {
+/** One slice of `calendar.event.agenda.item` creates (caller loops `fromIndex` until `totalRows`). */
+export async function duplicateOdooAgendaTableSliceAction(input: {
   sourceEventId: number;
   targetEventId: number;
-  targetEventStart: string;
-  targetDescriptionForFallback?: string;
-  skipRevalidate?: boolean;
+  fromIndex: number;
+  batchSize?: number;
+  knownTotalRows?: number;
 }): Promise<
-  | {
-      ok: true;
-      agendaActivitiesCreated: number;
-      agendaTableItemsCreated: number;
-      skipped: number;
-      fallbackDescriptionUpdated: boolean;
-    }
+  | { ok: true; totalRows: number; agendaItemsCreated: number; skippedInBatch: number }
   | { ok: false; error: string }
 > {
   const session = await requireSession();
@@ -1108,117 +1104,88 @@ export async function duplicateOdooCalendarAgendaPhaseTwoAction(input: {
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
   try {
-    const dup = await duplicateCalendarMeetingAgendaViaWebLogin({
+    const out = await duplicateCalendarAgendaTableSliceViaWebLogin({
       bundle,
       sourceEventId: Number(input.sourceEventId),
       targetEventId: Number(input.targetEventId),
-      targetEventStart: input.targetEventStart,
-      targetDescriptionForFallback: input.targetDescriptionForFallback,
+      fromIndex: Number(input.fromIndex),
+      batchSize: input.batchSize ?? 4,
+      knownTotalRows: input.knownTotalRows,
     });
-    if (!input.skipRevalidate) revalidatePath("/dashboard/ai-agent");
-    return {
-      ok: true,
-      agendaActivitiesCreated: dup.created,
-      agendaTableItemsCreated: dup.agendaItemsCreated,
-      skipped: dup.skipped,
-      fallbackDescriptionUpdated: dup.fallbackDescriptionUpdated,
-    };
+    return { ok: true, ...out };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: msg || "فشل نسخ الأجندة." };
+    return { ok: false, error: msg || "فشل نسخ شريحة جدول الأجندة." };
   }
 }
 
-export async function cloneOdooCalendarEventsAction(input: {
-  events: Array<{
-    eventId: number;
-    name: string;
-    start: string;
-    stop: string;
-    allday?: boolean;
-    description?: string;
-    location?: string;
-    partnerIds?: number[];
-    responsibleId?: number;
-  }>;
-}): Promise<{
-  ok: true;
-  copied: number;
-  failed: number;
-  agendaActivitiesCreated: number;
-  agendaTableItemsCreated: number;
-  agendaDescriptionFallbackCount: number;
-  message: string;
-} | { ok: false; error: string }> {
+/** One slice of `mail.activity` creates for the meeting clone. */
+export async function duplicateOdooAgendaMailSliceAction(input: {
+  sourceEventId: number;
+  targetEventId: number;
+  targetEventStart: string;
+  fromIndex: number;
+  batchSize?: number;
+  knownTotalRows?: number;
+  /** Source `calendar.event` start — avoids one Odoo read per mail slice for day delta. */
+  sourceEventStart?: string;
+}): Promise<
+  | { ok: true; totalRows: number; created: number; skippedInBatch: number }
+  | { ok: false; error: string }
+> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
-  const rows = Array.isArray(input.events) ? input.events : [];
-  if (!rows.length) return { ok: false, error: "اختر حدثًا واحدًا على الأقل." };
-
-  let copied = 0;
-  let failed = 0;
-  let agendaActivitiesCreated = 0;
-  let agendaTableItemsCreated = 0;
-  let agendaDescriptionFallbackCount = 0;
-
-  for (const row of rows) {
-    const p1 = await cloneOdooCalendarEventPhaseOneAction({
-      sourceEventId: Number(row.eventId),
-      name: row.name,
-      start: row.start,
-      stop: row.stop,
-      allday: row.allday,
-      description: row.description,
-      location: row.location,
-      partnerIds: row.partnerIds,
-      responsibleId: row.responsibleId,
-      skipRevalidate: true,
+  try {
+    const out = await duplicateCalendarMailActivitiesSliceViaWebLogin({
+      bundle,
+      sourceEventId: Number(input.sourceEventId),
+      targetEventId: Number(input.targetEventId),
+      targetEventStart: input.targetEventStart,
+      sourceEventStart: input.sourceEventStart,
+      fromIndex: Number(input.fromIndex),
+      batchSize: input.batchSize ?? 3,
+      knownTotalRows: input.knownTotalRows,
     });
-    if (!p1.ok) {
-      failed += 1;
-      continue;
-    }
-    copied += 1;
-    const p2 = await duplicateOdooCalendarAgendaPhaseTwoAction({
-      sourceEventId: Number(row.eventId),
-      targetEventId: p1.newEventId,
-      targetEventStart: row.start,
-      targetDescriptionForFallback: row.description,
-      skipRevalidate: true,
-    });
-    if (p2.ok) {
-      agendaActivitiesCreated += p2.agendaActivitiesCreated;
-      agendaTableItemsCreated += p2.agendaTableItemsCreated;
-      if (p2.fallbackDescriptionUpdated) agendaDescriptionFallbackCount += 1;
-    }
+    return { ok: true, ...out };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg || "فشل نسخ شريحة الأنشطة البريدية." };
   }
+}
 
+/** Append plain-text agenda to description when no rows were cloned (call after slices). */
+export async function appendOdooAgendaFallbackAction(input: {
+  sourceEventId: number;
+  targetEventId: number;
+  targetDescriptionForFallback?: string;
+  agendaItemsCreated: number;
+  mailActivitiesCreated: number;
+}): Promise<{ ok: true; updated: boolean } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  try {
+    const out = await appendCalendarAgendaFallbackViaWebLogin({
+      bundle,
+      sourceEventId: Number(input.sourceEventId),
+      targetEventId: Number(input.targetEventId),
+      targetDescriptionForFallback: input.targetDescriptionForFallback,
+      agendaItemsCreated: Number(input.agendaItemsCreated),
+      mailActivitiesCreated: Number(input.mailActivitiesCreated),
+    });
+    return { ok: true, updated: out.fallbackDescriptionUpdated };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg || "فشل لصق النص الاحتياطي." };
+  }
+}
+
+export async function revalidateAiAgentOdooPanelAction(): Promise<void> {
+  await requireSession();
   revalidatePath("/dashboard/ai-agent");
-  const agendaBits: string[] = [];
-  if (agendaTableItemsCreated > 0) {
-    agendaBits.push(`تم إنشاء ${agendaTableItemsCreated} سطرًا في جدول الأجندة (Odoo)`);
-  }
-  if (agendaActivitiesCreated > 0) {
-    agendaBits.push(`تم إنشاء ${agendaActivitiesCreated} نشاطًا بريديًا مرتبطًا بالاجتماع`);
-  }
-  const agendaRich = agendaBits.length ? ` ${agendaBits.join("، ")}.` : "";
-  const agendaPart =
-    agendaBits.length > 0
-      ? agendaRich
-      : agendaDescriptionFallbackCount > 0
-        ? ` وتم لصق نص الأجندة في الوصف لـ ${agendaDescriptionFallbackCount} حدث (تعذّر نسخ بنود الأجندة آلياً في Odoo).`
-        : "";
-  return {
-    ok: true,
-    copied,
-    failed,
-    agendaActivitiesCreated,
-    agendaTableItemsCreated,
-    agendaDescriptionFallbackCount,
-    message: `تم نسخ ${copied} حدث${failed ? `، وفشل ${failed}` : ""}.${agendaPart}`,
-  };
 }
 
 export async function updateOdooCalendarEventAction(input: {

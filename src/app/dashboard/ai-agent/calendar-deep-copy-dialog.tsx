@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 import { CheckIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  cloneOdooCalendarEventPhaseOneAction,
-  duplicateOdooCalendarAgendaPhaseTwoAction,
-} from "@/app/dashboard/ai-agent/actions";
+import { cloneOdooCalendarEventPhaseOneAction } from "@/app/dashboard/ai-agent/actions";
+import { copyOdooMeetingAgendaInSlices } from "@/app/dashboard/ai-agent/odoo-calendar-agenda-copy-batches";
+import { withSlicePostRetries } from "@/lib/netlify-slice-retry";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -101,6 +100,7 @@ export function CalendarDeepCopyDialog({
   const [progress, setProgress] = useState<CopyProgress>("idle");
   const [newEventId, setNewEventId] = useState<number | null>(null);
   const [agendaSummary, setAgendaSummary] = useState<string | null>(null);
+  const [progressDetail, setProgressDetail] = useState("");
 
   useEffect(() => {
     if (!open || !source) return;
@@ -126,53 +126,75 @@ export function CalendarDeepCopyDialog({
     setProgress("creating_event");
     setNewEventId(null);
     setAgendaSummary(null);
+    setProgressDetail("");
 
-    const p1 = await cloneOdooCalendarEventPhaseOneAction({
-      sourceEventId: source.id,
-      name: eventTitle.trim(),
-      start: preview.start,
-      stop: preview.stop,
-      allday: source.allday,
-      description: source.description || undefined,
-      location: source.location || undefined,
-      partnerIds: source.partnerIds?.length ? source.partnerIds : undefined,
-      responsibleId: source.responsibleId,
-    });
-
-    if (!p1.ok) {
-      setProgress("failed_phase1");
-      toast.error(p1.error);
-      setPending(false);
-      return;
-    }
-
-    setNewEventId(p1.newEventId);
-    setProgress("copying_agenda");
-
-    const p2 = await duplicateOdooCalendarAgendaPhaseTwoAction({
-      sourceEventId: source.id,
-      targetEventId: p1.newEventId,
-      targetEventStart: preview.start,
-      targetDescriptionForFallback: source.description || undefined,
-    });
-
-    if (!p2.ok) {
-      setProgress("failed_phase2");
-      toast.error(
-        `${p2.error} — تم إنشاء الحدث #${p1.newEventId} لكن الأجندة لم تُنسخ بالكامل؛ يمكنك إكمالها يدويًا في Odoo.`
+    let createdEventId: number | undefined;
+    try {
+      const p1 = await withSlicePostRetries(() =>
+        cloneOdooCalendarEventPhaseOneAction({
+          sourceEventId: source.id,
+          name: eventTitle.trim(),
+          start: preview.start,
+          stop: preview.stop,
+          allday: source.allday,
+          description: source.description || undefined,
+          location: source.location || undefined,
+          partnerIds: source.partnerIds?.length ? source.partnerIds : undefined,
+          responsibleId: source.responsibleId,
+          skipRevalidate: true,
+        })
       );
-      setPending(false);
-      return;
-    }
 
-    setAgendaSummary(
-      `جدول أجندة: ${p2.agendaTableItemsCreated}، أنشطة بريد: ${p2.agendaActivitiesCreated}` +
-        (p2.fallbackDescriptionUpdated ? "، وتم لصق نص احتياطي في الوصف." : "")
-    );
-    setProgress("completed");
-    toast.success(`تم النسخ العميق — الحدث الجديد #${p1.newEventId}`);
-    setPending(false);
-    onCompleted?.();
+      if (!p1.ok) {
+        setProgress("failed_phase1");
+        toast.error(p1.error);
+        setPending(false);
+        return;
+      }
+
+      createdEventId = p1.newEventId;
+      setNewEventId(p1.newEventId);
+      setProgress("copying_agenda");
+
+      const p2 = await copyOdooMeetingAgendaInSlices({
+        sourceEventId: source.id,
+        targetEventId: p1.newEventId,
+        targetEventStart: preview.start,
+        sourceEventStart: source.start,
+        targetDescriptionForFallback: source.description || undefined,
+        onProgress: (label) => setProgressDetail(label),
+      });
+
+      if (!p2.ok) {
+        setProgress("failed_phase2");
+        toast.error(
+          `${p2.error} — تم إنشاء الحدث #${p1.newEventId} لكن الأجندة لم تُنسخ بالكامل؛ يمكنك إكمالها يدويًا في Odoo.`
+        );
+        setPending(false);
+        return;
+      }
+
+      setAgendaSummary(
+        `جدول أجندة: ${p2.agendaTableItemsCreated}، أنشطة بريد: ${p2.agendaActivitiesCreated}` +
+          (p2.fallbackDescriptionUpdated ? "، وتم لصق نص احتياطي في الوصف." : "")
+      );
+      setProgress("completed");
+      toast.success(`تم النسخ العميق — الحدث الجديد #${p1.newEventId}`);
+      onCompleted?.();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (createdEventId) {
+        setProgress("failed_phase2");
+        toast.error(
+          `${msg} — تم إنشاء الحدث #${createdEventId} لكن الاتصال انقطع أثناء نسخ الأجندة؛ أعد المحاولة أو أكمل يدويًا في Odoo.`
+        );
+      } else {
+        setProgress("failed_phase1");
+        toast.error(`${msg} — أعد المحاولة؛ إن تكرر الخطأ فالمشكلة غالبًا من مهلة Netlify أو بطء Odoo.`);
+      }
+    } finally {
+      setPending(false);
+    }
   }
 
   if (!source) return null;
@@ -183,9 +205,8 @@ export function CalendarDeepCopyDialog({
         <DialogHeader>
           <DialogTitle>نسخ عميق للحدث</DialogTitle>
           <DialogDescription>
-            مرحلتان على الخادم: إنشاء <code className="text-[11px]">calendar.event</code> أولاً، ثم نسخ{" "}
-            <code className="text-[11px]">calendar.event.agenda.item</code> و<code className="text-[11px]">mail.activity</code>{" "}
-            لتقليل مهلة الطلب الواحد على Netlify.
+            إنشاء <code className="text-[11px]">calendar.event</code> في طلب واحد، ثم نسخ الأجندة عبر{" "}
+            <strong>عدة طلبات صغيرة</strong> (جدول الأجندة دفعات ثم البريد دفعات) لتجنّب انتهاء مهلة Netlify 504.
           </DialogDescription>
         </DialogHeader>
 
@@ -262,6 +283,9 @@ export function CalendarDeepCopyDialog({
                 <span>2) نسخ الأجندة (جدول + بريد)</span>
               </li>
             </ul>
+            {progressDetail ? (
+              <p className="text-[11px] text-muted-foreground [direction:ltr]">{progressDetail}</p>
+            ) : null}
             {agendaSummary ? <p className="text-[11px] text-muted-foreground">{agendaSummary}</p> : null}
             {progress === "failed_phase1" ? (
               <p className="text-[11px] text-destructive">تعذّر إنشاء الحدث — لم تُنفَّذ مرحلة الأجندة.</p>
