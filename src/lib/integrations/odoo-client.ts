@@ -325,6 +325,30 @@ async function fetchCalendarEventAgendaItemsForEvents(params: {
   return out;
 }
 
+/** Batched `mail.activity` + `calendar.event.agenda.item` for a bounded set of events (keep batches small for serverless timeouts). */
+export async function fetchOdooCalendarAgendaEnrichmentByEventIds(params: {
+  bundle: OdooCredentialBundle;
+  eventIds: number[];
+}): Promise<
+  Array<{
+    eventId: number;
+    agendaLines: OdooCalendarAgendaLineLite[];
+    agendaItems: OdooCalendarAgendaItemLite[];
+  }>
+> {
+  const uniq = [...new Set(params.eventIds.filter((n) => Number.isFinite(n) && n > 0))];
+  if (!uniq.length) return [];
+  const [mailMap, itemsMap] = await Promise.all([
+    fetchMailActivitiesForCalendarEvents({ bundle: params.bundle, eventIds: uniq }),
+    fetchCalendarEventAgendaItemsForEvents({ bundle: params.bundle, eventIds: uniq }),
+  ]);
+  return uniq.map((eventId) => ({
+    eventId,
+    agendaLines: mailMap.get(eventId) ?? [],
+    agendaItems: itemsMap.get(eventId) ?? [],
+  }));
+}
+
 async function searchReadAgendaItemsForSingleEvent(
   bundle: OdooCredentialBundle,
   eventId: number,

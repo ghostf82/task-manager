@@ -1,5 +1,6 @@
- "use client";
+"use client";
 
+import type { Dispatch, SetStateAction } from "react";
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +12,7 @@ import {
   createOdooProjectAction,
   createOdooTaskAction,
   cloneOdooCalendarEventsAction,
+  hydrateOdooCalendarAgendaAction,
   deleteOdooEntityAction,
   exportOdooWorkspaceExcelAction,
   importOdooWorkspaceExcelAction,
@@ -167,6 +169,41 @@ function shiftToTargetMonth(input: string, sourceMonth: string, targetMonth: str
   return toOdooDateTime(out);
 }
 
+type HydratedAgendaRow = {
+  eventId: number;
+  agendaLines: Array<{ id: number; summary: string; note: string; state: string; dateDeadline: string }>;
+  agendaItems: Array<{ id: number; sequence: number; name: string; description: string; discussed: boolean }>;
+};
+
+/** Must stay ≤ `HYDRATE_CALENDAR_AGENDA_MAX_IDS` in `actions.ts`. */
+const CALENDAR_AGENDA_CHUNK = 28;
+
+function mergeAgendaIntoCalendarRows(prev: CalendarRow[], rows: HydratedAgendaRow[]): CalendarRow[] {
+  const by = new Map(rows.map((r) => [r.eventId, r]));
+  return prev.map((ev) => {
+    const r = by.get(ev.id);
+    if (!r) return ev;
+    return { ...ev, agendaLines: r.agendaLines, agendaItems: r.agendaItems };
+  });
+}
+
+async function pullAgendaChunksToSetState(
+  ids: number[],
+  setRows: Dispatch<SetStateAction<CalendarRow[]>>
+): Promise<boolean> {
+  const unique = [...new Set(ids.filter((n) => Number.isFinite(n) && n > 0))];
+  for (let i = 0; i < unique.length; i += CALENDAR_AGENDA_CHUNK) {
+    const slice = unique.slice(i, i + CALENDAR_AGENDA_CHUNK);
+    const h = await hydrateOdooCalendarAgendaAction({ eventIds: slice });
+    if (!h.ok) {
+      toast.error(h.error);
+      return false;
+    }
+    setRows((prev) => mergeAgendaIntoCalendarRows(prev, h.rows));
+  }
+  return true;
+}
+
 export function OdooTasksPanel() {
   const [pending, start] = useTransition();
   const [tasks, setTasks] = useState<TaskRow[]>([]);
@@ -209,6 +246,8 @@ export function OdooTasksPanel() {
   const [selectedSourceDay, setSelectedSourceDay] = useState("");
   const [dayToCompare, setDayToCompare] = useState("");
   const [dayEvents, setDayEvents] = useState<CalendarRow[]>([]);
+  /** Staged agenda fetch after bulk month/day list (avoids one huge Odoo payload → Netlify 504). */
+  const [agendaHydrate, setAgendaHydrate] = useState<"idle" | "month" | "day">("idle");
 
   function loadTasks() {
     start(async () => {
@@ -585,15 +624,35 @@ export function OdooTasksPanel() {
       return;
     }
     start(async () => {
-      const res = await listOdooCalendarEventsMonthAction({ yearMonth: sourceMonth, mineOnly: false });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
+      setAgendaHydrate("month");
+      try {
+        const res = await listOdooCalendarEventsMonthAction({ yearMonth: sourceMonth, mineOnly: false });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        const visible = res.events.filter((e) => passPeople(e.creator, e.responsible));
+        setMonthEvents(visible);
+        setSelectedSourceDay("");
+        setSelectedCalendarIds([]);
+        if (!visible.length) {
+          toast.success(
+            `تم جلب ${res.events.length} حدثًا لشهر ${sourceMonth} (لا يظهر شيء بعد تصفية الأشخاص المختارين).`
+          );
+          return;
+        }
+        const ok = await pullAgendaChunksToSetState(
+          visible.map((e) => e.id),
+          setMonthEvents
+        );
+        toast.success(
+          ok
+            ? `تم جلب ${res.events.length} حدثًا لشهر ${sourceMonth} مع بنود الأجندة (${visible.length} معروضًا بعد التصفية).`
+            : `تم جلب أحداث الشهر لكن تعذّر إكمال تحميل الأجندة — راجع رسالة الخطأ أعلاه.`
+        );
+      } finally {
+        setAgendaHydrate("idle");
       }
-      setMonthEvents(res.events.filter((e) => passPeople(e.creator, e.responsible)));
-      setSelectedSourceDay("");
-      setSelectedCalendarIds([]);
-      toast.success(`تم جلب ${res.events.length} حدثًا لشهر ${sourceMonth}.`);
     });
   }
 
@@ -603,13 +662,33 @@ export function OdooTasksPanel() {
       return;
     }
     start(async () => {
-      const res = await listOdooCalendarEventsDayAction({ day: dayToCompare, mineOnly: false });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
+      setAgendaHydrate("day");
+      try {
+        const res = await listOdooCalendarEventsDayAction({ day: dayToCompare, mineOnly: false });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        const visible = res.events.filter((e) => passPeople(e.creator, e.responsible));
+        setDayEvents(visible);
+        if (!visible.length) {
+          toast.success(
+            `تمت مطابقة يوم ${dayToCompare}: ${res.events.length} حدث من Odoo (لا يظهر شيء بعد تصفية الأشخاص).`
+          );
+          return;
+        }
+        const ok = await pullAgendaChunksToSetState(
+          visible.map((e) => e.id),
+          setDayEvents
+        );
+        toast.success(
+          ok
+            ? `تمت مطابقة يوم ${dayToCompare}: ${res.events.length} حدث من Odoo مع الأجندة (${visible.length} معروضًا).`
+            : `تم جلب أحداث اليوم لكن تعذّر إكمال تحميل الأجندة — راجع رسالة الخطأ أعلاه.`
+        );
+      } finally {
+        setAgendaHydrate("idle");
       }
-      setDayEvents(res.events.filter((e) => passPeople(e.creator, e.responsible)));
-      toast.success(`تمت مطابقة يوم ${dayToCompare}: ${res.events.length} حدث من Odoo.`);
     });
   }
 
@@ -1115,11 +1194,16 @@ export function OdooTasksPanel() {
         <div className="rounded-md border p-3 space-y-3">
           <Label className="block">مطابقة تفاصيل أي يوم (وليس شهرًا فقط)</Label>
           <p className="text-xs text-muted-foreground">
-            اختر أي تاريخ، وسنجلب أحداثه من Odoo مع الوصف/الأجندة والموقع والمسؤولين لتظهر التفاصيل بدقة.
+            اختر أي تاريخ، وسنجلب أحداثه من Odoo (الوصف والموقع والمسؤولين)، ثم نحمّل بنود الأجندة وجدول Odoo على دفعات صغيرة لتجنّب انتهاء مهلة الخادم.
           </p>
           <div className="flex flex-wrap gap-2">
             <Input type="date" value={dayToCompare} onChange={(e) => setDayToCompare(e.target.value)} className="w-44" />
-            <Button type="button" variant="outline" onClick={loadSelectedDayEvents} disabled={pending}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={loadSelectedDayEvents}
+              disabled={pending || agendaHydrate !== "idle"}
+            >
               مطابقة اليوم المحدد
             </Button>
           </div>
@@ -1180,12 +1264,17 @@ export function OdooTasksPanel() {
         <div className="rounded-md border p-3 space-y-3">
           <Label className="block">نسخ مهام/أحداث الشهر السابق للشهر الجديد</Label>
           <p className="text-xs text-muted-foreground">
-            هذه الميزة تساعدك على تكرار أعمال الأجندة الشهرية بدل الإدخال اليدوي. اختر المصدر والهدف ثم حدّد الأحداث التي تريد نسخها.
+            هذه الميزة تساعدك على تكرار أعمال الأجندة الشهرية بدل الإدخال اليدوي. بعد جلب الأحداث يُحمّل جدول الأجندة من Odoo على دفعات (نفس الحقول: <code className="text-[10px]">calendar.event.agenda.item</code> و<code className="text-[10px]">mail.activity</code>).
           </p>
           <div className="flex flex-wrap gap-2">
             <Input type="month" value={sourceMonth} onChange={(e) => setSourceMonth(e.target.value)} className="w-44" />
             <Input type="month" value={targetMonth} onChange={(e) => setTargetMonth(e.target.value)} className="w-44" />
-            <Button type="button" variant="outline" onClick={loadSourceMonthEvents} disabled={pending}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={loadSourceMonthEvents}
+              disabled={pending || agendaHydrate !== "idle"}
+            >
               جلب كل أيام شهر المصدر
             </Button>
             <Button type="button" variant="outline" onClick={() => setSelectedCalendarIds(sourceMonthEvents.map((e) => e.id))}>
@@ -1194,7 +1283,7 @@ export function OdooTasksPanel() {
             <Button type="button" variant="outline" onClick={() => setSelectedCalendarIds([])}>
               إلغاء الاختيار
             </Button>
-            <Button type="button" onClick={cloneSelectedMonthEvents} disabled={pending}>
+            <Button type="button" onClick={cloneSelectedMonthEvents} disabled={pending || agendaHydrate !== "idle"}>
               نسخ المحدد إلى الشهر الهدف
             </Button>
           </div>

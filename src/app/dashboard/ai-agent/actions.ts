@@ -32,6 +32,7 @@ import {
   duplicateCalendarMeetingAgendaViaWebLogin,
   deleteOdooRecordViaWebLogin,
   listOdooCalendarEventsViaWebLogin,
+  fetchOdooCalendarAgendaEnrichmentByEventIds,
   listOdooDocumentsViaWebLogin,
   listOdooProjectsViaWebLogin,
   searchOdooTasksViaWebLogin,
@@ -953,6 +954,59 @@ export async function listOdooCalendarEventsDayAction(input: {
     startBefore: end,
     includeAgendaDetails: false,
   });
+}
+
+/** Small chunks only — call repeatedly from the client after month/day list loads. */
+const HYDRATE_CALENDAR_AGENDA_MAX_IDS = 28;
+
+export async function hydrateOdooCalendarAgendaAction(input: {
+  eventIds: number[];
+}): Promise<
+  | {
+      ok: true;
+      rows: Array<{
+        eventId: number;
+        agendaLines: Array<{ id: number; summary: string; note: string; state: string; dateDeadline: string }>;
+        agendaItems: Array<{ id: number; sequence: number; name: string; description: string; discussed: boolean }>;
+      }>;
+    }
+  | { ok: false; error: string }
+> {
+  const { id: userId } = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, userId);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+
+  const ids = [...new Set((input.eventIds || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))].slice(
+    0,
+    HYDRATE_CALENDAR_AGENDA_MAX_IDS
+  );
+  if (!ids.length) return { ok: true, rows: [] };
+
+  try {
+    const enriched = await fetchOdooCalendarAgendaEnrichmentByEventIds({ bundle, eventIds: ids });
+    const rows = enriched.map((e) => ({
+      eventId: e.eventId,
+      agendaLines: e.agendaLines.map((a) => ({
+        id: a.id,
+        summary: a.summary,
+        note: a.notePlain,
+        state: a.state,
+        dateDeadline: a.dateDeadline,
+      })),
+      agendaItems: e.agendaItems.map((it) => ({
+        id: it.id,
+        sequence: it.sequence,
+        name: it.name,
+        description: it.descriptionPlain,
+        discussed: it.discussed,
+      })),
+    }));
+    return { ok: true, rows };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg || "فشل تحميل الأجندة من Odoo." };
+  }
 }
 
 export async function createOdooCalendarEventAction(input: {
