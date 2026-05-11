@@ -170,15 +170,29 @@ export function CalendarDeepCopyDialog({
         sourceEventStart: source.start,
         targetDescriptionForFallback: source.description || undefined,
         onProgress: (info: OdooAgendaCopyProgressInfo) => {
-          setProgressPercent(info.percent);
+          const barPct =
+            info.phase === "table" || info.phase === "mail"
+              ? info.phasePercent
+              : info.overallPercent;
+          setProgressPercent(barPct);
           setProgressDetail(info.message);
         },
       });
 
       if (!p2.ok) {
         setProgress("failed_phase2");
+        let sliceHint = "";
+        if (p2.failedAt && p2.failedAt.phaseTotal != null && p2.failedAt.phaseTotal > 0) {
+          const at = p2.failedAt.fromIndex + 1;
+          const tot = p2.failedAt.phaseTotal;
+          const phaseLabel = p2.failedAt.phase === "table" ? "جدول الأجندة" : "الأنشطة البريدية";
+          const isLast = at >= tot;
+          sliceHint = isLast
+            ? ` (تعذّر على آخر بند في ${phaseLabel}: الموضع ${at} من ${tot} — أعد المحاولة بعد قليل أو أكمل في Odoo.)`
+            : ` (تعذّر عند البند ${at} من ${tot} في ${phaseLabel}.)`;
+        }
         toast.error(
-          `${p2.error} — تم إنشاء الحدث #${p1.newEventId} لكن الأجندة لم تُنسخ بالكامل؛ يمكنك إكمالها يدويًا في Odoo.`
+          `${p2.error}${sliceHint} — تم إنشاء الحدث #${p1.newEventId} لكن الأجندة لم تُنسخ بالكامل؛ يمكنك إعادة المحاولة أو إكمالها يدويًا في Odoo.`
         );
         setPending(false);
         return;
@@ -302,7 +316,7 @@ export function CalendarDeepCopyDialog({
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-valuenow={progressPercent}
-                  aria-label="تقدم نسخ الأجندة"
+                  aria-label="تقدم مرحلة نسخ الأجندة (نسبة المرحلة الحالية)"
                 >
                   <div
                     className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
