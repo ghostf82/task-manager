@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CheckIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export type DeepCopyCalendarSource = {
   id: number;
@@ -31,6 +32,8 @@ export type DeepCopyCalendarSource = {
   location: string;
   partnerIds: number[];
   responsibleId?: number;
+  /** Optional display names for `partner_ids` (from Odoo `res.partner`). */
+  partners?: Array<{ id: number; name: string }>;
 };
 
 function parseOdooDateTime(v: string): Date | null {
@@ -105,6 +108,15 @@ export function CalendarDeepCopyDialog({
   const [agendaSummary, setAgendaSummary] = useState<string | null>(null);
   const [progressDetail, setProgressDetail] = useState("");
   const [progressPercent, setProgressPercent] = useState(0);
+  /** `solo` = only logged-in Odoo user as organizer/attendee; `pick` = add selected partners. */
+  const [attendeeMode, setAttendeeMode] = useState<"solo" | "pick">("solo");
+  const [pickedPartnerIds, setPickedPartnerIds] = useState<number[]>([]);
+
+  const attendeeOptions = useMemo(() => {
+    if (!source) return [] as Array<{ id: number; name: string }>;
+    if (source.partners?.length) return source.partners;
+    return source.partnerIds.map((id) => ({ id, name: `شريك #${id}` }));
+  }, [source]);
 
   useEffect(() => {
     if (!open || !source) return;
@@ -116,6 +128,8 @@ export function CalendarDeepCopyDialog({
     setAgendaSummary(null);
     setProgressPercent(0);
     setProgressDetail("");
+    setAttendeeMode("solo");
+    setPickedPartnerIds([]);
   }, [open, source]);
 
   const preview =
@@ -137,6 +151,13 @@ export function CalendarDeepCopyDialog({
 
     let createdEventId: number | undefined;
     try {
+      const attendeesPolicy =
+        attendeeMode === "solo" || (attendeeMode === "pick" && pickedPartnerIds.length === 0)
+          ? ("organizer_only" as const)
+          : ("subset" as const);
+      const partnerIdsSubset =
+        attendeeMode === "pick" && pickedPartnerIds.length > 0 ? pickedPartnerIds : undefined;
+
       const p1 = await withSlicePostRetries(() =>
         cloneOdooCalendarEventPhaseOneAction({
           sourceEventId: source.id,
@@ -146,9 +167,11 @@ export function CalendarDeepCopyDialog({
           allday: source.allday,
           description: source.description || undefined,
           location: source.location || undefined,
-          partnerIds: source.partnerIds?.length ? source.partnerIds : undefined,
+          partnerIds: source.partnerIds,
           responsibleId: source.responsibleId,
           skipRevalidate: true,
+          attendeesPolicy,
+          partnerIdsSubset,
         })
       );
 
@@ -268,6 +291,70 @@ export function CalendarDeepCopyDialog({
               placeholder={source.name}
             />
             <p className="text-[11px] text-muted-foreground">يمكنك الاحتفاظ بالاسم أو تعديله قبل التنفيذ.</p>
+          </div>
+
+          <div className="space-y-2 rounded-md border border-border/50 bg-muted/10 p-3">
+            <p className="text-xs font-medium text-foreground">المتابعون في الحدث الجديد</p>
+            <p className="text-[11px] text-muted-foreground">
+              يُضبط المنظم (<code className="text-[10px]">user_id</code>) دائمًا على حسابك في Odoo حتى يُسمح بنسخ الأجندة. الافتراضي: أنت فقط دون دعوات للزملاء.
+            </p>
+            <div className="grid gap-2 text-sm">
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="radio"
+                  name="deep-copy-attendees"
+                  className="mt-1"
+                  checked={attendeeMode === "solo"}
+                  disabled={pending}
+                  onChange={() => {
+                    setAttendeeMode("solo");
+                    setPickedPartnerIds([]);
+                  }}
+                />
+                <span>لا — الحدث لي وحدي كمنظم (بدون نقل متابعين من المصدر).</span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="radio"
+                  name="deep-copy-attendees"
+                  className="mt-1"
+                  checked={attendeeMode === "pick"}
+                  disabled={pending}
+                  onChange={() => setAttendeeMode("pick")}
+                />
+                <span>نعم — أختار من قائمة المتابعين في الحدث الأصلي.</span>
+              </label>
+            </div>
+            {attendeeMode === "pick" && attendeeOptions.length > 0 ? (
+              <div className="ms-6 space-y-2 border-s-2 border-border/60 ps-3">
+                <p className="text-[11px] text-muted-foreground">
+                  إن لم تُحدّد أحدًا، يُنشأ الحدث لك وحدك كما في الخيار الأول.
+                </p>
+                <ul className="max-h-40 space-y-2 overflow-y-auto">
+                  {attendeeOptions.map((p) => {
+                    const checked = pickedPartnerIds.includes(p.id);
+                    return (
+                      <li key={p.id} className="flex items-center gap-2">
+                        <Checkbox
+                          checked={checked}
+                          disabled={pending}
+                          onCheckedChange={(v) => {
+                            const on = v === true;
+                            setPickedPartnerIds((prev) =>
+                              on ? (prev.includes(p.id) ? prev : [...prev, p.id]) : prev.filter((x) => x !== p.id)
+                            );
+                          }}
+                        />
+                        <span className="text-sm">{p.name}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground [direction:ltr]">#{p.id}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            ) : attendeeMode === "pick" && attendeeOptions.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">لا يوجد متابعون مسجّلون على الحدث المصدر.</p>
+            ) : null}
           </div>
 
           {preview ? (

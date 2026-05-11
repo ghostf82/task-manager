@@ -71,6 +71,7 @@ type CalendarRow = {
   responsible: string;
   responsibleId?: number;
   partnerIds: number[];
+  partners?: Array<{ id: number; name: string }>;
   location: string;
   description: string;
   active: boolean;
@@ -764,6 +765,7 @@ export function OdooTasksPanel() {
             partnerIds: row.partnerIds,
             responsibleId: row.responsibleId,
             skipRevalidate: true,
+            attendeesPolicy: "copy_source",
           });
           if (!p1.ok) {
             errors.push(p1.error);
@@ -1408,6 +1410,7 @@ export function OdooTasksPanel() {
                 location: deepCopySource.location,
                 partnerIds: deepCopySource.partnerIds,
                 responsibleId: deepCopySource.responsibleId,
+                partners: deepCopySource.partners,
               }
             : null
         }

@@ -80,6 +80,8 @@ export type OdooWebCalendarEventLite = {
   agendaLines?: OdooCalendarAgendaLineLite[];
   /** Meeting agenda table rows (`calendar.event.agenda.item` on Odoo.sh). */
   agendaItems?: OdooCalendarAgendaItemLite[];
+  /** `res.partner` labels for `partner_ids` (filled after list fetch). */
+  partners?: Array<{ id: number; name: string }>;
 };
 
 export type OdooWebDocumentLite = {
@@ -2422,6 +2424,7 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
         res_model: typeof r.res_model === "string" && r.res_model.trim() ? r.res_model : (false as const),
         res_id: typeof r.res_id === "number" && Number.isFinite(r.res_id) ? Number(r.res_id) : (false as const),
       }));
+    await enrichCalendarPartnerLabels(params.bundle, events);
     const includeAgenda = params.includeAgendaDetails !== false;
     if (includeAgenda && events.length) {
       const agendaByEvent = await fetchMailActivitiesForCalendarEvents({
@@ -2888,4 +2891,76 @@ export async function odooAuthenticateUid(bundle: OdooCredentialBundle): Promise
     password,
   });
   return uid;
+}
+
+/** `res.users.partner_id` — used so the new calendar event lists the logged-in user as attendee. */
+export async function readResUsersPartnerIdViaWebLogin(
+  bundle: OdooCredentialBundle,
+  userId: number
+): Promise<number | null> {
+  try {
+    const json = await callKwWithSessionRetry(bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: "res.users",
+        method: "read",
+        args: [[Number(userId)], ["partner_id"]],
+      })
+    );
+    const rows = Array.isArray(json.result) ? json.result : [];
+    const row = rows[0] as Record<string, unknown> | undefined;
+    const pid = readOdooMany2oneId(row?.partner_id);
+    return pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+async function enrichCalendarPartnerLabels(
+  bundle: OdooCredentialBundle,
+  events: OdooWebCalendarEventLite[]
+): Promise<void> {
+  const ids = new Set<number>();
+  for (const e of events) {
+    for (const pid of e.partner_ids ?? []) {
+      if (Number.isFinite(pid) && pid > 0) ids.add(pid);
+    }
+  }
+  if (!ids.size) {
+    for (const e of events) {
+      e.partners = [];
+    }
+    return;
+  }
+  const uniq = [...ids];
+  try {
+    const json = await callKwWithSessionRetry(bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: "res.partner",
+        method: "search_read",
+        args: [[["id", "in", uniq]]],
+        kwargs: { fields: ["id", "name"], limit: Math.min(500, uniq.length) },
+      })
+    );
+    const nameBy = new Map<number, string>();
+    for (const raw of Array.isArray(json.result) ? json.result : []) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      const id = Number(r.id);
+      if (!Number.isFinite(id)) continue;
+      nameBy.set(id, String(r.name ?? "").trim() || `شريك #${id}`);
+    }
+    for (const e of events) {
+      const pids = e.partner_ids ?? [];
+      e.partners = pids.map((id) => ({ id, name: nameBy.get(id) ?? `شريك #${id}` }));
+    }
+  } catch {
+    for (const e of events) {
+      const pids = e.partner_ids ?? [];
+      e.partners = pids.map((id) => ({ id, name: `شريك #${id}` }));
+    }
+  }
 }

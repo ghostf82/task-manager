@@ -35,6 +35,8 @@ import {
   deleteOdooRecordViaWebLogin,
   listOdooCalendarEventsViaWebLogin,
   fetchOdooCalendarAgendaEnrichmentByEventIds,
+  odooAuthenticateUid,
+  readResUsersPartnerIdViaWebLogin,
   listOdooDocumentsViaWebLogin,
   listOdooProjectsViaWebLogin,
   searchOdooTasksViaWebLogin,
@@ -852,6 +854,7 @@ export type OdooCalendarEventRow = {
     description: string;
     discussed: boolean;
   }>;
+  partners?: Array<{ id: number; name: string }>;
 };
 
 export async function listOdooCalendarEventsAction(input?: {
@@ -912,6 +915,7 @@ export async function listOdooCalendarEventsAction(input?: {
             discussed: it.discussed,
           }))
         : [],
+      partners: (e.partners ?? []).map((p) => ({ id: Number(p.id), name: String(p.name ?? "") })),
     })),
   };
 }
@@ -1042,15 +1046,52 @@ export async function cloneOdooCalendarEventPhaseOneAction(input: {
   allday?: boolean;
   description?: string;
   location?: string;
+  /** Source event partner ids (used when `attendeesPolicy` is `copy_source`). */
   partnerIds?: number[];
+  /** Ignored for ownership — the logged-in Odoo user is always organizer (`user_id`). */
   responsibleId?: number;
   /** When true, caller runs `revalidatePath` (e.g. bulk clone loop). */
   skipRevalidate?: boolean;
+  /**
+   * Who appears on the new event besides the organizer.
+   * - `organizer_only` (default for deep-copy UI): current user only.
+   * - `subset`: current user + `partnerIdsSubset`.
+   * - `copy_source` (default when omitted): current user + source `partnerIds` (monthly bulk clone).
+   */
+  attendeesPolicy?: "organizer_only" | "subset" | "copy_source";
+  /** Partner ids to add when `attendeesPolicy === "subset"`. */
+  partnerIdsSubset?: number[];
 }): Promise<{ ok: true; newEventId: number } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+
+  let uid: number;
+  try {
+    uid = await odooAuthenticateUid(bundle);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg || "تعذّر تحديد مستخدم Odoo الحالي." };
+  }
+
+  const myPartnerId = await readResUsersPartnerIdViaWebLogin(bundle, uid);
+  const policy = input.attendeesPolicy ?? "copy_source";
+  let finalPartnerIds: number[] = [];
+  if (policy === "organizer_only") {
+    finalPartnerIds = myPartnerId ? [myPartnerId] : [];
+  } else if (policy === "subset") {
+    const sub = Array.isArray(input.partnerIdsSubset)
+      ? input.partnerIdsSubset.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+    const merged = [...(myPartnerId ? [myPartnerId] : []), ...sub];
+    finalPartnerIds = [...new Set(merged)];
+  } else {
+    const src = Array.isArray(input.partnerIds) ? input.partnerIds.map(Number).filter((n) => Number.isFinite(n) && n > 0) : [];
+    const merged = [...(myPartnerId ? [myPartnerId] : []), ...src];
+    finalPartnerIds = [...new Set(merged)];
+  }
+
   const row = input;
   const cloned = await copyOdooCalendarEventViaWebLogin({
     bundle,
@@ -1061,8 +1102,8 @@ export async function cloneOdooCalendarEventPhaseOneAction(input: {
     allday: row.allday,
     description: row.description,
     location: row.location,
-    partnerIds: row.partnerIds,
-    userId: row.responsibleId,
+    partnerIds: finalPartnerIds,
+    userId: uid,
   });
   let newEventId: number | null = null;
   if (cloned.ok) {
@@ -1076,14 +1117,28 @@ export async function cloneOdooCalendarEventPhaseOneAction(input: {
       allday: row.allday,
       description: row.description,
       location: row.location,
-      partnerIds: row.partnerIds,
-      userId: row.responsibleId,
+      partnerIds: finalPartnerIds.length ? finalPartnerIds : undefined,
+      userId: uid,
     });
     if (created.ok) newEventId = created.eventId;
   }
   if (!newEventId) {
     return { ok: false, error: "تعذّر إنشاء نسخة الحدث في Odoo (تحقق من الصلاحيات أو الحقول)." };
   }
+
+  const enforce = await updateOdooCalendarEventViaWebLogin({
+    bundle,
+    eventId: newEventId,
+    userId: uid,
+    ...(finalPartnerIds.length ? { partnerIds: finalPartnerIds } : {}),
+  });
+  if (!enforce.ok) {
+    return {
+      ok: false,
+      error: `أُنشئ الحدث #${newEventId} لكن تعذّر ضبط المنظم/المتابعين: ${enforce.error}`,
+    };
+  }
+
   if (!input.skipRevalidate) revalidatePath("/dashboard/ai-agent");
   return { ok: true, newEventId };
 }

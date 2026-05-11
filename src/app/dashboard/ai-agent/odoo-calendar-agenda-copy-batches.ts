@@ -195,16 +195,30 @@ export async function copyOdooMeetingAgendaInSlices(params: {
     }
     agendaTableItemsCreated += r.agendaItemsCreated;
     skippedApprox += r.skippedInBatch;
-    const done = Math.min(from + TABLE_SLICE, tableTotal);
-    const ph = phasePercent(done, tableTotal);
-    const ov = overallTable(done, tableTotal);
+    if (
+      tableTotal !== null &&
+      tableTotal > 0 &&
+      from < tableTotal &&
+      r.agendaItemsCreated === 0 &&
+      r.skippedInBatch > 0
+    ) {
+      return {
+        ok: false,
+        error:
+          "تعذّر حفظ بند الأجندة في Odoo (غالبًا لأنك لست منظم الحدث أو تفتقد صلاحية إنشاء «بند أجندة الاجتماع»). أعد المحاولة بعد التأكد أن المنظم هو حسابك.",
+        failedAt: { phase: "table", fromIndex: from, phaseTotal: tableTotal },
+      };
+    }
+    const saved = agendaTableItemsCreated;
+    const ph = phasePercent(saved, tableTotal);
+    const ov = overallTable(saved, tableTotal);
     params.onProgress?.({
       phase: "table",
-      current: done,
+      current: saved,
       total: tableTotal,
       overallPercent: ov,
       phasePercent: ph,
-      message: `جدول الأجندة: ${done} من ${tableTotal} — المرحلة ${ph}٪ · الإجمالي ${ov}٪`,
+      message: `جدول الأجندة: تم حفظ ${saved} من ${tableTotal} في Odoo — المرحلة ${ph}٪ · الإجمالي ${ov}٪`,
     });
     from += TABLE_SLICE;
     await microYield();
@@ -268,16 +282,16 @@ export async function copyOdooMeetingAgendaInSlices(params: {
     }
     agendaActivitiesCreated += r.created;
     skippedApprox += r.skippedInBatch;
-    const done = Math.min(from + MAIL_SLICE, mailTotal);
-    const ph = phasePercent(done, mailTotal);
-    const ov = overallMail(done, mailTotal);
+    const mailSaved = agendaActivitiesCreated;
+    const ph = phasePercent(mailSaved, mailTotal);
+    const ov = overallMail(mailSaved, mailTotal);
     params.onProgress?.({
       phase: "mail",
-      current: done,
+      current: mailSaved,
       total: mailTotal,
       overallPercent: ov,
       phasePercent: ph,
-      message: `الأنشطة البريدية: ${done} من ${mailTotal} — المرحلة ${ph}٪ · الإجمالي ${ov}٪`,
+      message: `الأنشطة البريدية: تم حفظ ${mailSaved} من ${mailTotal} في Odoo — المرحلة ${ph}٪ · الإجمالي ${ov}٪`,
     });
     from += MAIL_SLICE;
     await microYield();
