@@ -1442,6 +1442,8 @@ function candidateDatabases(baseUrl: string, preferred: string): string[] {
   const push = (v: string) => {
     const t = v.trim();
     if (!t) return;
+    /** Placeholder for browser-session mode — never pass to XML-RPC `authenticate`. */
+    if (t === "__browser_session__") return;
     if (!out.includes(t)) out.push(t);
   };
   push(preferred);
@@ -1740,6 +1742,13 @@ async function authenticateViaWebSession(params: {
 function humanizeOdooError(raw: string): string {
   console.error("[odoo-debug] humanize raw", raw.slice(0, 200));
   const msg = raw.toLowerCase();
+  if (msg.includes("connection to server") && msg.includes("5432") && msg.includes("fatal")) {
+    return (
+      "خطأ PostgreSQL من جهة خادم Odoo (مثلاً عنوان 192.168.x أو قاعدة بيانات غير موجودة على ذلك الخادم). " +
+      "هذا ليس اتصال تطبيقنا بـ Supabase. راجع مسؤول Odoo، وتأكد ألا يكون متغير البيئة ODOO_DATABASE_NAME على Netlify يشير إلى قاعدة غير موجودة على خادم Odoo. " +
+      "في وضع «جلسة المتصفح» لا حاجة لاسم قاعدة Odoo في التطبيق."
+    );
+  }
   if (
     msg.includes("access denied") ||
     msg.includes("accesserror") ||
@@ -2881,6 +2890,11 @@ export async function odooVerifyTaskAssigned(params: {
 }
 
 export async function odooAuthenticateUid(bundle: OdooCredentialBundle): Promise<number> {
+  /** Browser session stores this placeholder — XML-RPC must not use it (avoids wrong ODOO_DATABASE_NAME attempts). */
+  if (bundle.databaseName?.trim() === "__browser_session__") {
+    const s = await createWebSession(bundle);
+    return s.uid;
+  }
   const password = decryptCredentialSecret(bundle.passwordEncrypted);
   const preferredDatabase = resolveDatabase(bundle);
   const baseUrl = sanitizeOdooBaseUrl(bundle.baseUrl);
