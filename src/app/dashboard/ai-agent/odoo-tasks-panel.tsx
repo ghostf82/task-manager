@@ -5,6 +5,7 @@ import { Fragment, useMemo, useState, useTransition } from "react";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
+import { CalendarDeepCopyDialog } from "@/app/dashboard/ai-agent/calendar-deep-copy-dialog";
 import {
   archiveOdooEntityAction,
   createOdooCalendarEventAction,
@@ -248,6 +249,7 @@ export function OdooTasksPanel() {
   const [dayEvents, setDayEvents] = useState<CalendarRow[]>([]);
   /** Staged agenda fetch after bulk month/day list (avoids one huge Odoo payload → Netlify 504). */
   const [agendaHydrate, setAgendaHydrate] = useState<"idle" | "month" | "day">("idle");
+  const [deepCopySource, setDeepCopySource] = useState<CalendarRow | null>(null);
 
   function loadTasks() {
     start(async () => {
@@ -1211,7 +1213,19 @@ export function OdooTasksPanel() {
             {dayEvents.length ? (
               dayEvents.map((e) => (
                 <div key={`day-${e.id}`} className="rounded-md border border-border/60 p-2 text-sm">
-                  <p className="font-medium">#{e.id} - {e.name}</p>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="font-medium">#{e.id} - {e.name}</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="shrink-0"
+                      disabled={pending || agendaHydrate !== "idle"}
+                      onClick={() => setDeepCopySource(e)}
+                    >
+                      نسخ عميق…
+                    </Button>
+                  </div>
                   <p className="text-xs text-muted-foreground">{e.start} → {e.stop}</p>
                   {e.resModel ? (
                     <p className="text-xs text-muted-foreground">
@@ -1287,6 +1301,9 @@ export function OdooTasksPanel() {
               نسخ المحدد إلى الشهر الهدف
             </Button>
           </div>
+          <p className="text-[11px] text-muted-foreground">
+            للتحكم الدقيق بتاريخ الوجهة وتعديل العنوان قبل النسخ، استخدم «نسخ عميق» بجانب الحدث (حدث واحد في كل مرة).
+          </p>
           <div className="flex flex-wrap gap-2">
             {sourceMonthDays.length ? (
               sourceMonthDays.map((day) => (
@@ -1307,14 +1324,18 @@ export function OdooTasksPanel() {
           <div className="max-h-56 overflow-auto rounded-md border p-2 space-y-2">
             {sourceMonthEvents.length ? (
               sourceMonthEvents.map((e) => (
-                <label key={e.id} className="flex items-start gap-2 rounded-md border border-border/60 p-2 text-sm">
+                <div
+                  key={e.id}
+                  className="flex flex-wrap items-start gap-2 rounded-md border border-border/60 p-2 text-sm"
+                >
                   <input
+                    id={`cal-month-${e.id}`}
                     type="checkbox"
                     checked={selectedCalendarIds.includes(e.id)}
                     onChange={() => toggleCalendarPick(e.id)}
-                    className="mt-1"
+                    className="mt-1 shrink-0"
                   />
-                  <span>
+                  <label htmlFor={`cal-month-${e.id}`} className="min-w-0 flex-1 cursor-pointer">
                     <span className="block">#{e.id} - {e.name} ({e.start} → {e.stop})</span>
                     {e.resModel ? (
                       <span className="block text-xs text-muted-foreground">مرتبط: {e.resModel}{e.resId != null ? ` #${e.resId}` : ""}</span>
@@ -1324,8 +1345,18 @@ export function OdooTasksPanel() {
                       {e.agendaItems?.length ? ` — ${e.agendaItems.length} بند جدول أجندة` : ""}
                       {e.agendaLines?.length ? ` — ${e.agendaLines.length} نشاط بريد` : ""}
                     </span>
-                  </span>
-                </label>
+                  </label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="shrink-0"
+                    disabled={pending || agendaHydrate !== "idle"}
+                    onClick={() => setDeepCopySource(e)}
+                  >
+                    نسخ عميق…
+                  </Button>
+                </div>
               ))
             ) : (
               <p className="text-xs text-muted-foreground">لا توجد أحداث في شهر المصدر ضمن النتائج الحالية.</p>
@@ -1333,6 +1364,31 @@ export function OdooTasksPanel() {
           </div>
         </div>
       </CardContent>
+      <CalendarDeepCopyDialog
+        open={deepCopySource !== null}
+        onOpenChange={(o) => {
+          if (!o) setDeepCopySource(null);
+        }}
+        source={
+          deepCopySource
+            ? {
+                id: deepCopySource.id,
+                name: deepCopySource.name,
+                start: deepCopySource.start,
+                stop: deepCopySource.stop,
+                allday: deepCopySource.allday,
+                description: deepCopySource.description,
+                location: deepCopySource.location,
+                partnerIds: deepCopySource.partnerIds,
+                responsibleId: deepCopySource.responsibleId,
+              }
+            : null
+        }
+        onCompleted={() => {
+          setNeedsRefresh(true);
+          setDeepCopySource(null);
+        }}
+      />
     </Card>
   );
 }

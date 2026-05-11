@@ -1031,6 +1031,104 @@ export async function createOdooCalendarEventAction(input: {
   return { ok: true, eventId: created.eventId, message: "تم إنشاء حدث التقويم في Odoo بنجاح." };
 }
 
+/** Phase 1 only: copy/create `calendar.event` without agenda (for interactive deep-copy wizard + smaller server actions). */
+export async function cloneOdooCalendarEventPhaseOneAction(input: {
+  sourceEventId: number;
+  name: string;
+  start: string;
+  stop: string;
+  allday?: boolean;
+  description?: string;
+  location?: string;
+  partnerIds?: number[];
+  responsibleId?: number;
+  /** When true, caller runs `revalidatePath` (e.g. bulk clone loop). */
+  skipRevalidate?: boolean;
+}): Promise<{ ok: true; newEventId: number } | { ok: false; error: string }> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const row = input;
+  const cloned = await copyOdooCalendarEventViaWebLogin({
+    bundle,
+    eventId: Number(row.sourceEventId),
+    name: row.name,
+    start: row.start,
+    stop: row.stop,
+    allday: row.allday,
+    description: row.description,
+    location: row.location,
+    partnerIds: row.partnerIds,
+    userId: row.responsibleId,
+  });
+  let newEventId: number | null = null;
+  if (cloned.ok) {
+    newEventId = cloned.eventId;
+  } else {
+    const created = await createOdooCalendarEventViaWebLogin({
+      bundle,
+      name: row.name,
+      start: row.start,
+      stop: row.stop,
+      allday: row.allday,
+      description: row.description,
+      location: row.location,
+      partnerIds: row.partnerIds,
+      userId: row.responsibleId,
+    });
+    if (created.ok) newEventId = created.eventId;
+  }
+  if (!newEventId) {
+    return { ok: false, error: "تعذّر إنشاء نسخة الحدث في Odoo (تحقق من الصلاحيات أو الحقول)." };
+  }
+  if (!input.skipRevalidate) revalidatePath("/dashboard/ai-agent");
+  return { ok: true, newEventId };
+}
+
+/** Phase 2 only: duplicate `calendar.event.agenda.item` + related `mail.activity` onto an existing event. */
+export async function duplicateOdooCalendarAgendaPhaseTwoAction(input: {
+  sourceEventId: number;
+  targetEventId: number;
+  targetEventStart: string;
+  targetDescriptionForFallback?: string;
+  skipRevalidate?: boolean;
+}): Promise<
+  | {
+      ok: true;
+      agendaActivitiesCreated: number;
+      agendaTableItemsCreated: number;
+      skipped: number;
+      fallbackDescriptionUpdated: boolean;
+    }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  try {
+    const dup = await duplicateCalendarMeetingAgendaViaWebLogin({
+      bundle,
+      sourceEventId: Number(input.sourceEventId),
+      targetEventId: Number(input.targetEventId),
+      targetEventStart: input.targetEventStart,
+      targetDescriptionForFallback: input.targetDescriptionForFallback,
+    });
+    if (!input.skipRevalidate) revalidatePath("/dashboard/ai-agent");
+    return {
+      ok: true,
+      agendaActivitiesCreated: dup.created,
+      agendaTableItemsCreated: dup.agendaItemsCreated,
+      skipped: dup.skipped,
+      fallbackDescriptionUpdated: dup.fallbackDescriptionUpdated,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg || "فشل نسخ الأجندة." };
+  }
+}
+
 export async function cloneOdooCalendarEventsAction(input: {
   events: Array<{
     eventId: number;
@@ -1066,9 +1164,8 @@ export async function cloneOdooCalendarEventsAction(input: {
   let agendaDescriptionFallbackCount = 0;
 
   for (const row of rows) {
-    const cloned = await copyOdooCalendarEventViaWebLogin({
-      bundle,
-      eventId: Number(row.eventId),
+    const p1 = await cloneOdooCalendarEventPhaseOneAction({
+      sourceEventId: Number(row.eventId),
       name: row.name,
       start: row.start,
       stop: row.stop,
@@ -1076,40 +1173,25 @@ export async function cloneOdooCalendarEventsAction(input: {
       description: row.description,
       location: row.location,
       partnerIds: row.partnerIds,
-      userId: row.responsibleId,
+      responsibleId: row.responsibleId,
+      skipRevalidate: true,
     });
-    let newEventId: number | null = null;
-    if (cloned.ok) {
-      newEventId = cloned.eventId;
-    } else {
-      // Fallback for tenants where copy is blocked by model rules.
-      const created = await createOdooCalendarEventViaWebLogin({
-        bundle,
-        name: row.name,
-        start: row.start,
-        stop: row.stop,
-        allday: row.allday,
-        description: row.description,
-        location: row.location,
-        partnerIds: row.partnerIds,
-        userId: row.responsibleId,
-      });
-      if (created.ok) newEventId = created.eventId;
-      else failed += 1;
+    if (!p1.ok) {
+      failed += 1;
+      continue;
     }
-
-    if (newEventId) {
-      copied += 1;
-      const dup = await duplicateCalendarMeetingAgendaViaWebLogin({
-        bundle,
-        sourceEventId: Number(row.eventId),
-        targetEventId: newEventId,
-        targetEventStart: row.start,
-        targetDescriptionForFallback: row.description,
-      });
-      agendaActivitiesCreated += dup.created;
-      agendaTableItemsCreated += dup.agendaItemsCreated;
-      if (dup.fallbackDescriptionUpdated) agendaDescriptionFallbackCount += 1;
+    copied += 1;
+    const p2 = await duplicateOdooCalendarAgendaPhaseTwoAction({
+      sourceEventId: Number(row.eventId),
+      targetEventId: p1.newEventId,
+      targetEventStart: row.start,
+      targetDescriptionForFallback: row.description,
+      skipRevalidate: true,
+    });
+    if (p2.ok) {
+      agendaActivitiesCreated += p2.agendaActivitiesCreated;
+      agendaTableItemsCreated += p2.agendaTableItemsCreated;
+      if (p2.fallbackDescriptionUpdated) agendaDescriptionFallbackCount += 1;
     }
   }
 
