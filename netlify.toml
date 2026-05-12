@@ -10,5 +10,6 @@
 
 [functions]
   directory = "netlify/functions"
-  # Next.js server actions: see `maxDuration` in `src/app/dashboard/ai-agent/page.tsx`.
+  # Next.js server actions: `maxDuration` on `src/app/dashboard/layout.tsx`,
+  # `src/app/dashboard/page.tsx`, and `src/app/dashboard/ai-agent/page.tsx`.
   # If 504 persists, raise the function timeout in Netlify (Site configuration → Functions).

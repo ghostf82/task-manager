@@ -5,7 +5,7 @@ import { Loader2Icon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import { runInboundScanAsync } from "@/app/dashboard/ai-agent/actions";
+import { runInboundScanAsync, type ScanResult } from "@/app/dashboard/ai-agent/actions";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,34 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+
+function isScanResult(value: unknown): value is ScanResult {
+  if (value == null || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.ok === "boolean" &&
+    typeof v.message === "string" &&
+    typeof v.inserted === "number" &&
+    typeof v.taskCount === "number" &&
+    typeof v.emailCount === "number"
+  );
+}
+
+function scanTransportErrorMessage(e: unknown, t: (key: string) => string): string {
+  if (e instanceof TypeError) {
+    const m = e.message || "";
+    if (/fetch|network|failed to fetch|load failed/i.test(m)) {
+      return t("aiAgentScan.toastNetworkFailure");
+    }
+  }
+  if (e instanceof Error && e.message) {
+    if (/fetch|network|failed to fetch|load failed/i.test(e.message)) {
+      return t("aiAgentScan.toastNetworkFailure");
+    }
+    return e.message;
+  }
+  return t("aiAgentScan.toastUnexpected");
+}
 
 export function InboundScanCard({
   canScan,
@@ -31,15 +59,24 @@ export function InboundScanCard({
     start(async () => {
       try {
         const res = await runInboundScanAsync();
-        if (res.ok) {
-          toast.success(res.message);
-        } else {
-          toast.error(res.message);
+        if (!isScanResult(res)) {
+          toast.error(t("aiAgentScan.toastInvalidResponse"));
+          return;
         }
-        router.refresh();
+        if (!res.ok) {
+          toast.error(res.message);
+          return;
+        }
+        const empty =
+          res.inserted === 0 && res.taskCount === 0 && res.emailCount === 0;
+        if (empty) {
+          toast.info(res.message);
+        } else {
+          toast.success(res.message);
+        }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : t("aiAgentScan.toastUnexpected");
-        toast.error(msg);
+        toast.error(scanTransportErrorMessage(e, t));
+      } finally {
         router.refresh();
       }
     });

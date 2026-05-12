@@ -55,6 +55,8 @@ export type ScanResult = {
   inserted: number;
   taskCount: number;
   emailCount: number;
+  /** True when the scan stopped before full analysis (e.g. LLM error) but inbound counts may still be valid. */
+  partial?: boolean;
 };
 
 function mergeProposedActionWithEmailEdits(
@@ -387,6 +389,7 @@ export async function rejectProposalAsync(
 export async function runInboundScanAsync(): Promise<ScanResult> {
   const session = await requireSession();
   const supabase = await createClient();
+  const scanStarted = Date.now();
 
   try {
     const licensed = await getLicensedActiveToolSlugs(supabase, session.id);
@@ -401,6 +404,12 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
     }
 
     const { tasks, emails } = await collectLicensedInboundData(supabase, session.id);
+    if (process.env.NODE_ENV === "development") {
+      console.info("[runInboundScanAsync] collectLicensedInboundData ms", Date.now() - scanStarted, {
+        tasks: tasks.length,
+        emails: emails.length,
+      });
+    }
 
     const taskCount = tasks.length;
     const emailCount = emails.length;
@@ -444,6 +453,7 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
         inserted: 0,
         taskCount,
         emailCount,
+        partial: true,
       };
     }
 
@@ -526,6 +536,13 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
       taskCount === 0 && emailCount === 0
         ? ` ${await tAction("aiAgentActions.scanZeroCollectedHint")}`
         : "";
+    if (process.env.NODE_ENV === "development") {
+      console.info("[runInboundScanAsync] done ms", Date.now() - scanStarted, {
+        taskCount,
+        emailCount,
+        inserted,
+      });
+    }
     return {
       ok: true,
       message: baseSummary + zeroHint,
@@ -545,6 +562,9 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
       // Ignore activity logging failures in fallback path.
     }
     revalidatePath("/dashboard/ai-agent");
+    if (process.env.NODE_ENV === "development") {
+      console.info("[runInboundScanAsync] error ms", Date.now() - scanStarted, { msg });
+    }
     return {
       ok: false,
       message: `فشل المسح على الخادم: ${msg}`,

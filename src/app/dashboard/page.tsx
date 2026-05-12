@@ -8,6 +8,9 @@ import {
 } from "@/lib/executive-stats";
 import { createClient } from "@/lib/supabase/server";
 
+/** Same segment as layout; explicit for server actions triggered from this route on hosts that key off the leaf page. */
+export const maxDuration = 120;
+
 export default async function DashboardHomePage() {
   const session = await requireSession();
   const supabase = await createClient();

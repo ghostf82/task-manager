@@ -640,6 +640,8 @@
     }
   },
   "aiAgentScan": {
+    "toastNetworkFailure": "Could not reach the server (network or timeout). If this keeps happening on Netlify, check the Functions timeout and route maxDuration for /dashboard/ai-agent, then retry.",
+    "toastInvalidResponse": "The server returned an unexpected scan response. Please retry.",
     "toastUnexpected": "Scan failed unexpectedly.",
     "cardTitle": "Live source scan",
     "cardDesc": "Calls only tools registered in the system and licensed for your account ({tools}), then gathers and analyses data from your connected sources (Odoo, mail, calendar) to generate smart proposals. Runs on the server; errors are logged and shown as toasts.",
