@@ -8,6 +8,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Legend,
   Pie,
   PieChart,
@@ -151,6 +152,8 @@ export function ExecutiveDashboard({
   const pieData = pieSlices.filter((s) => s.value > 0);
   const pieSum = pieSlices.reduce((a, b) => a + b.value, 0);
   const pieChartData = pieData.length ? pieData : pieSlices;
+  const docBarCrowded = docBar.length > 8;
+  const docBarShowValueLabels = docBar.length > 0 && !docBarCrowded;
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
@@ -380,29 +383,31 @@ export function ExecutiveDashboard({
                   <ResponsiveContainer width={width} height={height}>
                     <BarChart
                       data={docBar}
-                      layout="vertical"
-                      margin={{ left: 8, right: 20, top: 12, bottom: 12 }}
-                      barCategoryGap="12%"
+                      margin={{ left: 16, right: 28, top: docBarShowValueLabels ? 28 : 20, bottom: 88 }}
+                      barCategoryGap="14%"
                     >
                       <CartesianGrid
                         strokeDasharray="3 3"
                         stroke="hsl(var(--border))"
                         strokeOpacity={0.55}
-                        horizontal={false}
+                        vertical={false}
                       />
                       <XAxis
+                        type="category"
+                        dataKey="name"
+                        tick={{ fontSize: 11 }}
+                        tickLine={false}
+                        angle={-25}
+                        textAnchor="end"
+                        height={84}
+                        interval={0}
+                      />
+                      <YAxis
                         type="number"
                         allowDecimals={false}
                         tick={{ fontSize: 11 }}
                         tickLine={false}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey="name"
-                        width={104}
-                        tick={{ fontSize: 11 }}
-                        interval={0}
-                        tickLine={false}
+                        width={44}
                       />
                       <Tooltip
                         formatter={(value) => {
@@ -423,9 +428,18 @@ export function ExecutiveDashboard({
                       <Bar
                         dataKey="count"
                         fill="#f59e0b"
-                        radius={[0, 6, 6, 0]}
+                        radius={[6, 6, 0, 0]}
                         name={t("executiveDashboard.chartDocsSeries")}
-                      />
+                      >
+                        {docBarShowValueLabels ? (
+                          <LabelList
+                            dataKey="count"
+                            position="top"
+                            fontSize={11}
+                            fill="hsl(var(--foreground))"
+                          />
+                        ) : null}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 )}

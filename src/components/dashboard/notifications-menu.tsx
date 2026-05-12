@@ -10,6 +10,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -128,72 +129,71 @@ export function NotificationsMenu({
         ) : null}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 min-w-[20rem]">
-        <DropdownMenuLabel className="flex items-center justify-between gap-2">
-          <span>{t("notificationsMenu.listTitle")}</span>
-          {unread.length > 0 ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="xs"
-              className="h-7 text-xs"
-              disabled={pending}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                void markAll();
-              }}
-            >
-              {t("notificationsMenu.markAll")}
-            </Button>
-          ) : null}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {items.length === 0 ? (
-          <p className="text-muted-foreground px-2 py-6 text-center text-xs">
-            {t("notificationsMenu.empty")}
-          </p>
-        ) : (
-          <div className="max-h-64 overflow-y-auto overscroll-contain px-0.5">
-            {items.map((n) => (
-              <DropdownMenuItem
-                key={n.id}
-                closeOnClick={false}
-                className="flex cursor-default flex-col items-stretch gap-1 rounded-lg p-2 text-start"
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="flex items-center justify-between gap-2">
+            <span>{t("notificationsMenu.listTitle")}</span>
+            {unread.length > 0 ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="h-7 text-xs"
+                disabled={pending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void markAll();
+                }}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <span className="text-xs font-medium leading-tight">{n.title}</span>
-                  {!n.read_at ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      className="h-6 shrink-0 text-[10px]"
-                      disabled={pending}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        void markRead(n.id);
-                      }}
-                    >
-                      {t("notificationsMenu.read")}
-                    </Button>
-                  ) : null}
-                </div>
-                {n.body ? (
-                  <p className="text-muted-foreground text-[11px] leading-snug">
-                    {n.body}
-                  </p>
-                ) : null}
-                <span
-                  className="text-muted-foreground text-[10px]"
-                  suppressHydrationWarning
+                {t("notificationsMenu.markAll")}
+              </Button>
+            ) : null}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {items.length === 0 ? (
+            <p className="text-muted-foreground px-2 py-6 text-center text-xs">
+              {t("notificationsMenu.empty")}
+            </p>
+          ) : (
+            <div className="max-h-64 overflow-y-auto overscroll-contain px-0.5">
+              {items.map((n) => (
+                <DropdownMenuItem
+                  key={n.id}
+                  closeOnClick={false}
+                  disabled={pending}
+                  className={
+                    n.read_at
+                      ? "flex cursor-default flex-col items-stretch gap-1 rounded-lg p-2 text-start"
+                      : "flex cursor-pointer flex-col items-stretch gap-1 rounded-lg p-2 text-start"
+                  }
+                  onClick={() => {
+                    if (!n.read_at) void markRead(n.id);
+                  }}
                 >
-                  {formatNotifDate(n.created_at, dateLocale)}
-                </span>
-              </DropdownMenuItem>
-            ))}
-          </div>
-        )}
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-medium leading-tight">{n.title}</span>
+                    {!n.read_at ? (
+                      <span className="text-primary shrink-0 text-[10px] font-medium">
+                        {t("notificationsMenu.read")}
+                      </span>
+                    ) : null}
+                  </div>
+                  {n.body ? (
+                    <p className="text-muted-foreground text-[11px] leading-snug">
+                      {n.body}
+                    </p>
+                  ) : null}
+                  <span
+                    className="text-muted-foreground text-[10px]"
+                    suppressHydrationWarning
+                  >
+                    {formatNotifDate(n.created_at, dateLocale)}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </div>
+          )}
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
