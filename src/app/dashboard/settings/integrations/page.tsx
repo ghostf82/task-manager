@@ -79,6 +79,7 @@ export default async function IntegrationsSettingsPage({
           </p>
         </div>
         <Link
+          prefetch={false}
           href="/dashboard/ai-agent"
           className={cn(buttonVariants({ variant: "outline" }), "shrink-0")}
         >
@@ -270,150 +271,158 @@ export default async function IntegrationsSettingsPage({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <form id="integrations-email-form" action={saveEmailCredentialsAction} className="grid gap-6">
-              <div className="rounded-lg border border-border/80 bg-muted/20 p-4">
-                <p className="mb-3 text-xs font-medium text-muted-foreground">
-                  {t("integrations.email.imapBlock")}
-                </p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="grid gap-2 sm:col-span-2">
-                    <Label htmlFor="imap_host">{t("integrations.email.imapHost")}</Label>
-                    <Input
-                      id="imap_host"
-                      name="imap_host"
-                      required
-                      dir="ltr"
-                      className="font-mono text-sm"
-                      defaultValue={email?.imap_host ?? ""}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="imap_port">{t("integrations.email.port")}</Label>
-                    <Input
-                      id="imap_port"
-                      name="imap_port"
-                      type="number"
-                      dir="ltr"
-                      defaultValue={email?.imap_port ?? 993}
-                    />
-                  </div>
-                  <div className="flex items-end gap-2 pb-2">
-                    <input
-                      id="imap_use_tls"
-                      name="imap_use_tls"
-                      type="checkbox"
-                      defaultChecked={email?.imap_use_tls ?? true}
-                      className="size-4 rounded border"
-                    />
-                    <Label htmlFor="imap_use_tls" className="font-normal">
-                      {t("integrations.email.tls")}
-                    </Label>
-                  </div>
-                  <div className="grid gap-2 sm:col-span-2">
-                    <Label htmlFor="imap_username">{t("integrations.email.imapUser")}</Label>
-                    <Input
-                      id="imap_username"
-                      name="imap_username"
-                      required
-                      dir="ltr"
-                      className="font-mono text-sm"
-                      defaultValue={email?.imap_username ?? ""}
-                    />
-                  </div>
-                  <div className="grid gap-2 sm:col-span-2">
-                    <Label htmlFor="imap_password">{t("integrations.email.imapPass")}</Label>
-                    <Input
-                      id="imap_password"
-                      name="imap_password"
-                      type="password"
-                      dir="ltr"
-                      className="font-mono text-sm"
-                      placeholder={
-                        email ? t("integrations.email.passKeep") : t("integrations.email.passRequired")
-                      }
-                      autoComplete="new-password"
-                    />
-                  </div>
+            <div className="rounded-lg border border-border/80 bg-muted/20 p-4">
+              <p className="mb-3 text-xs font-medium text-muted-foreground">
+                {t("integrations.email.imapBlock")}
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label htmlFor="imap_host">{t("integrations.email.imapHost")}</Label>
+                  <Input
+                    id="imap_host"
+                    name="imap_host"
+                    form="integrations-email-form"
+                    required
+                    dir="ltr"
+                    className="font-mono text-sm"
+                    defaultValue={email?.imap_host ?? ""}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="imap_port">{t("integrations.email.port")}</Label>
+                  <Input
+                    id="imap_port"
+                    name="imap_port"
+                    form="integrations-email-form"
+                    type="number"
+                    dir="ltr"
+                    defaultValue={email?.imap_port ?? 993}
+                  />
+                </div>
+                <div className="flex items-end gap-2 pb-2">
+                  <input
+                    id="imap_use_tls"
+                    name="imap_use_tls"
+                    form="integrations-email-form"
+                    type="checkbox"
+                    defaultChecked={email?.imap_use_tls ?? true}
+                    className="size-4 rounded border"
+                  />
+                  <Label htmlFor="imap_use_tls" className="font-normal">
+                    {t("integrations.email.tls")}
+                  </Label>
+                </div>
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label htmlFor="imap_username">{t("integrations.email.imapUser")}</Label>
+                  <Input
+                    id="imap_username"
+                    name="imap_username"
+                    form="integrations-email-form"
+                    required
+                    dir="ltr"
+                    className="font-mono text-sm"
+                    defaultValue={email?.imap_username ?? ""}
+                  />
+                </div>
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label htmlFor="imap_password">{t("integrations.email.imapPass")}</Label>
+                  <Input
+                    id="imap_password"
+                    name="imap_password"
+                    form="integrations-email-form"
+                    type="password"
+                    dir="ltr"
+                    className="font-mono text-sm"
+                    placeholder={
+                      email ? t("integrations.email.passKeep") : t("integrations.email.passRequired")
+                    }
+                    autoComplete="new-password"
+                  />
                 </div>
               </div>
+            </div>
 
-              <div className="rounded-lg border border-border/80 bg-muted/20 p-4">
-                <p className="mb-3 text-xs font-medium text-muted-foreground">
-                  {t("integrations.email.smtpBlock")}
-                </p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="grid gap-2 sm:col-span-2">
-                    <Label htmlFor="smtp_host">{t("integrations.email.smtpHost")}</Label>
-                    <Input
-                      id="smtp_host"
-                      name="smtp_host"
-                      required
-                      dir="ltr"
-                      className="font-mono text-sm"
-                      defaultValue={email?.smtp_host ?? ""}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="smtp_port">{t("integrations.email.port")}</Label>
-                    <Input
-                      id="smtp_port"
-                      name="smtp_port"
-                      type="number"
-                      dir="ltr"
-                      defaultValue={email?.smtp_port ?? 465}
-                    />
-                  </div>
-                  <div className="flex items-end gap-2 pb-2">
-                    <input
-                      id="smtp_use_tls"
-                      name="smtp_use_tls"
-                      type="checkbox"
-                      defaultChecked={email?.smtp_use_tls ?? true}
-                      className="size-4 rounded border"
-                    />
-                    <Label htmlFor="smtp_use_tls" className="font-normal">
-                      {t("integrations.email.tls")}
-                    </Label>
-                  </div>
-                  <div className="grid gap-2 sm:col-span-2">
-                    <Label htmlFor="smtp_username">{t("integrations.email.smtpUser")}</Label>
-                    <Input
-                      id="smtp_username"
-                      name="smtp_username"
-                      required
-                      dir="ltr"
-                      className="font-mono text-sm"
-                      defaultValue={email?.smtp_username ?? ""}
-                    />
-                  </div>
-                  <div className="grid gap-2 sm:col-span-2">
-                    <Label htmlFor="smtp_password">{t("integrations.email.smtpPass")}</Label>
-                    <Input
-                      id="smtp_password"
-                      name="smtp_password"
-                      type="password"
-                      dir="ltr"
-                      className="font-mono text-sm"
-                      placeholder={
-                        email ? t("integrations.email.passKeep") : t("integrations.email.passRequired")
-                      }
-                      autoComplete="new-password"
-                    />
-                  </div>
+            <div className="rounded-lg border border-border/80 bg-muted/20 p-4">
+              <p className="mb-3 text-xs font-medium text-muted-foreground">
+                {t("integrations.email.smtpBlock")}
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label htmlFor="smtp_host">{t("integrations.email.smtpHost")}</Label>
+                  <Input
+                    id="smtp_host"
+                    name="smtp_host"
+                    form="integrations-email-form"
+                    required
+                    dir="ltr"
+                    className="font-mono text-sm"
+                    defaultValue={email?.smtp_host ?? ""}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="smtp_port">{t("integrations.email.port")}</Label>
+                  <Input
+                    id="smtp_port"
+                    name="smtp_port"
+                    form="integrations-email-form"
+                    type="number"
+                    dir="ltr"
+                    defaultValue={email?.smtp_port ?? 465}
+                  />
+                </div>
+                <div className="flex items-end gap-2 pb-2">
+                  <input
+                    id="smtp_use_tls"
+                    name="smtp_use_tls"
+                    form="integrations-email-form"
+                    type="checkbox"
+                    defaultChecked={email?.smtp_use_tls ?? true}
+                    className="size-4 rounded border"
+                  />
+                  <Label htmlFor="smtp_use_tls" className="font-normal">
+                    {t("integrations.email.tls")}
+                  </Label>
+                </div>
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label htmlFor="smtp_username">{t("integrations.email.smtpUser")}</Label>
+                  <Input
+                    id="smtp_username"
+                    name="smtp_username"
+                    form="integrations-email-form"
+                    required
+                    dir="ltr"
+                    className="font-mono text-sm"
+                    defaultValue={email?.smtp_username ?? ""}
+                  />
+                </div>
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label htmlFor="smtp_password">{t("integrations.email.smtpPass")}</Label>
+                  <Input
+                    id="smtp_password"
+                    name="smtp_password"
+                    form="integrations-email-form"
+                    type="password"
+                    dir="ltr"
+                    className="font-mono text-sm"
+                    placeholder={
+                      email ? t("integrations.email.passKeep") : t("integrations.email.passRequired")
+                    }
+                    autoComplete="new-password"
+                  />
                 </div>
               </div>
+            </div>
 
-              <div className="flex flex-wrap gap-2">
-                <PendingSubmitButton
-                  label={t("integrations.email.save")}
-                  pendingLabel="Saving..."
-                />
-                <EmailConnectionTestButton
-                  formId="integrations-email-form"
-                  testLabel={t("integrations.testConnection")}
-                  formMissingMessage={t("integrations.formMissingEmail")}
-                />
-              </div>
+            <form id="integrations-email-form" action={saveEmailCredentialsAction} className="flex flex-wrap gap-2">
+              <PendingSubmitButton
+                label={t("integrations.email.save")}
+                pendingLabel="Saving..."
+              />
+              <EmailConnectionTestButton
+                formId="integrations-email-form"
+                testLabel={t("integrations.testConnection")}
+                formMissingMessage={t("integrations.formMissingEmail")}
+              />
             </form>
             {email ? (
               <form action={deleteEmailCredentialsAction}>

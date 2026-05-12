@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 
-export const OdooTasksPanelDynamic = dynamic(
+const OdooTasksPanel = dynamic(
   () => import("./odoo-tasks-panel").then((m) => ({ default: m.OdooTasksPanel })),
   {
     ssr: false,
@@ -11,5 +11,27 @@ export const OdooTasksPanelDynamic = dynamic(
         جاري تحميل لوحة Odoo…
       </div>
     ),
-  }
+  },
 );
+
+type InitialWorkspace = {
+  tasks: unknown;
+  projects: unknown;
+  events: unknown;
+  documents: unknown;
+} | null;
+
+export function OdooTasksPanelDynamic({
+  initialWorkspace,
+  initialLastSyncAt,
+}: {
+  initialWorkspace: InitialWorkspace;
+  initialLastSyncAt: string | null;
+}) {
+  return (
+    <OdooTasksPanel
+      initialWorkspace={initialWorkspace}
+      initialLastSyncAt={initialLastSyncAt}
+    />
+  );
+}

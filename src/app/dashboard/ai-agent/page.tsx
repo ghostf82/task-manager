@@ -2,7 +2,11 @@ import Link from "next/link";
 
 import { analyzePasteAction } from "@/app/dashboard/ai-agent/actions";
 import { InboundScanCard } from "@/app/dashboard/ai-agent/inbound-scan-card";
-import { OdooTasksPanelDynamic } from "@/app/dashboard/ai-agent/odoo-tasks-panel-dynamic";
+import {
+  AiAgentActivityLogPanel,
+  type ActivityLogRow,
+} from "@/app/dashboard/ai-agent/activity-log-panel";
+import { OdooTasksPanelWithCache } from "@/app/dashboard/ai-agent/odoo-tasks-panel-server";
 import {
   PendingProposalsPanel,
   type PendingProposalRow,
@@ -122,7 +126,7 @@ export default async function AiAgentPage({
   const canRunInboundScan = licensedSlugs.length > 0;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
+    <div className="mx-auto w-full max-w-screen-2xl space-y-8">
       <div className="premium-hero p-6 md:p-8">
         <div className="pointer-events-none absolute -end-20 -top-20 size-64 rounded-full bg-white/20 blur-3xl" />
         <div className="relative flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -136,6 +140,14 @@ export default async function AiAgentPage({
             <p className="text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed">
               {t("aiAgentPage.heroLead")}
             </p>
+            {session.isSuperAdmin ? (
+              <details className="mt-3 max-w-2xl rounded-lg border border-border/60 bg-muted/20 p-3 text-start text-xs">
+                <summary className="cursor-pointer font-medium text-muted-foreground">
+                  {t("aiAgentPage.techDetailsToggle")}
+                </summary>
+                <p className="text-muted-foreground mt-2 leading-relaxed">{t("aiAgentPage.techDetailsBody")}</p>
+              </details>
+            ) : null}
           </div>
           <div className="flex shrink-0 flex-col gap-2">
             <Link
@@ -177,7 +189,7 @@ export default async function AiAgentPage({
         licensedToolLabels={licensedToolLabels}
       />
 
-      <OdooTasksPanelDynamic />
+      <OdooTasksPanelWithCache />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <PendingProposalsPanel proposals={(pending ?? []) as PendingProposalRow[]} />
@@ -224,47 +236,11 @@ export default async function AiAgentPage({
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("aiAgentPage.logTitle")}</CardTitle>
-          <CardDescription>{t("aiAgentPage.logSubtitle")}</CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-border text-start text-muted-foreground">
-                <th className="py-2 pe-4 font-medium">{t("aiAgentPage.logColTime")}</th>
-                <th className="py-2 pe-4 font-medium">{t("aiAgentPage.logColType")}</th>
-                <th className="py-2 pe-4 font-medium">{t("aiAgentPage.logColMessage")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {!activity?.length ? (
-                <tr>
-                  <td colSpan={3} className="text-muted-foreground py-6 text-center">
-                    {t("aiAgentPage.logEmpty")}
-                  </td>
-                </tr>
-              ) : (
-                activity.map((row) => (
-                  <tr key={row.id} className="border-b border-border/70 align-top">
-                    <td className="py-2 pe-4 whitespace-nowrap text-[12px] text-muted-foreground">
-                      {new Date(row.created_at).toLocaleString(dateLocale, {
-                        dateStyle: "short",
-                        timeStyle: "short",
-                      })}
-                    </td>
-                    <td className="py-2 pe-4 font-mono text-[11px] [direction:ltr]">
-                      {row.event_type}
-                    </td>
-                    <td className="py-2 text-[13px] leading-relaxed">{row.message}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+      <AiAgentActivityLogPanel
+        rows={(activity ?? []) as ActivityLogRow[]}
+        dateLocale={dateLocale}
+        isSuperAdmin={session.isSuperAdmin}
+      />
     </div>
   );
 }

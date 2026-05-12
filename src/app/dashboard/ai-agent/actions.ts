@@ -47,6 +47,7 @@ import {
   updateOdooTaskStageViaWebLogin,
 } from "@/lib/integrations/odoo-client";
 import { loadOdooBrowserSessionBundle, loadOdooConnectionState } from "@/lib/ai-agent/load-user-integrations";
+import { upsertOdooBrowserCache } from "@/lib/ai-agent/odoo-browser-cache";
 
 export type ScanResult = {
   ok: boolean;
@@ -188,7 +189,9 @@ export async function analyzePasteAction(formData: FormData) {
       .single();
 
     if (error || !ins) {
-      console.error("proposal insert", error);
+      if (process.env.NODE_ENV === "development") {
+        console.error("proposal insert", error);
+      }
       redirect("/dashboard/ai-agent?err=insert");
     }
 
@@ -209,7 +212,9 @@ export async function analyzePasteAction(formData: FormData) {
   try {
     analysis = await analyzeFreeTextWithLlm({ text, tenantId });
   } catch (e) {
-    console.error("analyzeFreeTextWithLlm", e);
+    if (process.env.NODE_ENV === "development") {
+      console.error("analyzeFreeTextWithLlm", e);
+    }
     redirect("/dashboard/ai-agent?err=llm");
   }
 
@@ -229,7 +234,9 @@ export async function analyzePasteAction(formData: FormData) {
     .single();
 
   if (error || !ins) {
-    console.error("proposal insert", error);
+    if (process.env.NODE_ENV === "development") {
+      console.error("proposal insert", error);
+    }
     redirect("/dashboard/ai-agent?err=insert");
   }
 
@@ -622,22 +629,22 @@ export async function listOdooTasksAction(input?: {
     eventType: "odoo_handshake_ok",
     message: `تمت قراءة مهام Odoo بنجاح (${res.tasks.length}).`,
   });
-  return {
-    ok: true,
-    tasks: res.tasks.map((t) => ({
-      id: t.id,
-      name: t.name ?? "",
-      stage: Array.isArray(t.stage_id) ? String(t.stage_id[1]) : "—",
-      project: Array.isArray(t.project_id) ? String(t.project_id[1]) : "—",
-      deadline: typeof t.date_deadline === "string" ? t.date_deadline : "—",
-      creator: Array.isArray(t.create_uid) ? String(t.create_uid[1]) : "—",
-      responsible: Array.isArray(t.user_id) ? String(t.user_id[1]) : "—",
-      assigneeIds: Array.isArray(t.user_ids) ? t.user_ids.map(Number) : [],
-      description: typeof t.description === "string" ? t.description : "",
-      priority: typeof t.priority === "string" ? t.priority : "",
-      active: Boolean(t.active ?? true),
-    })),
-  };
+  const tasks = res.tasks.map((t) => ({
+    id: t.id,
+    name: t.name ?? "",
+    stage: Array.isArray(t.stage_id) ? String(t.stage_id[1]) : "—",
+    project: Array.isArray(t.project_id) ? String(t.project_id[1]) : "—",
+    deadline: typeof t.date_deadline === "string" ? t.date_deadline : "—",
+    creator: Array.isArray(t.create_uid) ? String(t.create_uid[1]) : "—",
+    responsible: Array.isArray(t.user_id) ? String(t.user_id[1]) : "—",
+    assigneeIds: Array.isArray(t.user_ids) ? t.user_ids.map(Number) : [],
+    description: typeof t.description === "string" ? t.description : "",
+    priority: typeof t.priority === "string" ? t.priority : "",
+    active: Boolean(t.active ?? true),
+  }));
+  await upsertOdooBrowserCache(supabase, session.id, "tasks", { tasks });
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, tasks };
 }
 
 export async function updateOdooTaskStageAction(input: {
@@ -778,18 +785,18 @@ export async function listOdooProjectsAction(input?: {
     eventType: "odoo_sync_projects",
     message: `تمت مزامنة ${res.projects.length} مشروع من Odoo.`,
   });
-  return {
-    ok: true,
-    projects: res.projects.map((p) => ({
-      id: p.id,
-      name: p.name,
-      active: Boolean(p.active ?? true),
-      creator: Array.isArray(p.create_uid) ? String(p.create_uid[1]) : "—",
-      manager: Array.isArray(p.user_id) ? String(p.user_id[1]) : "—",
-      visibility: typeof p.privacy_visibility === "string" ? p.privacy_visibility : "—",
-      createdAt: typeof p.create_date === "string" ? p.create_date : "",
-    })),
-  };
+  const projects = res.projects.map((p) => ({
+    id: p.id,
+    name: p.name,
+    active: Boolean(p.active ?? true),
+    creator: Array.isArray(p.create_uid) ? String(p.create_uid[1]) : "—",
+    manager: Array.isArray(p.user_id) ? String(p.user_id[1]) : "—",
+    visibility: typeof p.privacy_visibility === "string" ? p.privacy_visibility : "—",
+    createdAt: typeof p.create_date === "string" ? p.create_date : "",
+  }));
+  await upsertOdooBrowserCache(supabase, session.id, "projects", { projects });
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, projects };
 }
 
 export async function createOdooProjectAction(input: {
@@ -865,6 +872,8 @@ export async function listOdooCalendarEventsAction(input?: {
   startBefore?: string;
   /** Default true. Set false for month/day bulk lists to avoid Netlify timeouts. */
   includeAgendaDetails?: boolean;
+  /** When false, do not overwrite the `events` browser cache (month/day slices). */
+  writeBrowserCache?: boolean;
 }): Promise<{ ok: true; events: OdooCalendarEventRow[] } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
@@ -880,44 +889,46 @@ export async function listOdooCalendarEventsAction(input?: {
     includeAgendaDetails: input?.includeAgendaDetails !== false,
   });
   if (res.error) return { ok: false, error: res.error };
-  return {
-    ok: true,
-    events: res.events.map((e) => ({
-      id: e.id,
-      name: e.name,
-      start: String(e.start ?? ""),
-      stop: String(e.stop ?? ""),
-      allday: Boolean(e.allday ?? false),
-      creator: Array.isArray(e.create_uid) ? String(e.create_uid[1]) : "—",
-      responsible: Array.isArray(e.user_id) ? String(e.user_id[1]) : "—",
-      responsibleId: Array.isArray(e.user_id) ? Number(e.user_id[0]) : undefined,
-      partnerIds: Array.isArray(e.partner_ids) ? e.partner_ids.map(Number) : [],
-      location: typeof e.location === "string" ? e.location : "",
-      description: typeof e.description === "string" ? e.description : "",
-      active: Boolean(e.active ?? true),
-      resModel: typeof e.res_model === "string" ? e.res_model : "",
-      resId: typeof e.res_id === "number" && Number.isFinite(e.res_id) ? e.res_id : null,
-      agendaLines: Array.isArray(e.agendaLines)
-        ? e.agendaLines.map((a) => ({
-            id: a.id,
-            summary: a.summary,
-            note: a.notePlain,
-            state: a.state,
-            dateDeadline: a.dateDeadline,
-          }))
-        : [],
-      agendaItems: Array.isArray(e.agendaItems)
-        ? e.agendaItems.map((it) => ({
-            id: it.id,
-            sequence: it.sequence,
-            name: it.name,
-            description: it.descriptionPlain,
-            discussed: it.discussed,
-          }))
-        : [],
+  const events = res.events.map((e) => ({
+    id: e.id,
+    name: e.name,
+    start: String(e.start ?? ""),
+    stop: String(e.stop ?? ""),
+    allday: Boolean(e.allday ?? false),
+    creator: Array.isArray(e.create_uid) ? String(e.create_uid[1]) : "—",
+    responsible: Array.isArray(e.user_id) ? String(e.user_id[1]) : "—",
+    responsibleId: Array.isArray(e.user_id) ? Number(e.user_id[0]) : undefined,
+    partnerIds: Array.isArray(e.partner_ids) ? e.partner_ids.map(Number) : [],
+    location: typeof e.location === "string" ? e.location : "",
+    description: typeof e.description === "string" ? e.description : "",
+    active: Boolean(e.active ?? true),
+    resModel: typeof e.res_model === "string" ? e.res_model : "",
+    resId: typeof e.res_id === "number" && Number.isFinite(e.res_id) ? e.res_id : null,
+    agendaLines: Array.isArray(e.agendaLines)
+      ? e.agendaLines.map((a) => ({
+          id: a.id,
+          summary: a.summary,
+          note: a.notePlain,
+          state: a.state,
+          dateDeadline: a.dateDeadline,
+        }))
+      : [],
+    agendaItems: Array.isArray(e.agendaItems)
+      ? e.agendaItems.map((it) => ({
+          id: it.id,
+          sequence: it.sequence,
+          name: it.name,
+          description: it.descriptionPlain,
+          discussed: it.discussed,
+        }))
+      : [],
       partners: (e.partners ?? []).map((p) => ({ id: Number(p.id), name: String(p.name ?? "") })),
-    })),
-  };
+    }));
+  if (input?.writeBrowserCache !== false) {
+    await upsertOdooBrowserCache(supabase, session.id, "events", { events });
+    revalidatePath("/dashboard/ai-agent");
+  }
+  return { ok: true, events };
 }
 
 export async function listOdooCalendarEventsMonthAction(input: {
@@ -938,6 +949,7 @@ export async function listOdooCalendarEventsMonthAction(input: {
     startFrom: start,
     startBefore: end,
     includeAgendaDetails: false,
+    writeBrowserCache: false,
   });
 }
 
@@ -959,6 +971,7 @@ export async function listOdooCalendarEventsDayAction(input: {
     startFrom: start,
     startBefore: end,
     includeAgendaDetails: false,
+    writeBrowserCache: false,
   });
 }
 
@@ -1288,16 +1301,16 @@ export async function listOdooDocumentsAction(input?: {
     eventType: "odoo_sync_documents",
     message: `تمت مزامنة ${res.documents.length} مستند من Odoo.`,
   });
-  return {
-    ok: true,
-    documents: res.documents.map((d) => ({
-      id: d.id,
-      name: d.name,
-      type: String(d.type ?? ""),
-      createdAt: String(d.create_date ?? ""),
-      creator: Array.isArray(d.create_uid) ? String(d.create_uid[1]) : "—",
-    })),
-  };
+  const documents = res.documents.map((d) => ({
+    id: d.id,
+    name: d.name,
+    type: String(d.type ?? ""),
+    createdAt: String(d.create_date ?? ""),
+    creator: Array.isArray(d.create_uid) ? String(d.create_uid[1]) : "—",
+  }));
+  await upsertOdooBrowserCache(supabase, session.id, "documents", { documents });
+  revalidatePath("/dashboard/ai-agent");
+  return { ok: true, documents };
 }
 
 export async function listOdooWorkspaceAllAction(input?: {
@@ -1323,6 +1336,15 @@ export async function listOdooWorkspaceAllAction(input?: {
   if (!projects.ok) return projects;
   if (!events.ok) return events;
   if (!documents.ok) return documents;
+  const session = await requireSession();
+  const supabase = await createClient();
+  await upsertOdooBrowserCache(supabase, session.id, "workspace", {
+    tasks: tasks.tasks,
+    projects: projects.projects,
+    events: events.events,
+    documents: documents.documents,
+  });
+  revalidatePath("/dashboard/ai-agent");
   return {
     ok: true,
     tasks: tasks.tasks,

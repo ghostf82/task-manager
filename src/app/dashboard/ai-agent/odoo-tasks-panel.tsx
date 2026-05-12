@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import { Fragment, useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -82,6 +82,16 @@ type CalendarRow = {
 };
 
 type DocumentRow = { id: number; name: string; type: string; createdAt: string; creator: string };
+
+export type OdooTasksPanelProps = {
+  initialWorkspace?: {
+    tasks: unknown;
+    projects: unknown;
+    events: unknown;
+    documents: unknown;
+  } | null;
+  initialLastSyncAt?: string | null;
+};
 
 function cleanName(v: string): string {
   const x = String(v || "").trim();
@@ -208,17 +218,47 @@ async function pullAgendaChunksToSetState(
   return true;
 }
 
-export function OdooTasksPanel() {
-  const [pending, start] = useTransition();
-  const [tasks, setTasks] = useState<TaskRow[]>([]);
+export function OdooTasksPanel({
+  initialWorkspace = null,
+  initialLastSyncAt = null,
+}: OdooTasksPanelProps) {
+  const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
+  const [bulkProgress, setBulkProgress] = useState<{ cur: number; total: number } | null>(null);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(initialLastSyncAt);
+
+  function runOp(key: string, work: () => Promise<void>) {
+    setLoadingKeys((prev) => new Set(prev).add(key));
+    void (async () => {
+      try {
+        await work();
+      } finally {
+        setLoadingKeys((prev) => {
+          const n = new Set(prev);
+          n.delete(key);
+          return n;
+        });
+      }
+    })();
+  }
+  const busy = (k: string) => loadingKeys.has(k);
+
+  const [tasks, setTasks] = useState<TaskRow[]>(
+    () => (Array.isArray(initialWorkspace?.tasks) ? (initialWorkspace!.tasks as TaskRow[]) : []),
+  );
   const [query, setQuery] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [taskIdForUpdate, setTaskIdForUpdate] = useState("");
   const [stageIdForUpdate, setStageIdForUpdate] = useState("");
-  const [projects, setProjects] = useState<ProjectRow[]>([]);
-  const [events, setEvents] = useState<CalendarRow[]>([]);
-  const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [projects, setProjects] = useState<ProjectRow[]>(
+    () => (Array.isArray(initialWorkspace?.projects) ? (initialWorkspace!.projects as ProjectRow[]) : []),
+  );
+  const [events, setEvents] = useState<CalendarRow[]>(
+    () => (Array.isArray(initialWorkspace?.events) ? (initialWorkspace!.events as CalendarRow[]) : []),
+  );
+  const [documents, setDocuments] = useState<DocumentRow[]>(
+    () => (Array.isArray(initialWorkspace?.documents) ? (initialWorkspace!.documents as DocumentRow[]) : []),
+  );
   const [projectName, setProjectName] = useState("");
   const [projectIdForUpdate, setProjectIdForUpdate] = useState("");
   const [projectNameForUpdate, setProjectNameForUpdate] = useState("");
@@ -255,7 +295,7 @@ export function OdooTasksPanel() {
   const [deepCopySource, setDeepCopySource] = useState<CalendarRow | null>(null);
 
   function loadTasks() {
-    start(async () => {
+    runOp("load-tasks", async () => {
       const res = await listOdooTasksAction({ text: query, limit: 50, mineOnly });
       if (!res.ok) {
         toast.error(res.error);
@@ -263,12 +303,13 @@ export function OdooTasksPanel() {
       }
       setTasks(res.tasks);
       setNeedsRefresh(false);
+      setLastSyncAt(new Date().toISOString());
       toast.success(`تم جلب ${res.tasks.length} مهمة من Odoo.`);
     });
   }
 
   function loadAll() {
-    start(async () => {
+    runOp("load-all", async () => {
       const res = await listOdooWorkspaceAllAction({ text: query, mineOnly });
       if (!res.ok) {
         toast.error(res.error);
@@ -279,6 +320,7 @@ export function OdooTasksPanel() {
       setEvents(res.events);
       setDocuments(res.documents);
       setNeedsRefresh(false);
+      setLastSyncAt(new Date().toISOString());
       toast.success(
         `تم جلب الكل: ${res.tasks.length} مهمة، ${res.projects.length} مشروع، ${res.events.length} حدث، ${res.documents.length} مستند.`
       );
@@ -290,7 +332,7 @@ export function OdooTasksPanel() {
       toast.error("عنوان المهمة مطلوب.");
       return;
     }
-    start(async () => {
+    runOp("create-task", async () => {
       const res = await createOdooTaskAction({
         title: newTitle.trim(),
         description: newDescription.trim() || undefined,
@@ -313,7 +355,7 @@ export function OdooTasksPanel() {
       toast.error("أدخل رقم مهمة ورقم مرحلة صالحين.");
       return;
     }
-    start(async () => {
+    runOp("update-stage", async () => {
       const res = await updateOdooTaskStageAction({ taskId, stageId });
       if (!res.ok) {
         toast.error(res.error);
@@ -328,7 +370,7 @@ export function OdooTasksPanel() {
     const nextName = prompt("اسم المهمة", row.name) ?? row.name;
     const nextDesc = prompt("الوصف", row.description ?? "") ?? row.description;
     const nextDeadline = prompt("تاريخ الاستحقاق YYYY-MM-DD", row.deadline === "—" ? "" : row.deadline) ?? "";
-    start(async () => {
+    runOp(`edit-task-${row.id}`, async () => {
       const res = await updateOdooTaskAction({
         taskId: row.id,
         name: nextName.trim(),
@@ -345,7 +387,7 @@ export function OdooTasksPanel() {
   }
 
   function archiveEntity(model: "project.task" | "project.project" | "calendar.event" | "documents.document" | "ir.attachment", id: number) {
-    start(async () => {
+    runOp(`archive-${model}-${id}`, async () => {
       const res = await archiveOdooEntityAction({ model, id });
       if (!res.ok) {
         toast.error(res.error);
@@ -357,7 +399,7 @@ export function OdooTasksPanel() {
   }
 
   function deleteEntity(model: "project.task" | "project.project" | "calendar.event" | "documents.document" | "ir.attachment", id: number) {
-    start(async () => {
+    runOp(`delete-${model}-${id}`, async () => {
       let res = await deleteOdooEntityAction({ model, id });
       if (!res.ok && model === "documents.document") {
         res = await deleteOdooEntityAction({ model: "ir.attachment", id });
@@ -372,7 +414,7 @@ export function OdooTasksPanel() {
   }
 
   function loadProjects() {
-    start(async () => {
+    runOp("load-projects", async () => {
       const res = await listOdooProjectsAction({ text: query, limit: 100, mineOnly });
       if (!res.ok) {
         toast.error(res.error);
@@ -380,13 +422,14 @@ export function OdooTasksPanel() {
       }
       setProjects(res.projects);
       setNeedsRefresh(false);
+      setLastSyncAt(new Date().toISOString());
       toast.success(`تم جلب ${res.projects.length} مشروع.`);
     });
   }
 
   function createProject() {
     if (!projectName.trim()) return toast.error("اسم المشروع مطلوب.");
-    start(async () => {
+    runOp("create-project", async () => {
       const res = await createOdooProjectAction({ name: projectName.trim() });
       if (!res.ok) {
         toast.error(res.error);
@@ -403,7 +446,7 @@ export function OdooTasksPanel() {
     if (!Number.isFinite(projectId) || !projectNameForUpdate.trim()) {
       return toast.error("أدخل رقم مشروع واسم جديد صالحين.");
     }
-    start(async () => {
+    runOp("update-project-form", async () => {
       const res = await updateOdooProjectAction({
         projectId,
         name: projectNameForUpdate.trim(),
@@ -418,7 +461,7 @@ export function OdooTasksPanel() {
   }
 
   function loadCalendar() {
-    start(async () => {
+    runOp("load-calendar", async () => {
       const res = await listOdooCalendarEventsAction({ text: query, limit: 100, mineOnly });
       if (!res.ok) {
         toast.error(res.error);
@@ -426,6 +469,7 @@ export function OdooTasksPanel() {
       }
       setEvents(res.events);
       setNeedsRefresh(false);
+      setLastSyncAt(new Date().toISOString());
       toast.success(`تم جلب ${res.events.length} حدث تقويم.`);
     });
   }
@@ -434,7 +478,7 @@ export function OdooTasksPanel() {
     if (!eventName.trim() || !eventStart.trim() || !eventStop.trim()) {
       return toast.error("اسم الحدث وتاريخ البداية والنهاية مطلوبة.");
     }
-    start(async () => {
+    runOp("create-calendar", async () => {
       const res = await createOdooCalendarEventAction({
         name: eventName.trim(),
         start: eventStart.trim(),
@@ -457,7 +501,7 @@ export function OdooTasksPanel() {
     if (!Number.isFinite(eventId) || !eventNameForUpdate.trim()) {
       return toast.error("أدخل رقم الحدث واسمًا جديدًا.");
     }
-    start(async () => {
+    runOp("update-calendar-form", async () => {
       const res = await updateOdooCalendarEventAction({
         eventId,
         name: eventNameForUpdate.trim(),
@@ -472,7 +516,7 @@ export function OdooTasksPanel() {
   }
 
   function loadDocuments() {
-    start(async () => {
+    runOp("load-documents", async () => {
       const res = await listOdooDocumentsAction({ text: query, limit: 100, mineOnly });
       if (!res.ok) {
         toast.error(res.error);
@@ -480,13 +524,14 @@ export function OdooTasksPanel() {
       }
       setDocuments(res.documents);
       setNeedsRefresh(false);
+      setLastSyncAt(new Date().toISOString());
       toast.success(`تم جلب ${res.documents.length} مستند.`);
     });
   }
 
   function createDocument() {
     if (!docName.trim()) return toast.error("اسم المستند مطلوب.");
-    start(async () => {
+    runOp("create-document", async () => {
       const res = await createOdooDocumentAction({ name: docName.trim() });
       if (!res.ok) {
         toast.error(res.error);
@@ -503,7 +548,7 @@ export function OdooTasksPanel() {
     if (!Number.isFinite(documentId) || !docNameForUpdate.trim()) {
       return toast.error("أدخل رقم المستند والاسم الجديد.");
     }
-    start(async () => {
+    runOp("update-document-form", async () => {
       const res = await updateOdooDocumentAction({
         documentId,
         name: docNameForUpdate.trim(),
@@ -518,7 +563,7 @@ export function OdooTasksPanel() {
   }
 
   function exportExcel() {
-    start(async () => {
+    runOp("export-excel", async () => {
       const res = await exportOdooWorkspaceExcelAction();
       if (!res.ok) {
         toast.error(res.error);
@@ -544,7 +589,7 @@ export function OdooTasksPanel() {
 
   function importExcel(file: File | null) {
     if (!file) return;
-    start(async () => {
+    runOp("import-excel", async () => {
       try {
         const buffer = await file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
@@ -628,7 +673,7 @@ export function OdooTasksPanel() {
       toast.error("اختر شهر المصدر أولاً.");
       return;
     }
-    start(async () => {
+    runOp("cal-month", async () => {
       setAgendaHydrate("month");
       try {
         const res = await listOdooCalendarEventsMonthAction({ yearMonth: sourceMonth, mineOnly: false });
@@ -666,7 +711,7 @@ export function OdooTasksPanel() {
       toast.error("اختر يومًا أولاً.");
       return;
     }
-    start(async () => {
+    runOp("cal-day", async () => {
       setAgendaHydrate("day");
       try {
         const res = await listOdooCalendarEventsDayAction({ day: dayToCompare, mineOnly: false });
@@ -725,7 +770,7 @@ export function OdooTasksPanel() {
       toast.error("اختر حدثًا واحدًا على الأقل لنسخه.");
       return;
     }
-    start(async () => {
+    runOp("clone-month", async () => {
       const payload = sourceMonthEvents
         .filter((e) => selectedCalendarIds.includes(e.id))
         .map((row) => {
@@ -752,8 +797,11 @@ export function OdooTasksPanel() {
       let totalAgendaMail = 0;
       let totalFallback = 0;
       const errors: string[] = [];
+      setBulkProgress({ cur: 0, total: payload.length });
       try {
-        for (const row of payload) {
+        for (let i = 0; i < payload.length; i++) {
+          const row = payload[i]!;
+          setBulkProgress({ cur: i + 1, total: payload.length });
           const p1 = await cloneOdooCalendarEventPhaseOneAction({
             sourceEventId: row.eventId,
             name: row.name,
@@ -793,6 +841,7 @@ export function OdooTasksPanel() {
         await revalidateAiAgentOdooPanelAction();
       } finally {
         toast.dismiss(toastId);
+        setBulkProgress(null);
       }
       if (totalCopied === 0) {
         toast.error(errors[0] ?? "فشل نسخ التقويم.");
@@ -815,15 +864,91 @@ export function OdooTasksPanel() {
     });
   }
 
+  const tasksByStage = useMemo(() => {
+    const m = new Map<string, TaskRow[]>();
+    for (const t of filteredTasks) {
+      const k = t.stage || "—";
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(t);
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], "ar"));
+  }, [filteredTasks]);
+
+  const projectsByState = useMemo(() => {
+    const active: ProjectRow[] = [];
+    const inactive: ProjectRow[] = [];
+    for (const p of filteredProjects) {
+      (p.active ? active : inactive).push(p);
+    }
+    return [
+      { label: "نشطة", rows: active },
+      { label: "مؤرشفة / غير نشطة", rows: inactive },
+    ].filter((g) => g.rows.length);
+  }, [filteredProjects]);
+
+  const eventsByMonth = useMemo(() => {
+    const m = new Map<string, CalendarRow[]>();
+    for (const e of filteredEvents) {
+      const k = (e.start || "").slice(0, 7) || "—";
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(e);
+    }
+    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [filteredEvents]);
+
+  const documentsByType = useMemo(() => {
+    const m = new Map<string, DocumentRow[]>();
+    for (const d of filteredDocuments) {
+      const k = d.type || "—";
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(d);
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], "ar"));
+  }, [filteredDocuments]);
+
+  const lastSyncStale =
+    lastSyncAt != null && (Date.now() - new Date(lastSyncAt).getTime()) / 3600000 > 6;
+  const lastSyncLabel = lastSyncAt
+    ? new Date(lastSyncAt).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" })
+    : "لم تُجرَ مزامنة بعد";
+
+  const calBusy = busy("cal-month") || busy("cal-day") || busy("clone-month") || agendaHydrate !== "idle";
+
   return (
-    <Card className="border-primary/20 shadow-[var(--shadow-premium)] ring-1 ring-primary/15">
+    <Card className="border-primary/20 w-full max-w-none shadow-[var(--shadow-premium)] ring-1 ring-primary/15">
       <CardHeader>
         <CardTitle>لوحة مهام Odoo (Browser Session)</CardTitle>
         <CardDescription>
           قراءة/بحث/تحديث/إنشاء مهام Odoo بدون Database Name.
         </CardDescription>
+        <p
+          className={`text-xs font-medium ${lastSyncStale ? "text-amber-800/90 dark:text-amber-300/90" : "text-muted-foreground"}`}
+        >
+          آخر مزامنة محفوظة: {lastSyncLabel}
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
+        {(bulkProgress || busy("clone-month") || busy("cal-month") || busy("cal-day")) && (
+          <div className="space-y-1">
+            <div className="bg-muted relative h-1.5 w-full overflow-hidden rounded-full">
+              {bulkProgress ? (
+                <div
+                  className="bg-primary absolute inset-y-0 start-0 transition-[width]"
+                  style={{ width: `${Math.round((100 * bulkProgress.cur) / Math.max(1, bulkProgress.total))}%` }}
+                />
+              ) : (
+                <div className="bg-primary/70 absolute inset-y-0 start-0 w-1/3 animate-pulse" />
+              )}
+            </div>
+            {bulkProgress ? (
+              <p className="text-muted-foreground text-[11px]">
+                {bulkProgress.cur} / {bulkProgress.total}
+              </p>
+            ) : (
+              <p className="text-muted-foreground text-[11px]">جاري تنفيذ طلب…</p>
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           <Input
             value={query}
@@ -831,39 +956,39 @@ export function OdooTasksPanel() {
             placeholder="بحث بالعنوان..."
             className="max-w-sm"
           />
-          <Button type="button" onClick={loadTasks} disabled={pending}>
-            {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
+          <Button type="button" onClick={loadTasks} disabled={busy("load-tasks")}>
+            {busy("load-tasks") ? <Loader2Icon className="size-4 animate-spin" /> : null}
             جلب المهام
           </Button>
-          <Button type="button" onClick={loadAll} disabled={pending}>
+          <Button type="button" onClick={loadAll} disabled={busy("load-all")}>
+            {busy("load-all") ? <Loader2Icon className="size-4 animate-spin" /> : null}
             جلب الكل
           </Button>
-          <Button type="button" variant="outline" onClick={loadProjects} disabled={pending}>
+          <Button type="button" variant="outline" onClick={loadProjects} disabled={busy("load-projects")}>
+            {busy("load-projects") ? <Loader2Icon className="size-4 animate-spin" /> : null}
             المشاريع
           </Button>
-          <Button type="button" variant="outline" onClick={loadCalendar} disabled={pending}>
+          <Button type="button" variant="outline" onClick={loadCalendar} disabled={busy("load-calendar")}>
+            {busy("load-calendar") ? <Loader2Icon className="size-4 animate-spin" /> : null}
             التقويم
           </Button>
-          <Button type="button" variant="outline" onClick={loadDocuments} disabled={pending}>
+          <Button type="button" variant="outline" onClick={loadDocuments} disabled={busy("load-documents")}>
+            {busy("load-documents") ? <Loader2Icon className="size-4 animate-spin" /> : null}
             المستندات
           </Button>
-          <Button type="button" variant="secondary" onClick={exportExcel} disabled={pending}>
+          <Button type="button" variant="secondary" onClick={exportExcel} disabled={busy("export-excel")}>
+            {busy("export-excel") ? <Loader2Icon className="size-4 animate-spin" /> : null}
             تصدير Excel
           </Button>
           <Button
             type="button"
             variant={needsRefresh ? "default" : "outline"}
             onClick={loadAll}
-            disabled={pending}
+            disabled={busy("load-all")}
           >
             تحديث الآن
           </Button>
-          <Button
-            type="button"
-            variant={mineOnly ? "default" : "outline"}
-            onClick={() => setMineOnly((v) => !v)}
-            disabled={pending}
-          >
+          <Button type="button" variant={mineOnly ? "default" : "outline"} onClick={() => setMineOnly((v) => !v)}>
             {mineOnly ? "فلتر: ما يخصني" : "فلتر: الكل"}
           </Button>
           <label className="inline-flex items-center">
@@ -874,6 +999,7 @@ export function OdooTasksPanel() {
               onChange={(e) => importExcel(e.target.files?.[0] ?? null)}
             />
             <span className="inline-flex h-9 cursor-pointer items-center rounded-md border px-3 text-sm">
+              {busy("import-excel") ? <Loader2Icon className="me-1 size-4 animate-spin" /> : null}
               استيراد Excel
             </span>
           </label>
@@ -887,10 +1013,10 @@ export function OdooTasksPanel() {
         <div className="rounded-md border p-3">
           <Label className="mb-2 block">تصفية العرض بالأشخاص (من البيانات الحالية)</Label>
           <div className="mb-2 flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={() => setSelectedPeople(peoplePool)} disabled={pending || !peoplePool.length}>
+            <Button type="button" size="sm" variant="outline" onClick={() => setSelectedPeople(peoplePool)} disabled={!peoplePool.length}>
               اختيار الكل
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => setSelectedPeople([])} disabled={pending}>
+            <Button type="button" size="sm" variant="outline" onClick={() => setSelectedPeople([])}>
               مسح التصفية
             </Button>
           </div>
@@ -903,7 +1029,6 @@ export function OdooTasksPanel() {
                   size="sm"
                   variant={selectedPeople.includes(name) ? "default" : "outline"}
                   onClick={() => togglePerson(name)}
-                  disabled={pending}
                 >
                   {name}
                 </Button>
@@ -926,7 +1051,8 @@ export function OdooTasksPanel() {
             onChange={(e) => setNewDescription(e.target.value)}
             placeholder="وصف (اختياري)"
           />
-          <Button type="button" variant="outline" onClick={createTask} disabled={pending}>
+          <Button type="button" variant="outline" onClick={createTask} disabled={busy("create-task")}>
+            {busy("create-task") ? <Loader2Icon className="me-1 inline size-4 animate-spin" /> : null}
             إنشاء في Odoo
           </Button>
         </div>
@@ -935,12 +1061,12 @@ export function OdooTasksPanel() {
           <Label>إدارة المشاريع</Label>
           <div className="flex flex-wrap gap-2">
             <Input value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="اسم مشروع جديد" className="max-w-sm" />
-            <Button type="button" variant="outline" onClick={createProject} disabled={pending}>إنشاء مشروع</Button>
+            <Button type="button" variant="outline" onClick={createProject} disabled={busy("create-project")}>إنشاء مشروع</Button>
           </div>
           <div className="flex flex-wrap gap-2">
             <Input value={projectIdForUpdate} onChange={(e) => setProjectIdForUpdate(e.target.value)} placeholder="Project ID" className="w-32" />
             <Input value={projectNameForUpdate} onChange={(e) => setProjectNameForUpdate(e.target.value)} placeholder="الاسم الجديد" className="max-w-sm" />
-            <Button type="button" variant="outline" onClick={updateProject} disabled={pending}>تحديث مشروع</Button>
+            <Button type="button" variant="outline" onClick={updateProject} disabled={busy("update-project-form")}>تحديث مشروع</Button>
           </div>
         </div>
 
@@ -950,12 +1076,12 @@ export function OdooTasksPanel() {
             <Input value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder="اسم الحدث" className="max-w-sm" />
             <Input value={eventStart} onChange={(e) => setEventStart(e.target.value)} placeholder="Start (YYYY-MM-DD HH:mm:ss)" className="max-w-sm" />
             <Input value={eventStop} onChange={(e) => setEventStop(e.target.value)} placeholder="Stop (YYYY-MM-DD HH:mm:ss)" className="max-w-sm" />
-            <Button type="button" variant="outline" onClick={createCalendarEvent} disabled={pending}>إنشاء حدث</Button>
+            <Button type="button" variant="outline" onClick={createCalendarEvent} disabled={busy("create-calendar")}>إنشاء حدث</Button>
           </div>
           <div className="flex flex-wrap gap-2">
             <Input value={eventIdForUpdate} onChange={(e) => setEventIdForUpdate(e.target.value)} placeholder="Event ID" className="w-32" />
             <Input value={eventNameForUpdate} onChange={(e) => setEventNameForUpdate(e.target.value)} placeholder="اسم جديد للحدث" className="max-w-sm" />
-            <Button type="button" variant="outline" onClick={updateCalendarEvent} disabled={pending}>تحديث حدث</Button>
+            <Button type="button" variant="outline" onClick={updateCalendarEvent} disabled={busy("update-calendar-form")}>تحديث حدث</Button>
           </div>
         </div>
 
@@ -963,12 +1089,12 @@ export function OdooTasksPanel() {
           <Label>إدارة المستندات</Label>
           <div className="flex flex-wrap gap-2">
             <Input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="اسم مستند جديد" className="max-w-sm" />
-            <Button type="button" variant="outline" onClick={createDocument} disabled={pending}>إنشاء مستند</Button>
+            <Button type="button" variant="outline" onClick={createDocument} disabled={busy("create-document")}>إنشاء مستند</Button>
           </div>
           <div className="flex flex-wrap gap-2">
             <Input value={docIdForUpdate} onChange={(e) => setDocIdForUpdate(e.target.value)} placeholder="Document ID" className="w-32" />
             <Input value={docNameForUpdate} onChange={(e) => setDocNameForUpdate(e.target.value)} placeholder="الاسم الجديد" className="max-w-sm" />
-            <Button type="button" variant="outline" onClick={updateDocument} disabled={pending}>تحديث مستند</Button>
+            <Button type="button" variant="outline" onClick={updateDocument} disabled={busy("update-document-form")}>تحديث مستند</Button>
           </div>
         </div>
 
@@ -987,7 +1113,8 @@ export function OdooTasksPanel() {
               placeholder="Stage ID"
               className="w-32"
             />
-            <Button type="button" variant="outline" onClick={updateStage} disabled={pending}>
+            <Button type="button" variant="outline" onClick={updateStage} disabled={busy("update-stage")}>
+              {busy("update-stage") ? <Loader2Icon className="me-1 inline size-4 animate-spin" /> : null}
               تحديث المرحلة
             </Button>
           </div>
@@ -1015,209 +1142,316 @@ export function OdooTasksPanel() {
                   </td>
                 </tr>
               ) : (
-                filteredTasks.map((t) => (
-                  <Fragment key={`task-${t.id}`}>
-                    <tr className="border-b">
-                      <td className="py-2">{t.id}</td>
-                      <td className="py-2">{t.name}</td>
-                      <td className="py-2">{t.stage}</td>
-                      <td className="py-2">{t.project}</td>
-                      <td className="py-2">{t.deadline}</td>
-                      <td className="py-2">{t.creator}</td>
-                      <td className="py-2">{t.responsible}</td>
-                      <td className="py-2">
-                        <div className="flex flex-wrap gap-1">
-                          <Button type="button" size="sm" variant="outline" onClick={() => setExpandedTaskId((id) => (id === t.id ? null : t.id))}>
-                            {expandedTaskId === t.id ? "إخفاء" : "استعراض"}
-                          </Button>
-                          <Button type="button" size="sm" variant="outline" onClick={() => editTaskRow(t)}>تعديل</Button>
-                          <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("project.task", t.id)}>أرشفة</Button>
-                          <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("project.task", t.id)}>حذف</Button>
-                        </div>
-                      </td>
-                    </tr>
-                    {expandedTaskId === t.id ? (
-                      <tr key={`task-expanded-${t.id}`} className="border-b bg-muted/30">
-                        <td colSpan={8} className="p-3">
-                          <div className="grid gap-2 text-sm sm:grid-cols-2">
-                            <p><span className="font-medium">عنوان المهمة:</span> {t.name}</p>
-                            <p><span className="font-medium">المشروع:</span> {t.project}</p>
-                            <p><span className="font-medium">المرحلة:</span> {t.stage}</p>
-                            <p><span className="font-medium">الأولوية:</span> {t.priority || "—"}</p>
-                            <p><span className="font-medium">المنشئ:</span> {t.creator}</p>
-                            <p><span className="font-medium">المسؤول:</span> {t.responsible}</p>
-                            <p><span className="font-medium">الحالة:</span> {t.active ? "نشطة" : "مؤرشفة"}</p>
-                            <p><span className="font-medium">الاستحقاق:</span> {t.deadline}</p>
-                            <p className="sm:col-span-2"><span className="font-medium">الوصف:</span> {t.description || "لا يوجد وصف."}</p>
+                tasksByStage.flatMap(([stage, rows]) => [
+                  <tr key={`stage-h-${stage}`} className="border-b bg-muted/40">
+                    <td colSpan={8} className="py-2 ps-2 text-xs font-semibold text-primary">
+                      المرحلة: {stage} ({rows.length})
+                    </td>
+                  </tr>,
+                  ...rows.map((t) => (
+                    <Fragment key={`task-${t.id}`}>
+                      <tr className="border-b">
+                        <td className="py-2">{t.id}</td>
+                        <td className="py-2">{t.name}</td>
+                        <td className="py-2">{t.stage}</td>
+                        <td className="py-2">{t.project}</td>
+                        <td className="py-2">{t.deadline}</td>
+                        <td className="py-2">{t.creator}</td>
+                        <td className="py-2">{t.responsible}</td>
+                        <td className="py-2">
+                          <div className="flex flex-wrap gap-1">
+                            <Button type="button" size="sm" variant="outline" onClick={() => setExpandedTaskId((id) => (id === t.id ? null : t.id))}>
+                              {expandedTaskId === t.id ? "إخفاء" : "استعراض"}
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => editTaskRow(t)}>تعديل</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("project.task", t.id)}>أرشفة</Button>
+                            <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("project.task", t.id)}>حذف</Button>
                           </div>
                         </td>
                       </tr>
-                    ) : null}
-                  </Fragment>
-                ))
+                      {expandedTaskId === t.id ? (
+                        <tr key={`task-expanded-${t.id}`} className="border-b bg-muted/30">
+                          <td colSpan={8} className="p-3">
+                            <div className="grid gap-2 text-sm sm:grid-cols-2">
+                              <p><span className="font-medium">عنوان المهمة:</span> {t.name}</p>
+                              <p><span className="font-medium">المشروع:</span> {t.project}</p>
+                              <p><span className="font-medium">المرحلة:</span> {t.stage}</p>
+                              <p><span className="font-medium">الأولوية:</span> {t.priority || "—"}</p>
+                              <p><span className="font-medium">المنشئ:</span> {t.creator}</p>
+                              <p><span className="font-medium">المسؤول:</span> {t.responsible}</p>
+                              <p><span className="font-medium">الحالة:</span> {t.active ? "نشطة" : "مؤرشفة"}</p>
+                              <p><span className="font-medium">الاستحقاق:</span> {t.deadline}</p>
+                              <p className="sm:col-span-2"><span className="font-medium">الوصف:</span> {t.description || "لا يوجد وصف."}</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  )),
+                ])
               )}
             </tbody>
           </table>
         </div>
 
-        <div className="grid gap-2 lg:grid-cols-3">
-          <div className="rounded-md border p-3">
-            <Label className="mb-2 block">المشاريع ({filteredProjects.length})</Label>
-            <div className="max-h-64 overflow-auto text-sm">
-              {filteredProjects.map((p) => (
-                <div key={p.id} className="mb-2 border-b pb-2">
-                  <p>#{p.id} - {p.name}</p>
-                  <p className="text-xs text-muted-foreground">المدير: {p.manager} | المنشئ: {p.creator}</p>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <Button type="button" size="sm" variant="outline" onClick={() => setExpandedProjectId((id) => (id === p.id ? null : p.id))}>
-                      {expandedProjectId === p.id ? "إخفاء" : "استعراض"}
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => {
-                      const next = prompt("اسم المشروع الجديد", p.name) ?? p.name;
-                      start(async () => {
-                        const res = await updateOdooProjectAction({ projectId: p.id, name: next });
-                        if (!res.ok) {
-                          toast.error(res.error);
-                          return;
-                        }
-                        toast.success(res.message);
-                        setNeedsRefresh(true);
-                      });
-                    }}>تعديل</Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("project.project", p.id)}>أرشفة</Button>
-                    <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("project.project", p.id)}>حذف</Button>
-                  </div>
-                  {expandedProjectId === p.id ? (
-                    <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs space-y-1">
-                      <p><span className="font-medium">الحالة:</span> {p.active ? "نشط" : "مؤرشف"}</p>
-                      <p><span className="font-medium">الرؤية:</span> {p.visibility || "—"}</p>
-                      <p><span className="font-medium">تاريخ الإنشاء:</span> {p.createdAt || "—"}</p>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-              {!filteredProjects.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
+        <div className="space-y-6">
+          <div className="w-full">
+            <Label className="mb-2 block text-base">المشاريع ({filteredProjects.length})</Label>
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full min-w-[900px] text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/30 text-start text-muted-foreground">
+                    <th className="py-2 pe-3 font-medium">ID</th>
+                    <th className="py-2 pe-3 font-medium">الاسم</th>
+                    <th className="py-2 pe-3 font-medium">المسؤول</th>
+                    <th className="py-2 pe-3 font-medium">الحالة</th>
+                    <th className="py-2 pe-3 font-medium">الرؤية</th>
+                    <th className="py-2 pe-3 font-medium">المنشئ</th>
+                    <th className="py-2 font-medium">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!filteredProjects.length ? (
+                    <tr>
+                      <td colSpan={7} className="text-muted-foreground py-6 text-center">
+                        لا توجد بيانات.
+                      </td>
+                    </tr>
+                  ) : (
+                    projectsByState.flatMap(({ label, rows }) => [
+                      <tr key={`pg-${label}`} className="border-b bg-muted/40">
+                        <td colSpan={7} className="py-2 ps-2 text-xs font-semibold text-primary">
+                          {label} ({rows.length})
+                        </td>
+                      </tr>,
+                      ...rows.map((p) => (
+                        <Fragment key={`proj-${p.id}`}>
+                          <tr className="border-b align-top">
+                            <td className="py-2 pe-3">{p.id}</td>
+                            <td className="py-2 pe-3 font-medium">{p.name}</td>
+                            <td className="py-2 pe-3">{p.manager}</td>
+                            <td className="py-2 pe-3">{p.active ? "نشط" : "مؤرشف"}</td>
+                            <td className="py-2 pe-3 text-xs">{p.visibility || "—"}</td>
+                            <td className="py-2 pe-3">{p.creator}</td>
+                            <td className="py-2">
+                              <div className="flex flex-wrap gap-1">
+                                <Button type="button" size="sm" variant="outline" onClick={() => setExpandedProjectId((id) => (id === p.id ? null : p.id))}>
+                                  {expandedProjectId === p.id ? "إخفاء" : "استعراض"}
+                                </Button>
+                                <Button type="button" size="sm" variant="outline" onClick={() => {
+                                  const next = prompt("اسم المشروع الجديد", p.name) ?? p.name;
+                                  runOp(`inline-project-${p.id}`, async () => {
+                                    const res = await updateOdooProjectAction({ projectId: p.id, name: next });
+                                    if (!res.ok) {
+                                      toast.error(res.error);
+                                      return;
+                                    }
+                                    toast.success(res.message);
+                                    setNeedsRefresh(true);
+                                  });
+                                }}>تعديل</Button>
+                                <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("project.project", p.id)}>أرشفة</Button>
+                                <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("project.project", p.id)}>حذف</Button>
+                              </div>
+                            </td>
+                          </tr>
+                          {expandedProjectId === p.id ? (
+                            <tr className="border-b bg-muted/20">
+                              <td colSpan={7} className="p-3 text-xs">
+                                <p><span className="font-medium">الحالة:</span> {p.active ? "نشط" : "مؤرشف"}</p>
+                                <p><span className="font-medium">الرؤية:</span> {p.visibility || "—"}</p>
+                                <p><span className="font-medium">تاريخ الإنشاء:</span> {p.createdAt || "—"}</p>
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      )),
+                    ])
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
-          <div className="rounded-md border p-3">
-            <Label className="mb-2 block">التقويم ({filteredEvents.length})</Label>
-            <div className="max-h-64 overflow-auto text-sm">
-              {filteredEvents.map((e) => (
-                <div key={e.id} className="mb-2 border-b pb-2">
-                  <p>#{e.id} - {e.name}</p>
-                  <p className="text-xs text-muted-foreground">{e.start} → {e.stop}</p>
-                  <p className="text-xs text-muted-foreground">المسؤول: {e.responsible} | المنشئ: {e.creator}</p>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <Button type="button" size="sm" variant="outline" onClick={() => setExpandedEventId((id) => (id === e.id ? null : e.id))}>
-                      {expandedEventId === e.id ? "إخفاء" : "استعراض"}
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => {
-                      const next = prompt("اسم الحدث الجديد", e.name) ?? e.name;
-                      start(async () => {
-                        const res = await updateOdooCalendarEventAction({ eventId: e.id, name: next });
-                        if (!res.ok) {
-                          toast.error(res.error);
-                          return;
-                        }
-                        toast.success(res.message);
-                        setNeedsRefresh(true);
-                      });
-                    }}>تعديل</Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("calendar.event", e.id)}>أرشفة</Button>
-                    <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("calendar.event", e.id)}>حذف</Button>
-                  </div>
-                  {expandedEventId === e.id ? (
-                    <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs space-y-1">
-                      {e.resModel ? (
-                        <p>
-                          <span className="font-medium">مرتبط بسجل Odoo:</span> {e.resModel}
-                          {e.resId != null ? ` #${e.resId}` : ""} (مثال: hr.leave لإجازة تظهر كحدث تقويم)
-                        </p>
-                      ) : null}
-                      <p><span className="font-medium">الموقع:</span> {e.location || "—"}</p>
-                      <p className="whitespace-pre-wrap"><span className="font-medium">الوصف/الملاحظات:</span> {e.description || "لا توجد ملاحظات."}</p>
-                      {e.agendaItems?.length ? (
-                        <div className="space-y-1">
-                          <p className="font-medium">جدول الأجندة (calendar.event.agenda.item):</p>
-                          <ul className="list-disc ps-4 space-y-0.5">
-                            {e.agendaItems.map((it) => (
-                              <li key={it.id}>
-                                {it.name || "—"}
-                                {it.description ? (
-                                  <span className="text-muted-foreground"> — {it.description}</span>
+
+          <div className="w-full">
+            <Label className="mb-2 block text-base">التقويم ({filteredEvents.length})</Label>
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full min-w-[960px] text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/30 text-start text-muted-foreground">
+                    <th className="py-2 pe-3 font-medium">ID</th>
+                    <th className="py-2 pe-3 font-medium">الاسم</th>
+                    <th className="py-2 pe-3 font-medium">المسؤول</th>
+                    <th className="py-2 pe-3 font-medium">الفترة</th>
+                    <th className="py-2 pe-3 font-medium">الحالة</th>
+                    <th className="py-2 font-medium">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!filteredEvents.length ? (
+                    <tr>
+                      <td colSpan={6} className="text-muted-foreground py-6 text-center">
+                        لا توجد بيانات.
+                      </td>
+                    </tr>
+                  ) : (
+                    eventsByMonth.flatMap(([ym, rows]) => [
+                      <tr key={`eg-${ym}`} className="border-b bg-muted/40">
+                        <td colSpan={6} className="py-2 ps-2 text-xs font-semibold text-primary">
+                          الشهر: {ym} ({rows.length})
+                        </td>
+                      </tr>,
+                      ...rows.map((e) => (
+                        <Fragment key={`evt-${e.id}`}>
+                          <tr className="border-b align-top">
+                            <td className="py-2 pe-3">{e.id}</td>
+                            <td className="py-2 pe-3 font-medium">{e.name}</td>
+                            <td className="py-2 pe-3">{e.responsible}</td>
+                            <td className="py-2 pe-3 text-xs [direction:ltr]">{e.start} → {e.stop}</td>
+                            <td className="py-2 pe-3">{e.active ? "نشط" : "مؤرشف"}</td>
+                            <td className="py-2">
+                              <div className="flex flex-wrap gap-1">
+                                <Button type="button" size="sm" variant="outline" onClick={() => setExpandedEventId((id) => (id === e.id ? null : e.id))}>
+                                  {expandedEventId === e.id ? "إخفاء" : "استعراض"}
+                                </Button>
+                                <Button type="button" size="sm" variant="outline" onClick={() => {
+                                  const next = prompt("اسم الحدث الجديد", e.name) ?? e.name;
+                                  runOp(`inline-event-${e.id}`, async () => {
+                                    const res = await updateOdooCalendarEventAction({ eventId: e.id, name: next });
+                                    if (!res.ok) {
+                                      toast.error(res.error);
+                                      return;
+                                    }
+                                    toast.success(res.message);
+                                    setNeedsRefresh(true);
+                                  });
+                                }}>تعديل</Button>
+                                <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("calendar.event", e.id)}>أرشفة</Button>
+                                <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("calendar.event", e.id)}>حذف</Button>
+                              </div>
+                            </td>
+                          </tr>
+                          {expandedEventId === e.id ? (
+                            <tr className="border-b bg-muted/20">
+                              <td colSpan={6} className="space-y-2 p-3 text-xs">
+                                {e.resModel ? (
+                                  <p>
+                                    <span className="font-medium">مرتبط بسجل Odoo:</span> {e.resModel}
+                                    {e.resId != null ? ` #${e.resId}` : ""}
+                                  </p>
                                 ) : null}
-                                <span className="text-muted-foreground"> [{it.discussed ? "تمت المناقشة" : "لم تُناقش"}]</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                      {e.agendaLines?.length ? (
-                        <div className="space-y-1">
-                          <p className="font-medium">بنود الأجندة (mail.activity على الاجتماع):</p>
-                          <ul className="list-disc ps-4 space-y-0.5">
-                            {e.agendaLines.map((a) => (
-                              <li key={a.id}>
-                                {a.summary || "—"}
-                                {a.note ? <span className="text-muted-foreground"> — {a.note}</span> : null}
-                                <span className="text-muted-foreground">
-                                  {" "}
-                                  [{a.state === "done" ? "تمت المناقشة" : a.state}]
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                      <p><span className="font-medium">الحضور (IDs):</span> {e.partnerIds.length ? e.partnerIds.join(", ") : "—"}</p>
-                      <p><span className="font-medium">اقتراح تحسين:</span></p>
-                      <ul className="list-disc ps-5">
-                        {suggestEventAutomation(e).map((tip) => (
-                          <li key={tip}>{tip}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-              {!filteredEvents.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
+                                <p><span className="font-medium">الموقع:</span> {e.location || "—"}</p>
+                                <p className="whitespace-pre-wrap"><span className="font-medium">الوصف:</span> {e.description || "لا توجد ملاحظات."}</p>
+                                {e.agendaItems?.length ? (
+                                  <div>
+                                    <p className="font-medium">جدول الأجندة:</p>
+                                    <ul className="list-disc ps-4">
+                                      {e.agendaItems.map((it) => (
+                                        <li key={it.id}>{it.name || "—"}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null}
+                                {e.agendaLines?.length ? (
+                                  <div>
+                                    <p className="font-medium">أنشطة بريد:</p>
+                                    <ul className="list-disc ps-4">
+                                      {e.agendaLines.map((a) => (
+                                        <li key={a.id}>{a.summary || "—"}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null}
+                                <p><span className="font-medium">اقتراح:</span></p>
+                                <ul className="list-disc ps-4">
+                                  {suggestEventAutomation(e).map((tip) => (
+                                    <li key={tip}>{tip}</li>
+                                  ))}
+                                </ul>
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      )),
+                    ])
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
-          <div className="rounded-md border p-3">
-            <Label className="mb-2 block">المستندات ({filteredDocuments.length})</Label>
-            <div className="max-h-64 overflow-auto text-sm">
-              {filteredDocuments.map((d) => (
-                <div key={d.id} className="mb-2 border-b pb-2">
-                  <p>#{d.id} - {d.name}</p>
-                  <p className="text-xs text-muted-foreground">النوع: {d.type || "—"} | المنشئ: {d.creator}</p>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <Button type="button" size="sm" variant="outline" onClick={() => setExpandedDocId((id) => (id === d.id ? null : d.id))}>
-                      {expandedDocId === d.id ? "إخفاء" : "استعراض"}
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => {
-                      const next = prompt("اسم المستند الجديد", d.name) ?? d.name;
-                      start(async () => {
-                        const res = await updateOdooDocumentAction({ documentId: d.id, name: next });
-                        if (!res.ok) {
-                          toast.error(res.error);
-                          return;
-                        }
-                        toast.success(res.message);
-                        setNeedsRefresh(true);
-                      });
-                    }}>تعديل</Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("documents.document", d.id)}>أرشفة</Button>
-                    <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("documents.document", d.id)}>حذف</Button>
-                  </div>
-                  {expandedDocId === d.id ? (
-                    <div className="mt-2 rounded-md bg-muted/40 p-2 text-xs space-y-1">
-                      <p><span className="font-medium">نوع المستند:</span> {d.type || "—"}</p>
-                      <p><span className="font-medium">تاريخ الإنشاء:</span> {d.createdAt || "—"}</p>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-              {!filteredDocuments.length ? <p className="text-muted-foreground">لا توجد بيانات.</p> : null}
+
+          <div className="w-full">
+            <Label className="mb-2 block text-base">المستندات ({filteredDocuments.length})</Label>
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full min-w-[800px] text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/30 text-start text-muted-foreground">
+                    <th className="py-2 pe-3 font-medium">ID</th>
+                    <th className="py-2 pe-3 font-medium">الاسم</th>
+                    <th className="py-2 pe-3 font-medium">النوع</th>
+                    <th className="py-2 pe-3 font-medium">المنشئ</th>
+                    <th className="py-2 pe-3 font-medium">تاريخ الإنشاء</th>
+                    <th className="py-2 font-medium">إجراءات</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!filteredDocuments.length ? (
+                    <tr>
+                      <td colSpan={6} className="text-muted-foreground py-6 text-center">
+                        لا توجد بيانات.
+                      </td>
+                    </tr>
+                  ) : (
+                    documentsByType.flatMap(([typeKey, rows]) => [
+                      <tr key={`dg-${typeKey}`} className="border-b bg-muted/40">
+                        <td colSpan={6} className="py-2 ps-2 text-xs font-semibold text-primary">
+                          النوع: {typeKey} ({rows.length})
+                        </td>
+                      </tr>,
+                      ...rows.map((d) => (
+                        <Fragment key={`doc-${d.id}`}>
+                          <tr className="border-b align-top">
+                            <td className="py-2 pe-3">{d.id}</td>
+                            <td className="py-2 pe-3 font-medium">{d.name}</td>
+                            <td className="py-2 pe-3">{d.type || "—"}</td>
+                            <td className="py-2 pe-3">{d.creator}</td>
+                            <td className="py-2 pe-3 text-xs [direction:ltr]">{d.createdAt || "—"}</td>
+                            <td className="py-2">
+                              <div className="flex flex-wrap gap-1">
+                                <Button type="button" size="sm" variant="outline" onClick={() => setExpandedDocId((id) => (id === d.id ? null : d.id))}>
+                                  {expandedDocId === d.id ? "إخفاء" : "استعراض"}
+                                </Button>
+                                <Button type="button" size="sm" variant="outline" onClick={() => {
+                                  const next = prompt("اسم المستند الجديد", d.name) ?? d.name;
+                                  runOp(`inline-doc-${d.id}`, async () => {
+                                    const res = await updateOdooDocumentAction({ documentId: d.id, name: next });
+                                    if (!res.ok) {
+                                      toast.error(res.error);
+                                      return;
+                                    }
+                                    toast.success(res.message);
+                                    setNeedsRefresh(true);
+                                  });
+                                }}>تعديل</Button>
+                                <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("documents.document", d.id)}>أرشفة</Button>
+                                <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("documents.document", d.id)}>حذف</Button>
+                              </div>
+                            </td>
+                          </tr>
+                          {expandedDocId === d.id ? (
+                            <tr className="border-b bg-muted/20">
+                              <td colSpan={6} className="p-3 text-xs">
+                                <p><span className="font-medium">نوع المستند:</span> {d.type || "—"}</p>
+                                <p><span className="font-medium">تاريخ الإنشاء:</span> {d.createdAt || "—"}</p>
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      )),
+                    ])
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -1233,7 +1467,7 @@ export function OdooTasksPanel() {
               type="button"
               variant="outline"
               onClick={loadSelectedDayEvents}
-              disabled={pending || agendaHydrate !== "idle"}
+              disabled={calBusy}
             >
               مطابقة اليوم المحدد
             </Button>
@@ -1249,7 +1483,7 @@ export function OdooTasksPanel() {
                       size="sm"
                       variant="secondary"
                       className="shrink-0"
-                      disabled={pending || agendaHydrate !== "idle"}
+                      disabled={calBusy}
                       onClick={() => setDeepCopySource(e)}
                     >
                       نسخ عميق…
@@ -1316,7 +1550,7 @@ export function OdooTasksPanel() {
               type="button"
               variant="outline"
               onClick={loadSourceMonthEvents}
-              disabled={pending || agendaHydrate !== "idle"}
+              disabled={calBusy}
             >
               جلب كل أيام شهر المصدر
             </Button>
@@ -1326,7 +1560,7 @@ export function OdooTasksPanel() {
             <Button type="button" variant="outline" onClick={() => setSelectedCalendarIds([])}>
               إلغاء الاختيار
             </Button>
-            <Button type="button" onClick={cloneSelectedMonthEvents} disabled={pending || agendaHydrate !== "idle"}>
+            <Button type="button" onClick={cloneSelectedMonthEvents} disabled={calBusy}>
               نسخ المحدد إلى الشهر الهدف
             </Button>
           </div>
@@ -1380,7 +1614,7 @@ export function OdooTasksPanel() {
                     size="sm"
                     variant="secondary"
                     className="shrink-0"
-                    disabled={pending || agendaHydrate !== "idle"}
+                    disabled={calBusy}
                     onClick={() => setDeepCopySource(e)}
                   >
                     نسخ عميق…

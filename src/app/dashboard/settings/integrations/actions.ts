@@ -33,11 +33,13 @@ async function safeAppendActivity(
       message: payload.message,
     });
   } catch (e) {
-    console.error("[odoo-debug] activity_log_failed", {
-      eventType: payload.eventType,
-      message: payload.message.slice(0, 180),
-      error: e instanceof Error ? e.message : String(e),
-    });
+    if (process.env.NODE_ENV === "development") {
+      console.error("[odoo-debug] activity_log_failed", {
+        eventType: payload.eventType,
+        message: payload.message.slice(0, 180),
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 }
 
@@ -103,13 +105,15 @@ export async function saveOdooCredentialsAction(formData: FormData) {
   );
 
   if (error) {
-    console.error("[odoo-debug] save upsert failed", {
-      traceId,
-      baseUrl,
-      browserMode,
-      db: browserMode ? ODOO_BROWSER_MODE_DB : databaseName || null,
-      message: error.message,
-    });
+    if (process.env.NODE_ENV === "development") {
+      console.error("[odoo-debug] save upsert failed", {
+        traceId,
+        baseUrl,
+        browserMode,
+        db: browserMode ? ODOO_BROWSER_MODE_DB : databaseName || null,
+        message: error.message,
+      });
+    }
     redirect("/dashboard/settings/integrations?err=odoo_save");
   }
 
@@ -251,14 +255,16 @@ export async function testOdooConnectionAction(input: {
   const session = await requireSession();
   const supabase = await createClient();
   const traceId = makeOdooTraceId(session.id);
-  console.error("[odoo-debug] action start", {
-    traceId,
-    build: ODOO_DEBUG_BUILD,
-    baseUrl: String(input.base_url ?? "").trim(),
-    databaseName: String(input.database_name ?? "").trim(),
-    loginUsername: String(input.login_username ?? "").trim(),
-    hasPassword: Boolean(String(input.password ?? "").trim()),
-  });
+  if (process.env.NODE_ENV === "development") {
+    console.error("[odoo-debug] action start", {
+      traceId,
+      build: ODOO_DEBUG_BUILD,
+      baseUrl: String(input.base_url ?? "").trim(),
+      databaseName: String(input.database_name ?? "").trim(),
+      loginUsername: String(input.login_username ?? "").trim(),
+      hasPassword: Boolean(String(input.password ?? "").trim()),
+    });
+  }
 
   const dbInput = String(input.database_name ?? "").trim();
   if (dbInput === ODOO_BROWSER_MODE_DB || !dbInput) {
@@ -333,7 +339,9 @@ export async function testOdooConnectionAction(input: {
     loginUsername: input.login_username.trim(),
     passwordPlain,
   });
-  console.error("[odoo-debug] action result", { traceId, ...r });
+  if (process.env.NODE_ENV === "development") {
+    console.error("[odoo-debug] action result", { traceId, ...r });
+  }
 
   return r.ok
     ? { ok: true, message: await tAction("integrationsActions.testOdooSuccess") }

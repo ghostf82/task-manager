@@ -16,6 +16,7 @@ import {
   type NotificationItem,
 } from "@/components/dashboard/notifications-menu";
 import { requireSession } from "@/lib/dashboard-auth";
+import { formatOdooLastSyncLine } from "@/lib/dashboard/format-odoo-last-sync";
 import { DASHBOARD_NAV_LINKS } from "@/lib/i18n/nav-config";
 import { getTranslator } from "@/lib/i18n/get-translator";
 
@@ -51,7 +52,7 @@ export default async function DashboardLayout({
 }) {
   const session = await requireSession();
   const supabase = await createClient();
-  const [{ t, locale, catalog }, profileRes, membershipRes, notifsRes] = await Promise.all([
+  const [{ t, locale, catalog }, profileRes, membershipRes, notifsRes, odooSyncRes] = await Promise.all([
     getTranslator(),
     supabase
       .from("users")
@@ -72,10 +73,22 @@ export default async function DashboardLayout({
       .eq("user_id", session.id)
       .order("created_at", { ascending: false })
       .limit(12),
+    supabase.from("odoo_browser_cache").select("updated_at").eq("user_id", session.id),
   ]);
   const profile = profileRes.data;
   const membership = membershipRes.data;
   const notifs = notifsRes.data;
+  const odooSyncRows = odooSyncRes.data;
+  const odooSyncTimes = (odooSyncRows ?? [])
+    .map((r) => Date.parse(String(r.updated_at)))
+    .filter((n) => Number.isFinite(n));
+  const lastOdooSyncIso = odooSyncTimes.length
+    ? new Date(Math.max(...odooSyncTimes)).toISOString()
+    : null;
+  const odooSyncUi = formatOdooLastSyncLine({
+    locale: locale === "en" ? "en" : "ar",
+    iso: lastOdooSyncIso,
+  });
 
   const rawT = membership?.tenants;
   const tenantName =
@@ -122,6 +135,7 @@ export default async function DashboardLayout({
 
   return (
     <DashboardI18nProvider locale={locale} catalog={catalog}>
+      {/* Browser extension console noise (message channel closed / runtime.lastError) is usually unrelated to this app. */}
       <div className="flex min-h-screen flex-col">
         <AppSidebar {...shell} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col md:pe-60">
@@ -135,6 +149,20 @@ export default async function DashboardLayout({
               >
                 {shell.panelTitle}
               </Link>
+              {odooSyncUi.text ? (
+                <span
+                  className={`hidden min-w-0 truncate text-[10px] font-normal leading-tight md:inline md:max-w-[min(100%,14rem)] lg:max-w-[min(100%,22rem)] ${
+                    odooSyncUi.stale ? "text-amber-800/90 dark:text-amber-300/90" : "text-muted-foreground"
+                  }`}
+                  title={odooSyncUi.text}
+                >
+                  {odooSyncUi.text}
+                </span>
+              ) : (
+                <span className="text-muted-foreground hidden truncate text-[10px] md:inline">
+                  {t("dashboard.odooLastSyncNever")}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <NotificationsMenu
