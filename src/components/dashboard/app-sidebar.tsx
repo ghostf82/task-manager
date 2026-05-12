@@ -30,18 +30,6 @@ import {
 import type { AppLocale } from "@/lib/i18n/locale-core";
 import { cn } from "@/lib/utils";
 
-function SidebarCredit() {
-  return (
-    <div className="shrink-0 border-t border-gold/10 px-3 py-2.5">
-      <p className="text-center text-[12px] font-light leading-relaxed text-sidebar-foreground/70">
-        Concept & Development by Fareed Yousef
-        <br />
-        © 2026 All Rights Reserved
-      </p>
-    </div>
-  );
-}
-
 const ICONS: Record<string, LucideIcon> = {
   Home,
   Building2,
@@ -146,7 +134,6 @@ export function AppSidebar({
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2.5">
         <NavLinks pathname={pathname} items={navItems} isSuperAdmin={isSuperAdmin} />
       </nav>
-      <SidebarCredit />
       <SidebarUserFooter locale={locale} {...userFooter} />
     </aside>
   );
@@ -198,7 +185,6 @@ export function MobileDashboardNav({
               onPick={() => setOpen(false)}
             />
           </nav>
-          <SidebarCredit />
           <SidebarUserFooter locale={locale} {...userFooter} />
         </SheetContent>
       </Sheet>
