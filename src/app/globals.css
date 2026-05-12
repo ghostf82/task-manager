@@ -161,7 +161,7 @@
 
 @layer components {
   .premium-surface {
-    @apply rounded-3xl border border-gold/20 bg-white text-card-foreground shadow-xl ring-1 ring-gold/15;
+    @apply rounded-3xl border border-gold/20 bg-white p-4 text-card-foreground shadow-xl ring-1 ring-gold/15 md:p-6;
     box-shadow: var(--shadow-card-light);
   }
   .premium-hero {

@@ -57,7 +57,6 @@ export type DashboardShellClientProps = {
   mobileNavTitle: string;
   navItems: NavItemSerialized[];
   lang: { label: string; ar: string; en: string };
-  copyright: string;
 };
 
 function NavLinks({
@@ -102,23 +101,12 @@ function NavLinks({
   );
 }
 
-function SidebarCopyright({ copyright }: { copyright: string }) {
-  return (
-    <div className="shrink-0 border-t border-gold/10 px-3 py-3">
-      <p className="text-center text-[11px] font-light leading-relaxed text-primary/55">
-        {copyright}
-      </p>
-    </div>
-  );
-}
-
 export function AppSidebar({
   isSuperAdmin,
   locale,
   brand,
   navItems,
   lang,
-  copyright,
 }: DashboardShellClientProps) {
   const pathname = usePathname();
 
@@ -138,7 +126,6 @@ export function AppSidebar({
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2.5">
         <NavLinks pathname={pathname} items={navItems} isSuperAdmin={isSuperAdmin} />
       </nav>
-      <SidebarCopyright copyright={copyright} />
     </aside>
   );
 }
@@ -149,7 +136,6 @@ export function MobileDashboardNav({
   mobileNavTitle,
   navItems,
   lang,
-  copyright,
 }: DashboardShellClientProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -189,7 +175,6 @@ export function MobileDashboardNav({
               onPick={() => setOpen(false)}
             />
           </nav>
-          <SidebarCopyright copyright={copyright} />
         </SheetContent>
       </Sheet>
     </>

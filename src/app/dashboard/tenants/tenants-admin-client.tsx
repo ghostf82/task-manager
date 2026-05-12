@@ -129,7 +129,7 @@ export function TenantsAdminClient({ tenants }: { tenants: TenantRow[] }) {
         </div>
       </div>
 
-      <div className="premium-surface">
+      <div className="premium-surface overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>

@@ -199,7 +199,7 @@ export function TasksPageClient({
             />
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto px-2 md:px-3">
             <Table>
             <TableHeader>
               <TableRow>

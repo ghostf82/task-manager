@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cairo, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
+import { AppFooter } from "@/components/app-footer";
 import { getLocale, localeDir } from "@/lib/i18n/get-locale";
 import { getTranslator } from "@/lib/i18n/get-translator";
 import { getMetadataBase } from "@/lib/site-url";
@@ -41,9 +42,10 @@ export default async function RootLayout({
     <html lang={locale} dir={dir} suppressHydrationWarning>
       <body
         suppressHydrationWarning
-        className={`${cairoSans.variable} ${geistMono.variable} font-sans antialiased`}
+        className={`${cairoSans.variable} ${geistMono.variable} flex min-h-dvh flex-col font-sans antialiased`}
       >
-        {children}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+        <AppFooter />
       </body>
     </html>
   );

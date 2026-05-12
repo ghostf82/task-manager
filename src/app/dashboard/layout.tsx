@@ -11,13 +11,38 @@ import {
 } from "@/components/dashboard/app-sidebar";
 import { DashboardPageSkeleton } from "@/components/dashboard/dashboard-page-skeleton";
 import { HeaderUserMenu } from "@/components/dashboard/header-user-menu";
-import { NotificationsMenu } from "@/components/dashboard/notifications-menu";
+import {
+  NotificationsMenu,
+  type NotificationItem,
+} from "@/components/dashboard/notifications-menu";
 import { requireSession } from "@/lib/dashboard-auth";
 import { DASHBOARD_NAV_LINKS } from "@/lib/i18n/nav-config";
 import { getTranslator } from "@/lib/i18n/get-translator";
 
 /** Netlify / serverless: allow long-running dashboard server actions (Odoo sync, calendar clone). */
 export const maxDuration = 120;
+
+function toIsoString(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (v instanceof Date) return v.toISOString();
+  return String(v);
+}
+
+function serializeNotifications(
+  rows: { id: string; title: string | null; body: string | null; created_at: string; read_at: string | null }[] | null,
+): NotificationItem[] {
+  if (!rows?.length) return [];
+  return rows
+    .filter((r) => r != null && String(r.id ?? "").length > 0)
+    .map((r) => ({
+      id: String(r.id),
+      title: typeof r.title === "string" ? r.title : r.title == null ? "" : String(r.title),
+      body: r.body == null || r.body === "" ? null : String(r.body),
+      created_at: toIsoString(r.created_at),
+      read_at: r.read_at == null || r.read_at === "" ? null : toIsoString(r.read_at),
+    }));
+}
 
 export default async function DashboardLayout({
   children,
@@ -81,7 +106,6 @@ export default async function DashboardLayout({
       ar: t("language.ar"),
       en: t("language.en"),
     },
-    copyright: t("footer.tagline"),
   };
 
   const headerUser = {
@@ -114,7 +138,7 @@ export default async function DashboardLayout({
             </div>
             <div className="flex items-center gap-2">
               <NotificationsMenu
-                initialItems={notifs ?? []}
+                initialItems={serializeNotifications(notifs)}
                 label={t("dashboard.notifications")}
               />
               <HeaderUserMenu {...headerUser} />

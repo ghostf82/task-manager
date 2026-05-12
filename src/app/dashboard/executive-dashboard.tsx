@@ -311,7 +311,7 @@ export function ExecutiveDashboard({
             </CardTitle>
             <CardDescription>{t("executiveDashboard.taskDistributionDesc")}</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] w-full min-h-[260px] min-w-0">
+          <CardContent className="h-[min(340px,42vh)] w-full min-h-[280px] min-w-0">
             {pieSum === 0 ? (
               <p className="text-muted-foreground flex h-full items-center justify-center text-sm">
                 {t("executiveDashboard.taskDistributionEmpty")}
@@ -320,24 +320,39 @@ export function ExecutiveDashboard({
               <SizedChartHost className="h-full w-full min-h-[260px] min-w-0">
                 {({ width, height }) => (
                   <ResponsiveContainer width={width} height={height}>
-                    <PieChart>
+                    <PieChart margin={{ top: 8, right: 12, bottom: 40, left: 12 }}>
                       <Pie
                         data={pieChartData}
                         dataKey="value"
                         nameKey="name"
                         cx="50%"
-                        cy="50%"
-                        innerRadius={52}
-                        outerRadius={88}
+                        cy="46%"
+                        innerRadius={48}
+                        outerRadius={78}
                         paddingAngle={2}
-                        label
+                        label={false}
                       >
                         {pieChartData.map((e, i) => (
                           <Cell key={i} fill={e.fill} />
                         ))}
                       </Pie>
-                      <Tooltip />
-                      <Legend />
+                      <Tooltip
+                        formatter={(value, name) => {
+                          const n =
+                            typeof value === "number"
+                              ? value
+                              : typeof value === "string"
+                                ? Number(value)
+                                : Number(value ?? 0);
+                          return [Number.isFinite(n) ? n : 0, String(name ?? "")];
+                        }}
+                        contentStyle={{ fontSize: 12 }}
+                      />
+                      <Legend
+                        verticalAlign="bottom"
+                        align="center"
+                        wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                      />
                     </PieChart>
                   </ResponsiveContainer>
                 )}
@@ -354,7 +369,7 @@ export function ExecutiveDashboard({
             </CardTitle>
             <CardDescription>{t("executiveDashboard.docsByTenantDesc")}</CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] w-full min-h-[260px] min-w-0">
+          <CardContent className="h-[min(340px,42vh)] w-full min-h-[280px] min-w-0">
             {!docBar.length ? (
               <p className="text-muted-foreground flex h-full items-center justify-center text-sm">
                 {t("executiveDashboard.docsByTenantEmpty")}
@@ -366,18 +381,45 @@ export function ExecutiveDashboard({
                     <BarChart
                       data={docBar}
                       layout="vertical"
-                      margin={{ left: 4, right: 12, top: 8, bottom: 8 }}
+                      margin={{ left: 8, right: 20, top: 12, bottom: 12 }}
+                      barCategoryGap="12%"
                     >
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis type="number" allowDecimals={false} />
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="hsl(var(--border))"
+                        strokeOpacity={0.55}
+                        horizontal={false}
+                      />
+                      <XAxis
+                        type="number"
+                        allowDecimals={false}
+                        tick={{ fontSize: 11 }}
+                        tickLine={false}
+                      />
                       <YAxis
                         type="category"
                         dataKey="name"
-                        width={88}
-                        tick={{ fontSize: 10 }}
+                        width={104}
+                        tick={{ fontSize: 11 }}
                         interval={0}
+                        tickLine={false}
                       />
-                      <Tooltip />
+                      <Tooltip
+                        formatter={(value) => {
+                          const n =
+                            typeof value === "number"
+                              ? value
+                              : typeof value === "string"
+                                ? Number(value)
+                                : Number(value ?? 0);
+                          return [
+                            Number.isFinite(n) ? n : 0,
+                            t("executiveDashboard.chartDocsSeries"),
+                          ];
+                        }}
+                        labelFormatter={(label) => String(label ?? "")}
+                        contentStyle={{ fontSize: 12 }}
+                      />
                       <Bar
                         dataKey="count"
                         fill="#f59e0b"

@@ -140,7 +140,7 @@ export function UsersAdminClient({
         <p className="text-destructive text-sm">{tenantsError}</p>
       ) : null}
 
-      <div className="premium-surface">
+      <div className="premium-surface overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -235,15 +235,17 @@ function InviteUserDialog({
     { tenant_id: string; role_slug: string; job_title: string }[]
   >([{ tenant_id: tenants[0]?.id ?? "", role_slug: "employee", job_title: "" }]);
 
+  const defaultTenantId = tenants[0]?.id ?? "";
+
   useEffect(() => {
     if (open) {
       setEmail("");
       setFullName("");
       setPhone("");
       setNationalId("");
-      setRows([{ tenant_id: tenants[0]?.id ?? "", role_slug: "employee", job_title: "" }]);
+      setRows([{ tenant_id: defaultTenantId, role_slug: "employee", job_title: "" }]);
     }
-  }, [open, tenants]);
+  }, [open, defaultTenantId]);
 
   function addRow() {
     setRows((r) => [

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Bell } from "lucide-react";
 import { markNotificationsReadAction } from "@/app/dashboard/notifications/actions";
@@ -15,7 +15,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 export type NotificationItem = {
   id: string;
@@ -25,11 +24,48 @@ export type NotificationItem = {
   read_at: string | null;
 };
 
+function normalizeItems(raw: NotificationItem[] | null | undefined): NotificationItem[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+  return raw
+    .filter((r) => r != null && String((r as NotificationItem).id ?? "").length > 0)
+    .map((r) => {
+      const row = r as NotificationItem;
+      return {
+        id: String(row.id),
+        title: typeof row.title === "string" ? row.title : "",
+        body: row.body == null || row.body === "" ? null : String(row.body),
+        created_at:
+          typeof row.created_at === "string"
+            ? row.created_at
+            : row.created_at != null
+              ? String(row.created_at)
+              : "",
+        read_at:
+          row.read_at == null || row.read_at === ""
+            ? null
+            : typeof row.read_at === "string"
+              ? row.read_at
+              : String(row.read_at),
+      };
+    });
+}
+
+function formatNotifDate(iso: string, dateLocale: string) {
+  if (!iso?.trim()) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  try {
+    return d.toLocaleString(dateLocale, { dateStyle: "short", timeStyle: "short" });
+  } catch {
+    return "—";
+  }
+}
+
 export function NotificationsMenu({
   initialItems,
   label,
 }: {
-  initialItems: NotificationItem[];
+  initialItems?: NotificationItem[] | null;
   /** Header label next to the bell; falls back to dashboard.notifications */
   label?: string;
 }) {
@@ -37,8 +73,13 @@ export function NotificationsMenu({
   const displayLabel = label ?? t("dashboard.notifications");
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [items, setItems] = useState(initialItems);
-  const unread = items.filter((i) => !i.read_at);
+  const [items, setItems] = useState(() => normalizeItems(initialItems));
+
+  useEffect(() => {
+    setItems(normalizeItems(initialItems));
+  }, [initialItems]);
+
+  const unread = useMemo(() => items.filter((i) => !i.read_at), [items]);
 
   async function markRead(id: string) {
     startTransition(async () => {
@@ -57,7 +98,7 @@ export function NotificationsMenu({
   }
 
   async function markAll() {
-    const ids = unread.map((u) => u.id);
+    const ids = unread.map((u) => u.id).filter(Boolean);
     if (!ids.length) return;
     startTransition(async () => {
       try {
@@ -86,7 +127,7 @@ export function NotificationsMenu({
           </span>
         ) : null}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
+      <DropdownMenuContent align="end" className="w-80 min-w-[20rem]">
         <DropdownMenuLabel className="flex items-center justify-between gap-2">
           <span>{t("notificationsMenu.listTitle")}</span>
           {unread.length > 0 ? (
@@ -96,7 +137,11 @@ export function NotificationsMenu({
               size="xs"
               className="h-7 text-xs"
               disabled={pending}
-              onClick={() => void markAll()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void markAll();
+              }}
             >
               {t("notificationsMenu.markAll")}
             </Button>
@@ -108,12 +153,12 @@ export function NotificationsMenu({
             {t("notificationsMenu.empty")}
           </p>
         ) : (
-          <ScrollArea className="h-64">
+          <div className="max-h-64 overflow-y-auto overscroll-contain px-0.5">
             {items.map((n) => (
               <DropdownMenuItem
                 key={n.id}
-                className="flex cursor-default flex-col items-stretch gap-1 p-2 text-start"
-                onSelect={(e) => e.preventDefault()}
+                closeOnClick={false}
+                className="flex cursor-default flex-col items-stretch gap-1 rounded-lg p-2 text-start"
               >
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-xs font-medium leading-tight">{n.title}</span>
@@ -124,7 +169,11 @@ export function NotificationsMenu({
                       size="xs"
                       className="h-6 shrink-0 text-[10px]"
                       disabled={pending}
-                      onClick={() => void markRead(n.id)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void markRead(n.id);
+                      }}
                     >
                       {t("notificationsMenu.read")}
                     </Button>
@@ -139,14 +188,11 @@ export function NotificationsMenu({
                   className="text-muted-foreground text-[10px]"
                   suppressHydrationWarning
                 >
-                  {new Date(n.created_at).toLocaleString(dateLocale, {
-                    dateStyle: "short",
-                    timeStyle: "short",
-                  })}
+                  {formatNotifDate(n.created_at, dateLocale)}
                 </span>
               </DropdownMenuItem>
             ))}
-          </ScrollArea>
+          </div>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
