@@ -58,10 +58,10 @@
  */
 :root {
   --cream-from: #ffffff;
-  --cream-to: #faf9f6;
+  --cream-to: #ffffff;
   --gold: oklch(0.72 0.12 78);
 
-  --background: oklch(0.985 0.006 85);
+  --background: #ffffff;
   --foreground: oklch(0.28 0.04 48);
   --card: #ffffff;
   --card-foreground: oklch(0.28 0.04 48);
@@ -98,10 +98,12 @@
   --sidebar-border: oklch(0.72 0.08 78 / 0.22);
   --sidebar-ring: oklch(0.78 0.12 78 / 0.35);
 
-  --shadow-premium: 0 24px 48px -28px oklch(0.35 0.04 48 / 0.12);
+  --shadow-premium: 0 28px 56px -28px rgba(212, 175, 55, 0.22);
   --shadow-card-light:
-    0 20px 40px -28px rgba(212, 175, 55, 0.12), 0 0 0 1px rgba(212, 175, 55, 0.08);
-  --glow-primary: 0 0 28px rgba(212, 175, 55, 0.35);
+    0 24px 48px -22px rgba(212, 175, 55, 0.22),
+    0 6px 18px -12px rgba(212, 175, 55, 0.18),
+    0 0 0 1px rgba(212, 175, 55, 0.20);
+  --glow-primary: 0 0 28px rgba(212, 175, 55, 0.4);
 
   --button-primary-gradient: linear-gradient(180deg, #fdbb2d 0%, #d4af37 50%, #b8860b 100%);
   --button-primary-glow: 0 0 20px -5px rgba(212, 175, 55, 0.6);
@@ -149,8 +151,7 @@
   }
   body {
     @apply text-foreground antialiased;
-    background-color: var(--cream-to);
-    background-image: linear-gradient(180deg, var(--cream-from) 0%, var(--cream-to) 100%);
+    background-color: #ffffff;
     min-height: 100dvh;
   }
   html {
@@ -160,12 +161,12 @@
 
 @layer components {
   .premium-surface {
-    @apply rounded-3xl border border-gold/15 bg-white text-card-foreground shadow-xl;
+    @apply rounded-3xl border border-gold/20 bg-white text-card-foreground shadow-xl ring-1 ring-gold/15;
     box-shadow: var(--shadow-card-light);
   }
   .premium-hero {
-    @apply relative overflow-hidden rounded-3xl border border-gold/20 bg-white/95 text-foreground shadow-xl backdrop-blur-md;
-    box-shadow: var(--shadow-card-light), 0 0 48px -18px rgba(212, 175, 55, 0.22);
+    @apply relative overflow-hidden rounded-3xl border border-gold/25 bg-white/95 text-foreground shadow-xl backdrop-blur-md ring-1 ring-gold/15;
+    box-shadow: var(--shadow-card-light), 0 0 56px -16px rgba(212, 175, 55, 0.32);
   }
   .premium-chip {
     @apply rounded-full border border-gold/20 bg-gold/10 px-2.5 py-1 text-xs font-medium text-primary;

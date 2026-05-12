@@ -19,7 +19,6 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { LanguageToggle } from "@/components/dashboard/language-toggle";
-import { SidebarUserFooter } from "@/components/dashboard/sidebar-user-footer";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -58,17 +57,7 @@ export type DashboardShellClientProps = {
   mobileNavTitle: string;
   navItems: NavItemSerialized[];
   lang: { label: string; ar: string; en: string };
-  userFooter: {
-    displayName: string | null;
-    email: string | null;
-    jobTitle: string | null;
-    tenantLabel: string | null;
-    avatarUrl: string | null;
-    positionLabel: string;
-    fallbackName: string;
-    accountLabel: string;
-    signOutLabel: string;
-  };
+  copyright: string;
 };
 
 function NavLinks({
@@ -113,18 +102,33 @@ function NavLinks({
   );
 }
 
+function SidebarCopyright({ copyright }: { copyright: string }) {
+  return (
+    <div className="shrink-0 border-t border-gold/10 px-3 py-3">
+      <p className="text-center text-[11px] font-light leading-relaxed text-primary/55">
+        {copyright}
+      </p>
+    </div>
+  );
+}
+
 export function AppSidebar({
   isSuperAdmin,
   locale,
   brand,
   navItems,
   lang,
-  userFooter,
+  copyright,
 }: DashboardShellClientProps) {
   const pathname = usePathname();
 
   return (
-    <aside className="app-sidebar-shell hidden w-60 shrink-0 flex-col border-e border-gold/10 md:flex">
+    <aside
+      className={cn(
+        "app-sidebar-shell hidden w-60 flex-col border-s border-gold/10",
+        "md:fixed md:inset-y-0 md:end-0 md:z-30 md:flex",
+      )}
+    >
       <div className="flex h-16 shrink-0 items-center border-b border-gold/10 px-4">
         <span className="text-sm font-extrabold tracking-tight text-primary">
           {brand}
@@ -134,7 +138,7 @@ export function AppSidebar({
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2.5">
         <NavLinks pathname={pathname} items={navItems} isSuperAdmin={isSuperAdmin} />
       </nav>
-      <SidebarUserFooter locale={locale} {...userFooter} />
+      <SidebarCopyright copyright={copyright} />
     </aside>
   );
 }
@@ -145,7 +149,7 @@ export function MobileDashboardNav({
   mobileNavTitle,
   navItems,
   lang,
-  userFooter,
+  copyright,
 }: DashboardShellClientProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -185,7 +189,7 @@ export function MobileDashboardNav({
               onPick={() => setOpen(false)}
             />
           </nav>
-          <SidebarUserFooter locale={locale} {...userFooter} />
+          <SidebarCopyright copyright={copyright} />
         </SheetContent>
       </Sheet>
     </>
