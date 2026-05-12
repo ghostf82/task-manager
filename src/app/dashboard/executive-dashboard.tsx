@@ -61,14 +61,14 @@ function SummaryCard({
   tone: "default" | "emerald" | "amber" | "violet" | "rose";
 }) {
   const toneRing = {
-    default: "ring-border/80",
+    default: "ring-gold/15",
     emerald: "ring-emerald-500/25",
     amber: "ring-amber-500/25",
     violet: "ring-violet-500/25",
     rose: "ring-rose-500/25",
   }[tone];
   const toneBg = {
-    default: "from-muted/40",
+    default: "from-primary/8",
     emerald: "from-emerald-500/12",
     amber: "from-amber-500/12",
     violet: "from-violet-500/12",
@@ -155,18 +155,18 @@ export function ExecutiveDashboard({
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8">
       <div className="premium-hero p-6 md:p-8">
-        <div className="pointer-events-none absolute -start-24 -top-24 size-72 rounded-full bg-white/20 blur-3xl" />
-        <div className="pointer-events-none absolute -end-16 bottom-0 size-64 rounded-full bg-cyan-300/20 blur-3xl" />
+        <div className="pointer-events-none absolute -start-24 -top-24 size-72 rounded-full bg-primary/10 blur-3xl" />
+        <div className="pointer-events-none absolute -end-16 bottom-0 size-64 rounded-full bg-primary/8 blur-3xl" />
         <div className="relative flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-white/80">
+            <p className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-muted-foreground">
               <LayoutDashboard className="size-3.5 opacity-90" />
               {t("executiveDashboard.eyebrow")}
             </p>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
               {t("executiveDashboard.title")}
             </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/85">
+            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
               {t("executiveDashboard.subtitle")}
             </p>
           </div>
@@ -187,7 +187,7 @@ export function ExecutiveDashboard({
           </div>
         </div>
         {lastScanAt ? (
-          <p className="relative mt-3 text-xs text-white/80">
+          <p className="relative mt-3 text-xs text-muted-foreground">
             <span>{t("executiveDashboard.lastSyncLabel")} </span>
             <span suppressHydrationWarning>
               {new Date(lastScanAt).toLocaleString(dateLocale, {

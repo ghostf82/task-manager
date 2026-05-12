@@ -16,7 +16,7 @@
     "integrations": "System connections"
   },
   "dashboard": {
-    "brand": "Fared Task Intelligence",
+    "brand": "Task Intelligence",
     "panelTitle": "Dashboard",
     "mobileNav": "Navigation",
     "notifications": "Notifications"
@@ -27,7 +27,7 @@
     "en": "English"
   },
   "footer": {
-    "tagline": "This program idea and design by Fareed Yousef"
+    "tagline": "Concept & Development by Fareed Yousef\n© 2026 All Rights Reserved"
   },
   "profileBar": {
     "fallbackName": "User",

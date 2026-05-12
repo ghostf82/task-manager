@@ -96,7 +96,7 @@ export default async function DashboardLayout({
 
   return (
     <DashboardI18nProvider locale={locale} catalog={catalog}>
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen flex-col">
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <AppSidebar {...shell} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -112,8 +112,8 @@ export default async function DashboardLayout({
               </Link>
             </div>
             <div className="flex items-center gap-2">
-              <div className="hidden items-center gap-2 rounded-3xl border border-primary/25 bg-card/35 px-2.5 py-1.5 text-xs shadow-[var(--shadow-premium)] backdrop-blur-xl md:flex">
-                <div className="flex size-7 items-center justify-center overflow-hidden rounded-full border border-primary/50 bg-linear-to-br from-primary/90 to-primary/55 text-primary-foreground shadow-[var(--glow-primary)]">
+              <div className="hidden items-center gap-2 rounded-3xl border border-gold/20 bg-white/70 px-2.5 py-1.5 text-xs shadow-sm backdrop-blur-md md:flex">
+                <div className="flex size-7 items-center justify-center overflow-hidden rounded-full border border-gold/35 bg-linear-to-br from-primary/90 to-primary/55 text-primary-foreground shadow-[var(--glow-primary)]">
                   {shell.userFooter.avatarUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={shell.userFooter.avatarUrl} alt={shell.userFooter.displayName ?? "User"} className="size-full object-cover" />

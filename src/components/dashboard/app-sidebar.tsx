@@ -30,6 +30,18 @@ import {
 import type { AppLocale } from "@/lib/i18n/locale-core";
 import { cn } from "@/lib/utils";
 
+function SidebarCredit() {
+  return (
+    <div className="shrink-0 border-t border-gold/10 px-3 py-2.5">
+      <p className="text-center text-[12px] font-light leading-relaxed text-sidebar-foreground/70">
+        Concept & Development by Fareed Yousef
+        <br />
+        © 2026 All Rights Reserved
+      </p>
+    </div>
+  );
+}
+
 const ICONS: Record<string, LucideIcon> = {
   Home,
   Building2,
@@ -100,7 +112,7 @@ function NavLinks({
             className={cn(
               "flex items-center gap-2 rounded-full px-3 py-2 text-sm font-light transition-all duration-200",
               active
-                ? "bg-primary/18 text-primary shadow-[var(--glow-primary)] ring-1 ring-primary/45"
+                ? "bg-primary text-primary-foreground shadow-md ring-1 ring-gold/35"
                 : "text-sidebar-foreground/85 hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
             )}
           >
@@ -124,9 +136,9 @@ export function AppSidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="app-sidebar-shell hidden w-60 shrink-0 flex-col border-e border-sidebar-border/70 md:flex">
-      <div className="flex h-16 shrink-0 items-center border-b border-sidebar-border/70 px-4">
-        <span className="text-sm font-bold tracking-tight text-primary">
+    <aside className="app-sidebar-shell hidden w-60 shrink-0 flex-col border-e border-gold/10 md:flex">
+      <div className="flex h-16 shrink-0 items-center border-b border-gold/10 px-4">
+        <span className="text-sm font-extrabold tracking-tight text-primary">
           {brand}
         </span>
       </div>
@@ -134,6 +146,7 @@ export function AppSidebar({
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2.5">
         <NavLinks pathname={pathname} items={navItems} isSuperAdmin={isSuperAdmin} />
       </nav>
+      <SidebarCredit />
       <SidebarUserFooter locale={locale} {...userFooter} />
     </aside>
   );
@@ -163,8 +176,11 @@ export function MobileDashboardNav({
         <Menu className="size-5" />
       </Button>
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="start" className="flex w-[min(100%,18rem)] flex-col p-0">
-          <SheetHeader className="border-b border-border px-4 py-4 text-start">
+        <SheetContent
+          side="start"
+          className="flex h-full max-h-dvh w-[min(100%,18rem)] flex-col p-0"
+        >
+          <SheetHeader className="shrink-0 border-b border-gold/10 px-4 py-4 text-start">
             <SheetTitle className="text-start">{mobileNavTitle}</SheetTitle>
           </SheetHeader>
           <LanguageToggle
@@ -174,7 +190,7 @@ export function MobileDashboardNav({
             enLabel={lang.en}
             className="border-0"
           />
-          <nav className="flex max-h-[min(50dvh,22rem)] flex-col gap-0.5 overflow-y-auto p-2">
+          <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
             <NavLinks
               pathname={pathname}
               items={navItems}
@@ -182,9 +198,8 @@ export function MobileDashboardNav({
               onPick={() => setOpen(false)}
             />
           </nav>
-          <div className="mt-auto border-t border-border">
-            <SidebarUserFooter locale={locale} {...userFooter} />
-          </div>
+          <SidebarCredit />
+          <SidebarUserFooter locale={locale} {...userFooter} />
         </SheetContent>
       </Sheet>
     </>

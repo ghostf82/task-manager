@@ -398,7 +398,7 @@ export function CalendarDeepCopyDialog({
             {progress === "copying_agenda" ? (
               <div className="space-y-1.5" aria-live="polite">
                 <div
-                  className="h-2 overflow-hidden rounded-full bg-muted"
+                  className="h-2 overflow-hidden rounded-full bg-progress-track"
                   role="progressbar"
                   aria-valuemin={0}
                   aria-valuemax={100}

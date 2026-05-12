@@ -28,21 +28,25 @@ export function LanguageToggle({ locale, label, arLabel, enLabel, className }: P
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 border-b border-sidebar-border/60 bg-white/5 px-3 py-2 text-white/90",
+        "flex items-center gap-1.5 border-b border-gold/10 bg-black/15 px-3 py-2 text-sidebar-foreground/90",
         className,
       )}
       role="group"
       aria-label={label}
     >
-      <Languages className="size-3.5 shrink-0 text-white/70" aria-hidden />
-      <span className="me-auto text-[11px] font-medium uppercase tracking-wide text-white/70">
+      <Languages className="size-3.5 shrink-0 text-primary/75" aria-hidden />
+      <span className="me-auto text-[11px] font-medium uppercase tracking-wide text-sidebar-foreground/65">
         {label}
       </span>
       <Button
         type="button"
         size="sm"
         variant={locale === "ar" ? "default" : "outline"}
-        className="h-7 min-w-12 px-2 text-xs"
+        className={cn(
+          "h-7 min-w-12 px-2 text-xs",
+          locale !== "ar" &&
+            "border-gold/30 bg-transparent text-sidebar-foreground hover:bg-primary/12 hover:text-sidebar-foreground",
+        )}
         onClick={() => void pick("ar")}
       >
         {arLabel}
@@ -51,7 +55,11 @@ export function LanguageToggle({ locale, label, arLabel, enLabel, className }: P
         type="button"
         size="sm"
         variant={locale === "en" ? "default" : "outline"}
-        className="h-7 min-w-12 px-2 text-xs"
+        className={cn(
+          "h-7 min-w-12 px-2 text-xs",
+          locale !== "en" &&
+            "border-gold/30 bg-transparent text-sidebar-foreground hover:bg-primary/12 hover:text-sidebar-foreground",
+        )}
         onClick={() => void pick("en")}
       >
         {enLabel}
