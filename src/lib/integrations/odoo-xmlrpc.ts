@@ -165,3 +165,34 @@ export function defaultOpenTaskDomain(odooUid: number): unknown[] {
     ["stage_id.fold", "=", false],
   ];
 }
+
+/**
+ * Tasks assigned to this Odoo user (Many2many assignees or single responsible),
+ * without filtering by stage fold — used when strict "open" stages return none
+ * (misconfigured `fold`, custom stages, or databases where `stage_id.fold` is unreliable).
+ */
+export function assignedToUserDomain(odooUid: number): unknown[] {
+  return ["|", ["user_ids", "in", [odooUid]], ["user_id", "=", odooUid]];
+}
+
+/**
+ * Domain for inbound scan / open-task reads. Uses `ODOO_OPEN_TASK_DOMAIN_JSON` when set;
+ * replace `__ODOO_UID__` in the JSON string with the numeric Odoo uid (avoids shipping a
+ * static `[1]` domain from examples). Invalid JSON falls back to `defaultOpenTaskDomain`.
+ */
+export function resolveOpenTaskSearchDomain(odooUid: number): unknown[] {
+  const raw = process.env.ODOO_OPEN_TASK_DOMAIN_JSON?.trim();
+  if (!raw) {
+    return defaultOpenTaskDomain(odooUid);
+  }
+  try {
+    const replaced = raw.split("__ODOO_UID__").join(String(odooUid));
+    const parsed = JSON.parse(replaced) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed as unknown[];
+    }
+  } catch {
+    // ignore
+  }
+  return defaultOpenTaskDomain(odooUid);
+}

@@ -2,11 +2,12 @@ import "server-only";
 
 import { decryptCredentialSecret } from "@/lib/crypto/credentials-cipher";
 import {
-  defaultOpenTaskDomain,
+  assignedToUserDomain,
   odooAuthenticate,
   odooListDatabases,
   odooReadOne,
   odooSearchRead,
+  resolveOpenTaskSearchDomain,
   sanitizeOdooBaseUrl,
   odooWrite,
   type OdooTaskRecord,
@@ -1977,40 +1978,42 @@ export async function fetchOdooOpenTasksForUser(
       login: bundle.username.trim(),
       password,
     });
-    const customDomain = process.env.ODOO_OPEN_TASK_DOMAIN_JSON?.trim();
-    let domain: unknown[];
-    if (customDomain) {
+    const domainAttempts: unknown[][] = [
+      resolveOpenTaskSearchDomain(uid),
+      assignedToUserDomain(uid),
+      [],
+    ];
+    let lastRpcError: string | undefined;
+    for (const domain of domainAttempts) {
       try {
-        const parsed = JSON.parse(customDomain) as unknown;
-        domain = Array.isArray(parsed) ? (parsed as unknown[]) : defaultOpenTaskDomain(uid);
-      } catch {
-        domain = defaultOpenTaskDomain(uid);
+        const rows = await withTimeout(
+          odooSearchRead<OdooTaskRecord>({
+            baseUrl,
+            database,
+            uid,
+            password,
+            model: TASK_MODEL,
+            domain,
+            fields: [...TASK_FIELDS],
+            limit: 60,
+          }),
+          ODOO_CALL_TIMEOUT_MS,
+          "odoo_search_read"
+        );
+        const tasks = rows.map((r) => ({
+          ...r,
+          id: Number(r.id),
+          user_ids: Array.isArray(r.user_ids) ? r.user_ids.map(Number) : [],
+        }));
+        if (tasks.length > 0) {
+          return { tasks };
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        lastRpcError = humanizeOdooError(msg);
       }
-    } else {
-      domain = defaultOpenTaskDomain(uid);
     }
-    const rows = await withTimeout(
-      odooSearchRead<OdooTaskRecord>({
-        baseUrl,
-        database,
-        uid,
-        password,
-        model: TASK_MODEL,
-        domain,
-        fields: [...TASK_FIELDS],
-        limit: 60,
-      }),
-      ODOO_CALL_TIMEOUT_MS,
-      "odoo_search_read"
-    );
-
-    const tasks = rows.map((r) => ({
-      ...r,
-      id: Number(r.id),
-      user_ids: Array.isArray(r.user_ids) ? r.user_ids.map(Number) : [],
-    }));
-
-    return { tasks };
+    return { tasks: [], error: lastRpcError };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { tasks: [], error: humanizeOdooError(msg) };
@@ -2021,26 +2024,42 @@ export async function fetchOdooOpenTasksViaWebLogin(
   bundle: OdooCredentialBundle
 ): Promise<{ tasks: OdooTaskRecord[]; error?: string }> {
   try {
-    const tasksJson = await callKwWithSessionRetry(bundle, async (session) =>
-      webCallKw({
-        baseUrl: session.baseUrl,
-        cookieHeader: session.cookieHeader,
-        model: TASK_MODEL,
-        method: "search_read",
-        args: [defaultOpenTaskDomain(session.uid)],
-        kwargs: { fields: [...TASK_FIELDS], limit: 60 },
-      })
-    );
-    const result = Array.isArray(tasksJson.result) ? tasksJson.result : [];
-    const tasks = result
-      .filter((x) => x && typeof x === "object")
-      .map((r) => r as OdooTaskRecord)
-      .map((r) => ({
-        ...r,
-        id: Number(r.id),
-        user_ids: Array.isArray(r.user_ids) ? r.user_ids.map(Number) : [],
-      }));
-    return { tasks };
+    return (await callKwWithSessionRetry(bundle, async (session) => {
+      const uid = session.uid;
+      const domainAttempts: unknown[][] = [
+        resolveOpenTaskSearchDomain(uid),
+        assignedToUserDomain(uid),
+        [],
+      ];
+      let lastCallError: string | undefined;
+      for (const domain of domainAttempts) {
+        try {
+          const tasksJson = await webCallKw({
+            baseUrl: session.baseUrl,
+            cookieHeader: session.cookieHeader,
+            model: TASK_MODEL,
+            method: "search_read",
+            args: [domain],
+            kwargs: { fields: [...TASK_FIELDS], limit: 60 },
+          });
+          const result = Array.isArray(tasksJson.result) ? tasksJson.result : [];
+          const tasks = result
+            .filter((x) => x && typeof x === "object")
+            .map((r) => r as OdooTaskRecord)
+            .map((r) => ({
+              ...r,
+              id: Number(r.id),
+              user_ids: Array.isArray(r.user_ids) ? r.user_ids.map(Number) : [],
+            }));
+          if (tasks.length > 0) {
+            return { tasks };
+          }
+        } catch (e) {
+          lastCallError = humanizeGatewayError(e);
+        }
+      }
+      return { tasks: [], error: lastCallError };
+    })) as { tasks: OdooTaskRecord[]; error?: string };
   } catch (e) {
     return { tasks: [], error: humanizeGatewayError(e) };
   }
