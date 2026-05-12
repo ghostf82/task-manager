@@ -249,7 +249,7 @@ export function CalendarDeepCopyDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" showCloseButton={!pending}>
+      <DialogContent className="sm:max-w-md border-primary/25" showCloseButton={!pending}>
         <DialogHeader>
           <DialogTitle>نسخ عميق للحدث</DialogTitle>
           <DialogDescription>
@@ -259,7 +259,7 @@ export function CalendarDeepCopyDialog({
         </DialogHeader>
 
         <div className="grid gap-3">
-          <div className="rounded-md border border-border/60 bg-muted/20 p-2 text-xs text-muted-foreground">
+          <div className="rounded-3xl border border-primary/20 bg-muted/20 p-2 text-xs text-muted-foreground backdrop-blur-sm">
             <p>
               <span className="font-medium text-foreground">المصدر:</span> #{source.id} — {source.name}
             </p>
@@ -293,7 +293,7 @@ export function CalendarDeepCopyDialog({
             <p className="text-[11px] text-muted-foreground">يمكنك الاحتفاظ بالاسم أو تعديله قبل التنفيذ.</p>
           </div>
 
-          <div className="space-y-2 rounded-md border border-border/50 bg-muted/10 p-3">
+          <div className="space-y-2 rounded-3xl border border-border/50 bg-card/30 p-3 backdrop-blur-sm">
             <p className="text-xs font-medium text-foreground">المتابعون في الحدث الجديد</p>
             <p className="text-[11px] text-muted-foreground">
               يُضبط المنظم (<code className="text-[10px]">user_id</code>) دائمًا على حسابك في Odoo حتى يُسمح بنسخ الأجندة. الافتراضي: أنت فقط دون دعوات للزملاء.
@@ -358,8 +358,8 @@ export function CalendarDeepCopyDialog({
           </div>
 
           {preview ? (
-            <div className="rounded-md border border-emerald-500/25 bg-emerald-500/5 p-2 text-xs">
-              <p className="font-medium text-emerald-900 dark:text-emerald-100">معاينة بعد التحريك</p>
+            <div className="rounded-3xl border border-primary/25 bg-primary/8 p-2 text-xs backdrop-blur-sm">
+              <p className="font-semibold text-primary">معاينة بعد التحريك</p>
               <p className="mt-1 font-mono text-[11px] [direction:ltr] text-muted-foreground">
                 {preview.start} → {preview.stop}
               </p>
@@ -368,7 +368,7 @@ export function CalendarDeepCopyDialog({
             <p className="text-xs text-destructive">صيغة تاريخ الوجهة غير صالحة.</p>
           )}
 
-          <div className="space-y-2 rounded-md border border-border/50 bg-background/80 p-3">
+          <div className="space-y-2 rounded-3xl border border-primary/18 bg-card/25 p-3 backdrop-blur-sm">
             <p className="text-xs font-medium text-foreground">التقدم</p>
             <ul className="space-y-1.5 text-xs text-muted-foreground">
               <li className="flex items-center gap-2">
@@ -406,7 +406,7 @@ export function CalendarDeepCopyDialog({
                   aria-label="تقدم مرحلة نسخ الأجندة (نسبة المرحلة الحالية)"
                 >
                   <div
-                    className="h-full rounded-full bg-primary transition-[width] duration-200 ease-out"
+                    className="h-full rounded-full bg-progress-fill transition-[width] duration-200 ease-out"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
@@ -424,7 +424,7 @@ export function CalendarDeepCopyDialog({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-3xl border-t border-primary/15 pt-3">
           <Button type="button" variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>
             إلغاء
           </Button>

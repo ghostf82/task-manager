@@ -28,7 +28,7 @@ function SheetBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props) 
     <DialogPrimitive.Backdrop
       data-slot="sheet-backdrop"
       className={cn(
-        "fixed inset-0 z-50 bg-black/40 duration-200 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 z-50 bg-black/45 duration-200 supports-backdrop-filter:backdrop-blur-xl data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
@@ -50,10 +50,10 @@ function SheetContent({
       <DialogPrimitive.Popup
         data-slot="sheet-content"
         className={cn(
-          "fixed z-50 flex h-full w-[min(100%,20rem)] flex-col bg-background shadow-lg ring-1 ring-border duration-200 outline-none data-open:animate-in data-closed:animate-out",
+          "fixed z-50 flex h-full w-[min(100%,20rem)] flex-col border-primary/15 bg-sidebar/92 shadow-[var(--shadow-premium)] ring-1 ring-primary/12 backdrop-blur-xl duration-200 outline-none data-open:animate-in data-closed:animate-out",
           side === "end"
-            ? "inset-y-0 end-0 max-h-dvh data-open:slide-in-from-right-4 data-closed:slide-out-to-right-4"
-            : "inset-y-0 start-0 max-h-dvh data-open:slide-in-from-left-4 data-closed:slide-out-to-left-4",
+            ? "inset-y-0 end-0 max-h-dvh rounded-s-3xl border-s data-open:slide-in-from-right-4 data-closed:slide-out-to-right-4"
+            : "inset-y-0 start-0 max-h-dvh rounded-e-3xl border-e data-open:slide-in-from-left-4 data-closed:slide-out-to-left-4",
           className
         )}
         {...props}
@@ -90,7 +90,7 @@ function SheetTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
       data-slot="sheet-title"
-      className={cn("text-base font-semibold tracking-tight", className)}
+      className={cn("text-base font-bold tracking-tight text-primary", className)}
       {...props}
     />
   );

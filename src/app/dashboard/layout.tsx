@@ -15,7 +15,6 @@ import { NotificationsMenu } from "@/components/dashboard/notifications-menu";
 import { requireSession } from "@/lib/dashboard-auth";
 import { DASHBOARD_NAV_LINKS } from "@/lib/i18n/nav-config";
 import { getTranslator } from "@/lib/i18n/get-translator";
-import { designSystem } from "@/lib/design-system";
 
 /** Netlify / serverless: allow long-running dashboard server actions (Odoo sync, calendar clone). */
 export const maxDuration = 120;
@@ -97,24 +96,24 @@ export default async function DashboardLayout({
 
   return (
     <DashboardI18nProvider locale={locale} catalog={catalog}>
-    <div className="flex min-h-screen flex-col bg-background" style={{ backgroundColor: designSystem.colors.background }}>
+    <div className="flex min-h-screen flex-col bg-background">
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <AppSidebar {...shell} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-20 mx-3 mt-3 flex h-14 shrink-0 items-center justify-between gap-2 rounded-2xl border border-white/40 bg-white/75 px-3 shadow-[0_16px_32px_-28px_rgba(82,64,255,0.48)] backdrop-blur-xl md:mx-4 md:px-4">
+          <header className="app-glass-header sticky top-0 z-20 mx-3 mt-3 flex h-14 shrink-0 items-center justify-between gap-2 px-3 md:mx-4 md:px-4">
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <MobileDashboardNav {...shell} />
               <Link
                 prefetch={false}
                 href="/dashboard"
-                className="truncate text-sm font-semibold tracking-tight"
+                className="truncate text-sm font-bold tracking-tight text-primary"
               >
                 {shell.panelTitle}
               </Link>
             </div>
             <div className="flex items-center gap-2">
-              <div className="hidden items-center gap-2 rounded-xl border border-white/45 bg-white/65 px-2.5 py-1.5 text-xs shadow-sm md:flex">
-                <div className="flex size-7 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-500/80 to-cyan-500/80 text-white">
+              <div className="hidden items-center gap-2 rounded-3xl border border-primary/25 bg-card/35 px-2.5 py-1.5 text-xs shadow-[var(--shadow-premium)] backdrop-blur-xl md:flex">
+                <div className="flex size-7 items-center justify-center overflow-hidden rounded-full border border-primary/50 bg-linear-to-br from-primary/90 to-primary/55 text-primary-foreground shadow-[var(--glow-primary)]">
                   {shell.userFooter.avatarUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={shell.userFooter.avatarUrl} alt={shell.userFooter.displayName ?? "User"} className="size-full object-cover" />

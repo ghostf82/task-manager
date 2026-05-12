@@ -816,7 +816,7 @@ export function OdooTasksPanel() {
   }
 
   return (
-    <Card className="border-border/80 shadow-sm ring-1 ring-violet-500/10">
+    <Card className="border-primary/20 shadow-[var(--shadow-premium)] ring-1 ring-primary/15">
       <CardHeader>
         <CardTitle>لوحة مهام Odoo (Browser Session)</CardTitle>
         <CardDescription>
@@ -1222,8 +1222,8 @@ export function OdooTasksPanel() {
           </div>
         </div>
 
-        <div className="rounded-md border p-3 space-y-3">
-          <Label className="block">مطابقة تفاصيل أي يوم (وليس شهرًا فقط)</Label>
+        <div className="premium-calendar-panel">
+          <Label className="block font-semibold text-primary">مطابقة تفاصيل أي يوم (وليس شهرًا فقط)</Label>
           <p className="text-xs text-muted-foreground">
             اختر أي تاريخ، وسنجلب أحداثه من Odoo (الوصف والموقع والمسؤولين)، ثم نحمّل بنود الأجندة وجدول Odoo على دفعات صغيرة لتجنّب انتهاء مهلة الخادم.
           </p>
@@ -1238,10 +1238,10 @@ export function OdooTasksPanel() {
               مطابقة اليوم المحدد
             </Button>
           </div>
-          <div className="max-h-56 overflow-auto rounded-md border p-2 space-y-2">
+          <div className="premium-calendar-scroll">
             {dayEvents.length ? (
               dayEvents.map((e) => (
-                <div key={`day-${e.id}`} className="rounded-md border border-border/60 p-2 text-sm">
+                <div key={`day-${e.id}`} className="premium-calendar-row">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <p className="font-medium">#{e.id} - {e.name}</p>
                     <Button
@@ -1304,8 +1304,8 @@ export function OdooTasksPanel() {
           </div>
         </div>
 
-        <div className="rounded-md border p-3 space-y-3">
-          <Label className="block">نسخ مهام/أحداث الشهر السابق للشهر الجديد</Label>
+        <div className="premium-calendar-panel">
+          <Label className="block font-semibold text-primary">نسخ مهام/أحداث الشهر السابق للشهر الجديد</Label>
           <p className="text-xs text-muted-foreground">
             هذه الميزة تساعدك على تكرار أعمال الأجندة الشهرية بدل الإدخال اليدوي. بعد جلب الأحداث يُحمّل جدول الأجندة من Odoo على دفعات (نفس الحقول: <code className="text-[10px]">calendar.event.agenda.item</code> و<code className="text-[10px]">mail.activity</code>).
           </p>
@@ -1350,12 +1350,12 @@ export function OdooTasksPanel() {
               <p className="text-xs text-muted-foreground">بعد الجلب ستظهر كل أيام الشهر هنا لتختار اليوم المناسب (مثل نهاية الشهر).</p>
             )}
           </div>
-          <div className="max-h-56 overflow-auto rounded-md border p-2 space-y-2">
+          <div className="premium-calendar-scroll">
             {sourceMonthEvents.length ? (
               sourceMonthEvents.map((e) => (
                 <div
                   key={e.id}
-                  className="flex flex-wrap items-start gap-2 rounded-md border border-border/60 p-2 text-sm"
+                  className="premium-calendar-row flex flex-wrap items-start gap-2"
                 >
                   <input
                     id={`cal-month-${e.id}`}

@@ -29,7 +29,6 @@ import {
 } from "@/components/ui/sheet";
 import type { AppLocale } from "@/lib/i18n/locale-core";
 import { cn } from "@/lib/utils";
-import { designSystem } from "@/lib/design-system";
 
 const ICONS: Record<string, LucideIcon> = {
   Home,
@@ -99,10 +98,10 @@ function NavLinks({
             href={item.href}
             onClick={onPick}
             className={cn(
-              "flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-200",
+              "flex items-center gap-2 rounded-full px-3 py-2 text-sm font-light transition-all duration-200",
               active
-                ? "bg-linear-to-r from-violet-500/90 to-cyan-500/85 text-white shadow-[0_16px_28px_-18px_rgba(82,64,255,0.7)] ring-1 ring-white/35"
-                : "text-sidebar-foreground/80 hover:bg-white/10 hover:text-sidebar-foreground",
+                ? "bg-primary/18 text-primary shadow-[var(--glow-primary)] ring-1 ring-primary/45"
+                : "text-sidebar-foreground/85 hover:bg-sidebar-accent/80 hover:text-sidebar-foreground",
             )}
           >
             <Icon className="size-4 shrink-0 opacity-90" aria-hidden />
@@ -125,12 +124,9 @@ export function AppSidebar({
   const pathname = usePathname();
 
   return (
-    <aside
-      className="hidden w-60 shrink-0 flex-col border-e border-sidebar-border/60 md:flex"
-      style={{ backgroundImage: designSystem.gradients.sidebar }}
-    >
+    <aside className="app-sidebar-shell hidden w-60 shrink-0 flex-col border-e border-sidebar-border/70 md:flex">
       <div className="flex h-16 shrink-0 items-center border-b border-sidebar-border/70 px-4">
-        <span className="text-sm font-semibold tracking-tight text-sidebar-foreground">
+        <span className="text-sm font-bold tracking-tight text-primary">
           {brand}
         </span>
       </div>

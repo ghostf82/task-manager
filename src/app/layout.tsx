@@ -4,11 +4,13 @@ import "./globals.css";
 
 import { getLocale, localeDir } from "@/lib/i18n/get-locale";
 import { getTranslator } from "@/lib/i18n/get-translator";
+import { getMetadataBase } from "@/lib/site-url";
 
 const cairoSans = Cairo({
   variable: "--font-geist-sans",
   subsets: ["latin", "arabic"],
   display: "swap",
+  weight: ["300", "400", "500", "600", "700"],
 });
 
 const geistMono = Geist_Mono({
@@ -19,7 +21,9 @@ const geistMono = Geist_Mono({
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getLocale();
   const { t } = await getTranslator(locale);
+  const metadataBase = getMetadataBase();
   return {
+    ...(metadataBase ? { metadataBase } : {}),
     title: t("meta.title"),
     description: t("meta.description"),
   };
