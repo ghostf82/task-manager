@@ -151,6 +151,7 @@ export default async function AiAgentPage({
           </div>
           <div className="flex shrink-0 flex-col gap-2">
             <Link
+              prefetch={false}
               href="/dashboard/settings/integrations"
               className={cn(buttonVariants({ variant: "secondary" }), "shadow-sm")}
             >

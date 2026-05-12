@@ -675,6 +675,7 @@
     "scanNoOpenAiKey": "No model API key is configured on the server — the scan was not analysed automatically.",
     "logScanComplete": "Source scan complete: Odoo {taskCount} tasks, {emailCount} unread emails → {inserted} new proposals.",
     "scanDoneSummary": "Scan done: {taskCount} Odoo tasks, {emailCount} unread emails, {inserted} new proposals.",
+    "scanZeroCollectedHint": "If you expected data: check Integrations/vault; the scan only reads your open assigned Odoo tasks and unread mail. Odoo Online with 2FA may need an API key or browser session mode.",
     "usePlanFlow": "This proposal is a multi-step plan — use “Approve plan” then “Run next step” in the dialog, not the generic “Confirm execution”.",
     "planApproved": "Plan approved — you can now run steps in sequence."
   }

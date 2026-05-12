@@ -60,12 +60,14 @@ export default async function ProfilePage({
         </CardHeader>
         <CardContent className="flex flex-col gap-2 sm:flex-row">
           <Link
+            prefetch={false}
             href="/dashboard/ai-agent"
             className={cn(buttonVariants({ variant: "outline" }), "justify-center")}
           >
             {t("profilePage.linkAi")}
           </Link>
           <Link
+            prefetch={false}
             href="/dashboard/settings/integrations"
             className={cn(buttonVariants({ variant: "outline" }), "justify-center")}
           >

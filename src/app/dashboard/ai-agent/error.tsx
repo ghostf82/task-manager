@@ -44,7 +44,7 @@ export default function AiAgentError({
         <Button type="button" onClick={() => reset()}>
           {t("aiAgentError.retry")}
         </Button>
-        <Link href="/dashboard" className={cn(buttonVariants({ variant: "outline" }))}>
+        <Link prefetch={false} href="/dashboard" className={cn(buttonVariants({ variant: "outline" }))}>
           {t("aiAgentError.backDashboard")}
         </Link>
       </div>

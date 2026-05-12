@@ -517,13 +517,18 @@ export async function runInboundScanAsync(): Promise<ScanResult> {
     });
 
     revalidatePath("/dashboard/ai-agent");
+    const baseSummary = await tActionFill("aiAgentActions.scanDoneSummary", {
+      taskCount: String(taskCount),
+      emailCount: String(emailCount),
+      inserted: String(inserted),
+    });
+    const zeroHint =
+      taskCount === 0 && emailCount === 0
+        ? ` ${await tAction("aiAgentActions.scanZeroCollectedHint")}`
+        : "";
     return {
       ok: true,
-      message: await tActionFill("aiAgentActions.scanDoneSummary", {
-        taskCount: String(taskCount),
-        emailCount: String(emailCount),
-        inserted: String(inserted),
-      }),
+      message: baseSummary + zeroHint,
       inserted,
       taskCount,
       emailCount,

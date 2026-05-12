@@ -2,7 +2,7 @@
 
 import type { Dispatch, SetStateAction } from "react";
 import { Fragment, useMemo, useState } from "react";
-import { Loader2Icon } from "lucide-react";
+import { ChevronDown, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { CalendarDeepCopyDialog } from "@/app/dashboard/ai-agent/calendar-deep-copy-dialog";
@@ -33,6 +33,7 @@ import {
 } from "@/app/dashboard/ai-agent/actions";
 import { copyOdooMeetingAgendaInSlices } from "@/app/dashboard/ai-agent/odoo-calendar-agenda-copy-batches";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -293,6 +294,13 @@ export function OdooTasksPanel({
   /** Staged agenda fetch after bulk month/day list (avoids one huge Odoo payload → Netlify 504). */
   const [agendaHydrate, setAgendaHydrate] = useState<"idle" | "month" | "day">("idle");
   const [deepCopySource, setDeepCopySource] = useState<CalendarRow | null>(null);
+
+  const [sectionOpen, setSectionOpen] = useState({
+    tasks: true,
+    projects: true,
+    calendar: true,
+    documents: true,
+  });
 
   function loadTasks() {
     runOp("load-tasks", async () => {
@@ -914,6 +922,16 @@ export function OdooTasksPanel({
 
   const calBusy = busy("cal-month") || busy("cal-day") || busy("clone-month") || agendaHydrate !== "idle";
 
+  const workspaceHasNonTaskLists =
+    projects.length > 0 || events.length > 0 || documents.length > 0;
+  const tasksTableEmptyMessage = !filteredTasks.length
+    ? tasks.length > 0
+      ? "لا توجد مهام تطابق تصفية الأشخاص المختارين."
+      : workspaceHasNonTaskLists
+        ? "لا توجد مهام في البيانات المحمّلة؛ استخدم «جلب المهام» أو راجع المشاريع والأقسام الأخرى."
+        : "لا توجد نتائج حتى الآن."
+    : "";
+
   return (
     <Card className="border-primary/20 w-full max-w-none shadow-[var(--shadow-premium)] ring-1 ring-primary/15">
       <CardHeader>
@@ -1121,6 +1139,20 @@ export function OdooTasksPanel({
         </div>
 
         <div className="overflow-x-auto">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <Label className="text-base font-medium">المهام ({filteredTasks.length})</Label>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1 text-xs"
+              onClick={() => setSectionOpen((s) => ({ ...s, tasks: !s.tasks }))}
+              aria-expanded={sectionOpen.tasks}
+            >
+              <ChevronDown className={cn("size-4 transition-transform", !sectionOpen.tasks && "-rotate-90")} />
+              {sectionOpen.tasks ? "تقليص" : "توسيع"}
+            </Button>
+          </div>
           <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b">
@@ -1134,11 +1166,14 @@ export function OdooTasksPanel({
                 <th className="py-2 text-start">إجراءات</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody
+              className={cn(!sectionOpen.tasks && "hidden")}
+              aria-hidden={!sectionOpen.tasks}
+            >
               {!filteredTasks.length ? (
                 <tr>
                   <td colSpan={8} className="py-3 text-center text-muted-foreground">
-                    لا توجد نتائج حتى الآن.
+                    {tasksTableEmptyMessage}
                   </td>
                 </tr>
               ) : (
@@ -1196,7 +1231,20 @@ export function OdooTasksPanel({
 
         <div className="space-y-6">
           <div className="w-full">
-            <Label className="mb-2 block text-base">المشاريع ({filteredProjects.length})</Label>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <Label className="text-base font-medium">المشاريع ({filteredProjects.length})</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                onClick={() => setSectionOpen((s) => ({ ...s, projects: !s.projects }))}
+                aria-expanded={sectionOpen.projects}
+              >
+                <ChevronDown className={cn("size-4 transition-transform", !sectionOpen.projects && "-rotate-90")} />
+                {sectionOpen.projects ? "تقليص" : "توسيع"}
+              </Button>
+            </div>
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[900px] text-sm">
                 <thead>
@@ -1210,7 +1258,10 @@ export function OdooTasksPanel({
                     <th className="py-2 font-medium">إجراءات</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody
+                  className={cn(!sectionOpen.projects && "hidden")}
+                  aria-hidden={!sectionOpen.projects}
+                >
                   {!filteredProjects.length ? (
                     <tr>
                       <td colSpan={7} className="text-muted-foreground py-6 text-center">
@@ -1274,7 +1325,20 @@ export function OdooTasksPanel({
           </div>
 
           <div className="w-full">
-            <Label className="mb-2 block text-base">التقويم ({filteredEvents.length})</Label>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <Label className="text-base font-medium">التقويم ({filteredEvents.length})</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                onClick={() => setSectionOpen((s) => ({ ...s, calendar: !s.calendar }))}
+                aria-expanded={sectionOpen.calendar}
+              >
+                <ChevronDown className={cn("size-4 transition-transform", !sectionOpen.calendar && "-rotate-90")} />
+                {sectionOpen.calendar ? "تقليص" : "توسيع"}
+              </Button>
+            </div>
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[960px] text-sm">
                 <thead>
@@ -1287,7 +1351,10 @@ export function OdooTasksPanel({
                     <th className="py-2 font-medium">إجراءات</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody
+                  className={cn(!sectionOpen.calendar && "hidden")}
+                  aria-hidden={!sectionOpen.calendar}
+                >
                   {!filteredEvents.length ? (
                     <tr>
                       <td colSpan={6} className="text-muted-foreground py-6 text-center">
@@ -1381,7 +1448,20 @@ export function OdooTasksPanel({
           </div>
 
           <div className="w-full">
-            <Label className="mb-2 block text-base">المستندات ({filteredDocuments.length})</Label>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <Label className="text-base font-medium">المستندات ({filteredDocuments.length})</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                onClick={() => setSectionOpen((s) => ({ ...s, documents: !s.documents }))}
+                aria-expanded={sectionOpen.documents}
+              >
+                <ChevronDown className={cn("size-4 transition-transform", !sectionOpen.documents && "-rotate-90")} />
+                {sectionOpen.documents ? "تقليص" : "توسيع"}
+              </Button>
+            </div>
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[800px] text-sm">
                 <thead>
@@ -1394,7 +1474,10 @@ export function OdooTasksPanel({
                     <th className="py-2 font-medium">إجراءات</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody
+                  className={cn(!sectionOpen.documents && "hidden")}
+                  aria-hidden={!sectionOpen.documents}
+                >
                   {!filteredDocuments.length ? (
                     <tr>
                       <td colSpan={6} className="text-muted-foreground py-6 text-center">
