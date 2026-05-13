@@ -2,14 +2,9 @@ import { type NextRequest, NextResponse } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 
 export async function middleware(request: NextRequest) {
-  const { supabaseResponse, user, mustChangePassword } =
-    await updateSession(request);
+  const { supabaseResponse, user } = await updateSession(request);
 
   const pathname = request.nextUrl.pathname;
-  const isAuthPath =
-    pathname === "/login" ||
-    pathname.startsWith("/auth/") ||
-    pathname.startsWith("/error");
 
   if (!user) {
     if (pathname.startsWith("/dashboard") || pathname === "/update-password") {
@@ -18,17 +13,12 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
 
-  if (mustChangePassword) {
-    if (!isAuthPath && pathname !== "/update-password") {
-      return NextResponse.redirect(new URL("/update-password", request.url));
-    }
-    if (pathname === "/login") {
-      return NextResponse.redirect(new URL("/update-password", request.url));
-    }
+  /** Logged-in users may finish forced password change; do not redirect to /dashboard first. */
+  if (pathname === "/update-password") {
     return supabaseResponse;
   }
 
-  if (pathname === "/login" || pathname === "/" || pathname === "/update-password") {
+  if (pathname === "/login" || pathname === "/") {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 

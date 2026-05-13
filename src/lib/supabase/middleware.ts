@@ -32,15 +32,10 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  let mustChangePassword = false;
-  if (user) {
-    const { data } = await supabase
-      .from("users")
-      .select("must_change_password")
-      .eq("id", user.id)
-      .maybeSingle();
-    mustChangePassword = Boolean(data?.must_change_password);
-  }
-
-  return { supabaseResponse, user, mustChangePassword };
+  /**
+   * Do not query Postgres here. Netlify runs this middleware on Edge; an extra
+   * PostgREST round-trip can crash or slow the edge function. Dashboard routes
+   * enforce `must_change_password` via `requireSession()` in `dashboard-auth.ts`.
+   */
+  return { supabaseResponse, user };
 }
