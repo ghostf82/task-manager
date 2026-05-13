@@ -85,10 +85,12 @@ export function ChatClient({
   currentUserId,
   currentUserName,
   colleagues,
+  className,
 }: {
   currentUserId: string;
   currentUserName: string;
   colleagues: ChatColleague[];
+  className?: string;
 }) {
   const { t, dateLocale } = useDashboardI18n();
   const router = useRouter();
@@ -102,6 +104,9 @@ export function ChatClient({
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [voiceLabel, setVoiceLabel] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const aiChatAbortRef = useRef<AbortController | null>(null);
+  const skipAiRealtimeReloadRef = useRef(false);
+  const aiSendInFlightRef = useRef(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewProposal, setReviewProposal] = useState<PendingProposalRow | null>(null);
   const [aiPending, setAiPending] = useState(false);
@@ -152,13 +157,15 @@ export function ChatClient({
       .from("ai_chat_messages")
       .select("id,role,body,metadata,created_at")
       .eq("user_id", currentUserId)
-      .order("created_at", { ascending: true })
-      .limit(200);
+      /* Single round-trip; index ai_chat_messages_user_created_idx (user_id, created_at desc) supports DESC+limit. */
+      .order("created_at", { ascending: false })
+      .limit(150);
     if (error) {
       toast.error(error.message);
       return;
     }
-    setAiMessages((data ?? []) as AiChatMessage[]);
+    const chronological = [...(data ?? [])].reverse();
+    setAiMessages(chronological as AiChatMessage[]);
     requestAnimationFrame(() =>
       bottomRef.current?.scrollIntoView({ behavior: "smooth" })
     );
@@ -216,6 +223,7 @@ export function ChatClient({
           filter: `user_id=eq.${currentUserId}`,
         },
         () => {
+          if (skipAiRealtimeReloadRef.current) return;
           void loadAiMessages();
         }
       )
@@ -273,18 +281,53 @@ export function ChatClient({
     });
   }
 
+  useEffect(() => {
+    return () => {
+      aiChatAbortRef.current?.abort();
+    };
+  }, []);
+
   async function sendAi() {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || aiSendInFlightRef.current) return;
+
+    const optimisticId = `temp-user-${crypto.randomUUID()}`;
+    const nowIso = new Date().toISOString();
+    setAiMessages((prev) => [
+      ...prev,
+      {
+        id: optimisticId,
+        role: "user",
+        body: text,
+        metadata: null,
+        created_at: nowIso,
+      },
+    ]);
     setDraft("");
     setStreamingText("");
     setPlanCard(null);
     setPlanIncludeChat([]);
     setPlanPhaseChat("plan_review");
+
+    aiSendInFlightRef.current = true;
     setAiPending(true);
+    skipAiRealtimeReloadRef.current = true;
+
+    aiChatAbortRef.current?.abort();
+    const ac = new AbortController();
+    aiChatAbortRef.current = ac;
+
+    const rollbackOptimistic = () => {
+      setAiMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+    };
+
     try {
       const endpoint = new URL("/api/ai-chat", window.location.origin).href;
-      const payload = JSON.stringify({ content: text });
+      /**
+       * Browser extensions sometimes log `message channel closed` / `runtime.lastError` during long-lived
+       * fetch + SSE reads; that noise cannot be removed from application code. AbortController + single in-flight
+       * POST reduce dangling reads and false “hang” states from overlapping requests.
+       */
       const res = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
@@ -292,18 +335,29 @@ export function ChatClient({
           "Content-Type": "application/json; charset=utf-8",
           Accept: "text/event-stream",
         },
-        body: payload,
+        body: JSON.stringify({ content: text }),
+        signal: ac.signal,
       });
+
       if (!res.ok) {
-        const err = await res.text();
-        toast.error(err || t("chatClient.toastAiConnectFail"));
+        rollbackOptimistic();
+        let errDetail = "";
+        try {
+          errDetail = await res.text();
+        } catch {
+          /* ignore */
+        }
+        toast.error(errDetail || t("chatClient.toastAiConnectFail"));
         return;
       }
+
       const reader = res.body?.getReader();
       if (!reader) {
+        rollbackOptimistic();
         toast.error(t("chatClient.toastNoResponseStream"));
         return;
       }
+
       const decoder = new TextDecoder();
       let carry = "";
 
@@ -375,16 +429,25 @@ export function ChatClient({
       await loadAiMessages();
       setStreamingText("");
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") {
+        await loadAiMessages();
+        setStreamingText("");
+        return;
+      }
       toast.error(e instanceof Error ? e.message : t("chatClient.toastRequestFail"));
+      await loadAiMessages();
     } finally {
+      skipAiRealtimeReloadRef.current = false;
       setAiPending(false);
+      aiSendInFlightRef.current = false;
+      aiChatAbortRef.current = null;
     }
   }
 
   const activePeer = colleagues.find((c) => c.id === peerId);
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row">
+    <div className={cn("flex min-h-0 flex-1 flex-col gap-4 lg:flex-row", className)}>
       <Card className="premium-surface lg:w-72 shrink-0">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">{t("chatClient.membersTitle")}</CardTitle>
@@ -466,7 +529,7 @@ export function ChatClient({
         </CardContent>
       </Card>
 
-      <Card className="premium-surface flex min-h-[min(460px,calc(100dvh-12rem))] flex-1 flex-col overflow-hidden">
+      <Card className="premium-surface flex min-h-0 flex-1 flex-col overflow-hidden lg:max-h-[calc(100dvh-11.5rem)]">
         <CardHeader className="shrink-0 border-b border-border pb-3">
           <CardTitle className="text-base">
             {isAiThread
@@ -610,7 +673,7 @@ export function ChatClient({
               </div>
             </div>
           ) : null}
-          <ScrollArea className="min-h-0 flex-1 rounded-none border-x-0 border-t-0 border-b border-border bg-muted/20 p-3">
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-none border-x-0 border-t-0 border-b border-border bg-muted/20 p-3">
             <div className="flex flex-col gap-2">
               {isAiThread ? (
                 <>
@@ -668,6 +731,11 @@ export function ChatClient({
                       </div>
                     );
                   })}
+                  {isAiThread && aiPending && !streamingText ? (
+                    <div className="text-muted-foreground max-w-[90%] self-start rounded-lg px-2 py-1.5 text-xs italic">
+                      {t("chatClient.assistantWritingNow")}
+                    </div>
+                  ) : null}
                   {streamingText &&
                   !(() => {
                     const last = aiMessages.at(-1);
@@ -676,7 +744,7 @@ export function ChatClient({
                     );
                   })() ? (
                     <div className="max-w-[90%] self-start rounded-2xl bg-background px-3 py-2 text-sm shadow-sm ring-1 ring-violet-500/20">
-                      <p className="text-[10px] text-muted-foreground">{t("chatClient.aiTyping")}</p>
+                      <p className="text-[10px] text-muted-foreground">{t("chatClient.aiAssistant")}</p>
                       <p className="whitespace-pre-wrap leading-relaxed">{streamingText}</p>
                     </div>
                   ) : null}
@@ -710,7 +778,7 @@ export function ChatClient({
               )}
               <div ref={bottomRef} />
             </div>
-          </ScrollArea>
+          </div>
           <div className="shrink-0 space-y-2 border-t border-border bg-background/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm md:bg-background">
             <div className="flex gap-2">
             <Input

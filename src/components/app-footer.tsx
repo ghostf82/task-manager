@@ -5,7 +5,7 @@ export async function AppFooter() {
   const { t } = await getTranslator();
   return (
     <footer className="border-t border-border/60 bg-background/80 px-4 py-3 text-center backdrop-blur-sm supports-[backdrop-filter]:bg-background/60">
-      <p className="text-xs font-medium text-muted-foreground">{t("footer.tagline")}</p>
+      <p className="text-xs font-medium text-amber-900 dark:text-amber-100">{t("footer.tagline")}</p>
     </footer>
   );
 }

@@ -172,8 +172,10 @@ export default async function DashboardLayout({
               <HeaderUserMenu {...headerUser} />
             </div>
           </header>
-          <main className="min-h-0 flex-1 overflow-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-6 md:pb-6 lg:p-8 lg:pb-8">
-            <Suspense fallback={<DashboardPageSkeleton />}>{children}</Suspense>
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:p-6 md:pb-6 lg:p-8 lg:pb-8">
+            <Suspense fallback={<DashboardPageSkeleton />}>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+            </Suspense>
           </main>
         </div>
         <DashboardToasterHost />

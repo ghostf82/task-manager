@@ -695,6 +695,7 @@ export async function handleAiChatPost(params: {
     .from("ai_chat_messages")
     .select("role,body")
     .eq("user_id", params.userId)
+    /* Uses index ai_chat_messages_user_created_idx (user_id, created_at desc) when ordered DESC. */
     .order("created_at", { ascending: false })
     .limit(HISTORY_LIMIT);
 
@@ -901,6 +902,7 @@ function streamAssistantResponse(
     headers: {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
       /** Hint reverse proxies (e.g. nginx) not to buffer SSE; harmless if ignored. */
       "X-Accel-Buffering": "no",
     },

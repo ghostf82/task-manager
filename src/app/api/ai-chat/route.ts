@@ -6,6 +6,8 @@ import { createRouteSupabaseClient } from "@/lib/supabase/route-handler";
 /** Avoid Edge quirks with streaming bodies and binary chunk coercion (ByteString). */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Match dashboard / Netlify long-running tool paths so streaming chat is not cut off early. */
+export const maxDuration = 120;
 
 const JSON_UTF8 = { "Content-Type": "application/json; charset=utf-8" } as const;
 
@@ -14,6 +16,10 @@ function jsonResponse(body: unknown, status: number) {
 }
 
 export async function POST(req: NextRequest) {
+  /**
+   * Streams SSE from handleAiChatPost. Browser extensions may still surface `message channel closed`
+   * in the console during long reads; that cannot be suppressed from route code.
+   */
   const supabase = await createRouteSupabaseClient();
   const {
     data: { user },
