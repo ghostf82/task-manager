@@ -6,7 +6,6 @@ import {
   deleteAiChatMessagesForSessions,
   deleteAllAiChatMessagesForUser,
 } from "@/lib/ai-chat/session-compat";
-import { debugLogServer } from "@/lib/debug-log-server";
 import { requireSession } from "@/lib/dashboard-auth";
 import { tAction } from "@/lib/i18n/action-messages";
 import { createClient } from "@/lib/supabase/server";
@@ -225,12 +224,6 @@ export async function deleteAiChatSessionsAction(
       return { ok: true };
     }
     if (error) return fail(error.message);
-    debugLogServer(
-      "actions.ts:deleteAiChatSessionsAction",
-      "sessions deleted",
-      { count: ids.length },
-      "B"
-    );
     return { ok: true };
   } catch (e) {
     return fail(await actionError(e, "errors.chat.deleteSessionsFailed"));
@@ -242,18 +235,7 @@ export async function deleteAllAiChatSessionsAction(): Promise<AiChatActionResul
     const session = await requireSession();
     const supabase = await createClient();
 
-    const { count: msgCountBefore } = await supabase
-      .from("ai_chat_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", session.id);
-
     const msgRes = await deleteAllAiChatMessagesForUser(supabase, session.id);
-    debugLogServer(
-      "actions.ts:deleteAllAiChatSessionsAction",
-      "messages wipe",
-      { msgCountBefore: msgCountBefore ?? null, msgError: msgRes.error },
-      "A"
-    );
     if (msgRes.error) return fail(msgRes.error);
 
     const { error } = await supabase
@@ -266,17 +248,6 @@ export async function deleteAllAiChatSessionsAction(): Promise<AiChatActionResul
     }
     if (error) return fail(error.message);
 
-    const { count: msgCountAfter } = await supabase
-      .from("ai_chat_messages")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", session.id);
-
-    debugLogServer(
-      "actions.ts:deleteAllAiChatSessionsAction",
-      "done",
-      { msgCountAfter: msgCountAfter ?? null },
-      "A"
-    );
     return { ok: true };
   } catch (e) {
     return fail(await actionError(e, "errors.chat.deleteSessionsFailed"));

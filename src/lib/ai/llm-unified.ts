@@ -9,8 +9,6 @@ import {
   resolveGroqApiKey,
   resolveOpenAiApiKey,
 } from "@/lib/ai/llm-env";
-import { debugLogServer } from "@/lib/debug-log-server";
-
 export type CallLLMOptions = {
   systemPrompt: string;
   userPrompt: string;
@@ -121,14 +119,6 @@ async function geminiGenerate(opts: CallLLMOptions, timeoutMs = 45_000): Promise
 
   for (const model of candidates) {
     const result = await geminiGenerateWithModel(model, key, opts, timeoutMs);
-    // #region agent log
-    debugLogServer(
-      "llm-unified.ts:geminiGenerate",
-      "model attempt",
-      { model, status: result.status, ok: Boolean(result.text) },
-      "G"
-    );
-    // #endregion
     if (result.text) return result.text;
     if (result.status === 404) {
       failures.push(`model ${model}: not found (404)`);

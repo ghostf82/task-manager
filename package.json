@@ -10,6 +10,8 @@
     "start": "next start",
     "lint": "eslint",
     "db:seed": "tsx --env-file=.env.local scripts/seed-super-admin.ts",
+    "db:push": "supabase db push --include-all --yes",
+    "db:apply-chat-migration": "node scripts/apply-supabase-migration.mjs",
     "test:odoo-agenda": "node scripts/odoo-agenda-self-test.mjs"
   },
   "dependencies": {

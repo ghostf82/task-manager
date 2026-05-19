@@ -23,8 +23,7 @@ import {
   resolveAiChatSessionId,
   touchAiChatSession,
 } from "@/lib/ai-chat/session-compat";
-import { getLlmKeysDiagnostic, resolveGroqApiKey, resolveOpenAiApiKey } from "@/lib/ai/llm-env";
-import { debugLogServer } from "@/lib/debug-log-server";
+import { resolveGroqApiKey, resolveOpenAiApiKey } from "@/lib/ai/llm-env";
 
 const MAX_TOOL_ROUNDS = 6;
 const HISTORY_LIMIT = 40;
@@ -329,14 +328,6 @@ export async function handleAiChatPost(params: {
   content: string;
   sessionId?: string | null;
 }): Promise<Response> {
-  const keyDiag = getLlmKeysDiagnostic();
-  debugLogServer(
-    "run-ai-chat.ts:handleAiChatPost",
-    "llm keys diagnostic",
-    { gemini: keyDiag.gemini, groq: keyDiag.groq, openai: keyDiag.openai, geminiModel: keyDiag.geminiModel },
-    "F"
-  );
-
   const text = params.content.trim();
   if (!text || text.length > 12000) {
     return new Response(JSON.stringify({ error: "نص غير صالح" }), {

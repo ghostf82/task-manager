@@ -22,7 +22,6 @@ import {
 } from "@/app/dashboard/chat/actions";
 import type { PendingProposalRow } from "@/app/dashboard/ai-agent/pending-proposals-panel";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
-import { debugLog } from "@/lib/debug-log";
 import { createClient } from "@/lib/supabase/client";
 import { isLegacyAiChatSessionId, isMissingColumn } from "@/lib/supabase/schema-compat";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -207,16 +206,6 @@ export function ChatClient({
         return;
       }
       const chronological = [...(data ?? [])].reverse();
-      debugLog(
-        "chat-client.tsx:loadAiMessages",
-        "loaded",
-        {
-          sid,
-          legacy: isLegacyAiChatSessionId(sid),
-          count: chronological.length,
-        },
-        "C"
-      );
       setAiMessages(chronological as AiChatMessage[]);
       scrollToBottom();
     },
@@ -269,15 +258,6 @@ export function ChatClient({
         toast.error(res.error || t("chatClient.toastOpenThreadFail"));
         return;
       }
-      debugLog(
-        "chat-client.tsx:startNewAiChat",
-        "session created",
-        {
-          sessionId: res.data.sessionId,
-          legacy: isLegacyAiChatSessionId(res.data.sessionId),
-        },
-        "D"
-      );
       setPeerId(AI_AGENT_PEER_ID);
       setConvId(null);
       setMessages([]);
@@ -1100,14 +1080,7 @@ export function ChatClient({
                 setAiSessions([]);
                 setSelectedSessionIds(new Set());
                 void (async () => {
-                  const t0 = Date.now();
                   const res = await deleteAllAiChatSessionsAction();
-                  debugLog(
-                    "chat-client.tsx:deleteAll",
-                    "action result",
-                    { ok: res.ok, ms: Date.now() - t0, wasAiThread },
-                    "E"
-                  );
                   if (!res.ok) {
                     setAiSessions(prevSessions);
                     toast.error(res.error || t("chatClient.toastSessionsFail"));
