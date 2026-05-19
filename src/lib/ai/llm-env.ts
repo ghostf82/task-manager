@@ -69,6 +69,18 @@ function diagnoseEnv(names: readonly string[]): LlmKeyDiagnostic {
   };
 }
 
+/** Model IDs to try in order (configured first, then known-good fallbacks). */
+export function getGeminiModelCandidates(): string[] {
+  const configured = process.env.GEMINI_MODEL?.trim();
+  const fallbacks = ["gemini-2.0-flash-001", "gemini-1.5-flash", "gemini-1.5-pro"];
+  if (!configured) return fallbacks;
+  const extras: string[] = [];
+  if (configured === "gemini-2.0-flash") {
+    extras.push("gemini-2.0-flash-001");
+  }
+  return [...new Set([configured, ...extras, ...fallbacks])];
+}
+
 export function resolveGeminiApiKey(): string | undefined {
   for (const name of GEMINI_ENV_NAMES) {
     const v = trimHeaderSafeSecret(process.env[name]);

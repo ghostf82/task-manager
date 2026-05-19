@@ -3,11 +3,13 @@ import "server-only";
 import OpenAI from "openai";
 
 import {
+  getGeminiModelCandidates,
   isAnyLlmApiKeyConfigured,
   resolveGeminiApiKey,
   resolveGroqApiKey,
   resolveOpenAiApiKey,
 } from "@/lib/ai/llm-env";
+import { debugLogServer } from "@/lib/debug-log-server";
 import { trimHeaderSafeSecret } from "@/lib/env/bearer-key";
 
 export type CallLLMOptions = {
@@ -54,6 +56,10 @@ function summarizeProviderFailures(errors: string[]): string {
     const code = Number(codeStr);
     if (code === 400) {
       hints.push(`${name}: مفتاح غير صالح أو طلب مرفوض (400)`);
+    } else if (code === 404) {
+      hints.push(
+        `${name}: اسم النموذج غير متاح (404) — جرّب GEMINI_MODEL=gemini-2.0-flash-001 أو gemini-1.5-flash`
+      );
     } else if (code === 429) {
       hints.push(`${name}: تجاوز الحصة أو معدل الطلبات (429)`);
     } else if (code === 401 || code === 403) {
@@ -67,13 +73,13 @@ function summarizeProviderFailures(errors: string[]): string {
   return ` ${unique.join(" — ")}.`;
 }
 
-async function geminiGenerate(opts: CallLLMOptions, timeoutMs = 45_000): Promise<string | null> {
-  const key = resolveGeminiApiKey();
-  if (!key) return null;
-
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-1.5-pro";
+async function geminiGenerateWithModel(
+  model: string,
+  key: string,
+  opts: CallLLMOptions,
+  timeoutMs: number
+): Promise<{ text: string | null; status: number; errSnippet: string }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-
   const body: Record<string, unknown> = {
     contents: [
       {
@@ -97,14 +103,48 @@ async function geminiGenerate(opts: CallLLMOptions, timeoutMs = 45_000): Promise
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    throw new Error(`Gemini HTTP ${res.status}: ${errText.slice(0, 200)}`);
+    return { text: null, status: res.status, errSnippet: errText.slice(0, 200) };
   }
 
   const data = (await res.json()) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
   };
   const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-  return text.trim() || null;
+  return { text: text.trim() || null, status: res.status, errSnippet: "" };
+}
+
+async function geminiGenerate(opts: CallLLMOptions, timeoutMs = 45_000): Promise<string | null> {
+  const key = resolveGeminiApiKey();
+  if (!key) return null;
+
+  const candidates = getGeminiModelCandidates();
+  const failures: string[] = [];
+
+  for (const model of candidates) {
+    const result = await geminiGenerateWithModel(model, key, opts, timeoutMs);
+    // #region agent log
+    debugLogServer(
+      "llm-unified.ts:geminiGenerate",
+      "model attempt",
+      { model, status: result.status, ok: Boolean(result.text) },
+      "G"
+    );
+    // #endregion
+    if (result.text) return result.text;
+    if (result.status === 404) {
+      failures.push(`model ${model}: not found (404)`);
+      continue;
+    }
+    const detail = `model ${model}: HTTP ${result.status}${result.errSnippet ? ` ${result.errSnippet}` : ""}`;
+    failures.push(detail);
+    if (result.status === 429) break;
+    throw new Error(`Gemini HTTP ${result.status}: ${result.errSnippet}`);
+  }
+
+  if (failures.length) {
+    throw new Error(`Gemini HTTP 404: ${failures.join("; ")}`);
+  }
+  return null;
 }
 
 async function groqChat(opts: CallLLMOptions): Promise<string | null> {
@@ -192,7 +232,7 @@ export async function callLLM(opts: CallLLMOptions): Promise<CallLLMResult> {
   for (const provider of order) {
     try {
       if (provider === "gemini") {
-        const out = await geminiGenerate(opts, 5_000);
+        const out = await geminiGenerate(opts, 45_000);
         if (out) return { text: out, provider: "gemini" };
         continue;
       }
