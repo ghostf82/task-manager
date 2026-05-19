@@ -2,6 +2,12 @@ import "server-only";
 
 import OpenAI from "openai";
 
+import {
+  isAnyLlmApiKeyConfigured,
+  resolveGeminiApiKey,
+  resolveGroqApiKey,
+  resolveOpenAiApiKey,
+} from "@/lib/ai/llm-env";
 import { trimHeaderSafeSecret } from "@/lib/env/bearer-key";
 
 export type CallLLMOptions = {
@@ -26,19 +32,11 @@ const ALL_PROVIDERS_FAILED_AR =
   "تعذّر الحصول على رد من المزودين المتاحين. راجع المفاتيح في إعدادات النشر (مثل Netlify) أو البيئة المحلية.";
 let groqLogged = false;
 
-function anyApiKeyConfigured(): boolean {
-  return !!(
-    trimHeaderSafeSecret(process.env.GEMINI_API_KEY) ||
-    trimHeaderSafeSecret(process.env.GROQ_API_KEY) ||
-    trimHeaderSafeSecret(process.env.OPENAI_API_KEY)
-  );
-}
-
 /** When only Gemini is configured, Groq/OpenAI never run — tell ops to add fallbacks on Netlify etc. */
 function fallbackKeysHint(): string {
-  const gemini = !!trimHeaderSafeSecret(process.env.GEMINI_API_KEY);
-  const groq = !!trimHeaderSafeSecret(process.env.GROQ_API_KEY);
-  const openai = !!trimHeaderSafeSecret(process.env.OPENAI_API_KEY);
+  const gemini = !!resolveGeminiApiKey();
+  const groq = !!resolveGroqApiKey();
+  const openai = !!resolveOpenAiApiKey();
   if (gemini && !groq && !openai) {
     return " لم يُضبط GROQ_API_KEY أو OPENAI_API_KEY على الخادم — أضف أحدهما في متغيرات البيئة (مثل Netlify) كنسخة احتياطية عند حدّ Gemini أو رفضه.";
   }
@@ -70,7 +68,7 @@ function summarizeProviderFailures(errors: string[]): string {
 }
 
 async function geminiGenerate(opts: CallLLMOptions, timeoutMs = 45_000): Promise<string | null> {
-  const key = trimHeaderSafeSecret(process.env.GEMINI_API_KEY);
+  const key = resolveGeminiApiKey();
   if (!key) return null;
 
   const model = process.env.GEMINI_MODEL?.trim() || "gemini-1.5-pro";
@@ -110,7 +108,7 @@ async function geminiGenerate(opts: CallLLMOptions, timeoutMs = 45_000): Promise
 }
 
 async function groqChat(opts: CallLLMOptions): Promise<string | null> {
-  const key = trimHeaderSafeSecret(process.env.GROQ_API_KEY);
+  const key = resolveGroqApiKey();
   if (!key) return null;
   if (process.env.NODE_ENV !== "production" && !groqLogged) {
     console.info("[ai] Groq fallback enabled (GROQ_API_KEY detected).");
@@ -162,7 +160,7 @@ function codeFromError(msg: string): number | null {
 }
 
 async function openaiChat(opts: CallLLMOptions): Promise<string | null> {
-  const key = trimHeaderSafeSecret(process.env.OPENAI_API_KEY);
+  const key = resolveOpenAiApiKey();
   if (!key) return null;
 
   const openai = new OpenAI({ apiKey: key });
@@ -215,7 +213,7 @@ export async function callLLM(opts: CallLLMOptions): Promise<CallLLMResult> {
     }
   }
 
-  if (!anyApiKeyConfigured()) {
+  if (!isAnyLlmApiKeyConfigured()) {
     return { text: NO_KEYS_AR, provider: "gemini" };
   }
 

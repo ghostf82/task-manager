@@ -93,12 +93,14 @@ export function ChatClient({
   currentUserName,
   colleagues,
   aiKeysConfigured = true,
+  aiKeysBannerHint,
   className,
 }: {
   currentUserId: string;
   currentUserName: string;
   colleagues: ChatColleague[];
   aiKeysConfigured?: boolean;
+  aiKeysBannerHint?: string;
   className?: string;
 }) {
   const { t, dateLocale } = useDashboardI18n();
@@ -740,7 +742,7 @@ export function ChatClient({
         <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
           {isAiThread && !aiKeysConfigured ? (
             <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:text-amber-100">
-              {t("chatClient.aiKeysBanner")}
+              {aiKeysBannerHint ?? t("chatClient.aiKeysBanner")}
             </div>
           ) : null}
           {isAiThread && planCard ? (

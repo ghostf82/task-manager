@@ -23,14 +23,15 @@ import {
   resolveAiChatSessionId,
   touchAiChatSession,
 } from "@/lib/ai-chat/session-compat";
-import { trimHeaderSafeSecret } from "@/lib/env/bearer-key";
+import { getLlmKeysDiagnostic, resolveGroqApiKey, resolveOpenAiApiKey } from "@/lib/ai/llm-env";
+import { debugLogServer } from "@/lib/debug-log-server";
 
 const MAX_TOOL_ROUNDS = 6;
 const HISTORY_LIMIT = 40;
 const OPEN_TASK_STATUSES = ["not_started", "in_progress", "on_hold"] as const;
 
 function createChatToolClient(): OpenAI | null {
-  const gq = trimHeaderSafeSecret(process.env.GROQ_API_KEY);
+  const gq = resolveGroqApiKey();
   if (gq) {
     return new OpenAI({
       apiKey: gq,
@@ -38,7 +39,7 @@ function createChatToolClient(): OpenAI | null {
       timeout: 20_000,
     });
   }
-  const oa = trimHeaderSafeSecret(process.env.OPENAI_API_KEY);
+  const oa = resolveOpenAiApiKey();
   if (oa) {
     return new OpenAI({ apiKey: oa, timeout: 20_000 });
   }
@@ -46,7 +47,7 @@ function createChatToolClient(): OpenAI | null {
 }
 
 function chatToolModel(): string {
-  if (trimHeaderSafeSecret(process.env.GROQ_API_KEY)) {
+  if (resolveGroqApiKey()) {
     return process.env.GROQ_MODEL?.trim() || "llama-3.1-8b-instant";
   }
   return process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
@@ -164,7 +165,7 @@ function gracefulProviderFailure(err: unknown): string {
 async function runOpenAiToolFallback(
   messages: ChatCompletionMessageParam[]
 ): Promise<string | null> {
-  const oa = trimHeaderSafeSecret(process.env.OPENAI_API_KEY);
+  const oa = resolveOpenAiApiKey();
   if (!oa) return null;
   const backup = new OpenAI({ apiKey: oa, timeout: 20_000 });
   const completion = await backup.chat.completions.create({
@@ -328,6 +329,14 @@ export async function handleAiChatPost(params: {
   content: string;
   sessionId?: string | null;
 }): Promise<Response> {
+  const keyDiag = getLlmKeysDiagnostic();
+  debugLogServer(
+    "run-ai-chat.ts:handleAiChatPost",
+    "llm keys diagnostic",
+    { gemini: keyDiag.gemini, groq: keyDiag.groq, openai: keyDiag.openai, geminiModel: keyDiag.geminiModel },
+    "F"
+  );
+
   const text = params.content.trim();
   if (!text || text.length > 12000) {
     return new Response(JSON.stringify({ error: "نص غير صالح" }), {
