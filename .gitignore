@@ -47,3 +47,5 @@ next-env.d.ts
 # Local Netlify folder
 .netlify
 .tmp-supabase-cli/
+supabase/.temp/
+deno.lock
