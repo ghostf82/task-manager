@@ -113,6 +113,7 @@ export function ChatClient({
   const aiChatAbortRef = useRef<AbortController | null>(null);
   const skipAiRealtimeReloadRef = useRef(false);
   const aiSendInFlightRef = useRef(false);
+  const newChatInFlightRef = useRef(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewProposal, setReviewProposal] = useState<PendingProposalRow | null>(null);
   const [aiPending, setAiPending] = useState(false);
@@ -126,6 +127,8 @@ export function ChatClient({
   const [planBusy, startPlanChat] = useTransition();
   const [aiSessionId, setAiSessionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyMutating, setHistoryMutating] = useState(false);
   const [aiSessions, setAiSessions] = useState<AiChatSessionRow[]>([]);
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const scrollRafRef = useRef<number | null>(null);
@@ -206,13 +209,25 @@ export function ChatClient({
   );
 
   const refreshAiSessions = useCallback(async () => {
-    try {
-      const rows = await listAiChatSessionsAction();
-      setAiSessions(rows);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("chatClient.toastSessionsFail"));
+    const res = await listAiChatSessionsAction();
+    if (!res.ok) {
+      toast.error(res.error || t("chatClient.toastSessionsFail"));
+      return false;
     }
+    setAiSessions(res.data.sessions);
+    return true;
   }, [t]);
+
+  const focusDraftInput = useCallback(() => {
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLInputElement>("[data-chat-draft-input]")?.focus();
+    });
+  }, []);
+
+  const openHistoryDialog = useCallback(() => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    setHistoryOpen(true);
+  }, []);
 
   const closeThread = useCallback(() => {
     aiChatAbortRef.current?.abort();
@@ -230,20 +245,32 @@ export function ChatClient({
   }, []);
 
   const startNewAiChat = useCallback(async () => {
+    if (newChatInFlightRef.current) return;
+    newChatInFlightRef.current = true;
+    setHistoryMutating(true);
     try {
-      const id = await createAiChatSessionAction();
+      const res = await createAiChatSessionAction();
+      if (!res.ok) {
+        toast.error(res.error || t("chatClient.toastOpenThreadFail"));
+        return;
+      }
       setPeerId(AI_AGENT_PEER_ID);
       setConvId(null);
       setMessages([]);
-      setAiSessionId(id);
+      setAiSessionId(res.data.sessionId);
       setAiMessages([]);
       setStreamingText("");
       setDraft("");
       setPlanCard(null);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("chatClient.toastOpenThreadFail"));
+      setPlanIncludeChat([]);
+      setPlanPhaseChat("plan_review");
+      setHistoryOpen(false);
+      focusDraftInput();
+    } finally {
+      newChatInFlightRef.current = false;
+      setHistoryMutating(false);
     }
-  }, [t]);
+  }, [focusDraftInput, t]);
 
   const openAiSession = useCallback(
     async (sessionId: string) => {
@@ -260,6 +287,19 @@ export function ChatClient({
   useEffect(() => {
     scrollToBottom();
   }, [messages.length, aiMessages.length, streamingText, scrollToBottom]);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    void (async () => {
+      await refreshAiSessions();
+      if (!cancelled) setHistoryLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [historyOpen, refreshAiSessions]);
 
   useEffect(() => {
     if (!convId || isAiThread) return;
@@ -382,13 +422,13 @@ export function ChatClient({
 
     let sessionId = aiSessionId;
     if (!sessionId) {
-      try {
-        sessionId = await createAiChatSessionAction();
-        setAiSessionId(sessionId);
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : t("chatClient.toastOpenThreadFail"));
+      const created = await createAiChatSessionAction();
+      if (!created.ok) {
+        toast.error(created.error || t("chatClient.toastOpenThreadFail"));
         return;
       }
+      sessionId = created.data.sessionId;
+      setAiSessionId(sessionId);
     }
 
     const optimisticId = `temp-user-${crypto.randomUUID()}`;
@@ -657,10 +697,7 @@ export function ChatClient({
                     variant="ghost"
                     size="icon-sm"
                     title={t("chatClient.historyTitle")}
-                    onClick={() => {
-                      void refreshAiSessions();
-                      setHistoryOpen(true);
-                    }}
+                    onClick={openHistoryDialog}
                   >
                     <History className="size-4" />
                   </Button>
@@ -915,6 +952,7 @@ export function ChatClient({
           <div className="shrink-0 space-y-2 border-t border-border bg-background/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm md:bg-background">
             <div className="flex gap-2">
             <Input
+              data-chat-draft-input
               placeholder={isAiThread ? t("chatClient.placeholderAi") : t("chatClient.placeholderDm")}
               value={draft}
               disabled={
@@ -968,36 +1006,54 @@ export function ChatClient({
         onResolved={() => void loadAiMessages()}
       />
 
-      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+      <Dialog
+        open={historyOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            (document.activeElement as HTMLElement | null)?.blur();
+          }
+          setHistoryOpen(open);
+          if (!open) setSelectedSessionIds(new Set());
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t("chatClient.historyTitle")}</DialogTitle>
             <DialogDescription>{t("chatClient.historyDesc")}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" onClick={() => void startNewAiChat()}>
+            <Button
+              type="button"
+              size="sm"
+              disabled={historyMutating}
+              onClick={() => void startNewAiChat()}
+            >
               {t("chatClient.newChat")}
             </Button>
             <Button
               type="button"
               size="sm"
               variant="outline"
-              disabled={selectedSessionIds.size === 0}
+              disabled={historyMutating || selectedSessionIds.size === 0}
               onClick={() => {
                 const ids = [...selectedSessionIds];
                 if (!ids.length) return;
                 if (!confirm(t("chatClient.confirmDeleteSessions"))) return;
-                startTransition(async () => {
-                  try {
-                    await deleteAiChatSessionsAction(ids);
-                    setSelectedSessionIds(new Set());
-                    if (aiSessionId && ids.includes(aiSessionId)) closeThread();
-                    await refreshAiSessions();
+                const prevSessions = aiSessions;
+                setHistoryMutating(true);
+                setAiSessions((rows) => rows.filter((r) => !ids.includes(r.id)));
+                setSelectedSessionIds(new Set());
+                if (aiSessionId && ids.includes(aiSessionId)) closeThread();
+                void (async () => {
+                  const res = await deleteAiChatSessionsAction(ids);
+                  if (!res.ok) {
+                    setAiSessions(prevSessions);
+                    toast.error(res.error || t("chatClient.toastSessionsFail"));
+                  } else {
                     toast.success(t("chatClient.sessionsDeleted"));
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : t("chatClient.toastSessionsFail"));
                   }
-                });
+                  setHistoryMutating(false);
+                })();
               }}
             >
               {t("chatClient.deleteSelected")}
@@ -1006,19 +1062,25 @@ export function ChatClient({
               type="button"
               size="sm"
               variant="destructive"
+              disabled={historyMutating}
               onClick={() => {
                 if (!confirm(t("chatClient.confirmDeleteAllSessions"))) return;
-                startTransition(async () => {
-                  try {
-                    await deleteAllAiChatSessionsAction();
-                    setSelectedSessionIds(new Set());
-                    closeThread();
-                    await refreshAiSessions();
+                const prevSessions = aiSessions;
+                setHistoryMutating(true);
+                setAiSessions([]);
+                setSelectedSessionIds(new Set());
+                closeThread();
+                void (async () => {
+                  const res = await deleteAllAiChatSessionsAction();
+                  if (!res.ok) {
+                    setAiSessions(prevSessions);
+                    toast.error(res.error || t("chatClient.toastSessionsFail"));
+                  } else {
                     toast.success(t("chatClient.sessionsDeleted"));
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : t("chatClient.toastSessionsFail"));
+                    setHistoryOpen(false);
                   }
-                });
+                  setHistoryMutating(false);
+                })();
               }}
             >
               {t("chatClient.deleteAllHistory")}
@@ -1026,7 +1088,11 @@ export function ChatClient({
           </div>
           <ScrollArea className="max-h-72">
             <ul className="divide-y divide-border">
-              {aiSessions.length === 0 ? (
+              {historyLoading ? (
+                <li className="text-muted-foreground px-2 py-6 text-center text-xs">
+                  {t("chatClient.historyLoading")}
+                </li>
+              ) : aiSessions.length === 0 ? (
                 <li className="text-muted-foreground px-2 py-6 text-center text-xs">
                   {t("chatClient.noSessions")}
                 </li>

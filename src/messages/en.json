@@ -212,6 +212,8 @@
       "sameCompanyOnly": "You can only message colleagues in the same company",
       "createConversationFailed": "Could not create the conversation",
       "createSessionFailed": "Could not create chat session",
+      "sessionsLoadFailed": "Could not load chat history",
+      "deleteSessionsFailed": "Could not delete history",
       "emptyMessage": "Message is empty"
     },
     "aiGovernance": {
@@ -570,6 +572,7 @@
     "confirmDeleteSessions": "Delete selected sessions?",
     "confirmDeleteAllSessions": "Delete all chat history?",
     "sessionsDeleted": "Deleted",
+    "historyLoading": "Loading history…",
     "noSessions": "No saved sessions",
     "untitledSession": "Untitled chat",
     "toastSessionsFail": "Could not load history",

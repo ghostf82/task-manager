@@ -212,6 +212,8 @@
       "sameCompanyOnly": "يمكنك مراسلة الزملاء في نفس الشركة فقط",
       "createConversationFailed": "تعذر إنشاء المحادثة",
       "createSessionFailed": "تعذر إنشاء جلسة المحادثة",
+      "sessionsLoadFailed": "تعذّر تحميل سجل المحادثات",
+      "deleteSessionsFailed": "تعذّر حذف السجل",
       "emptyMessage": "الرسالة فارغة"
     },
     "aiGovernance": {
@@ -570,6 +572,7 @@
     "confirmDeleteSessions": "حذف الجلسات المحددة؟",
     "confirmDeleteAllSessions": "حذف كل سجل المحادثات؟",
     "sessionsDeleted": "تم الحذف",
+    "historyLoading": "جاري تحميل السجل…",
     "noSessions": "لا توجد جلسات محفوظة",
     "untitledSession": "محادثة بدون عنوان",
     "toastSessionsFail": "تعذّر تحميل السجل",

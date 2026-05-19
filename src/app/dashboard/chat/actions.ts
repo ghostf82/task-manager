@@ -2,13 +2,31 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
+import {
+  deleteAiChatMessagesForSessions,
+  deleteAllAiChatMessagesForUser,
+} from "@/lib/ai-chat/session-compat";
 import { requireSession } from "@/lib/dashboard-auth";
 import { tAction } from "@/lib/i18n/action-messages";
 import { createClient } from "@/lib/supabase/server";
 import {
+  isLegacyAiChatSessionId,
   isMissingTable,
   LEGACY_AI_CHAT_SESSION_ID,
 } from "@/lib/supabase/schema-compat";
+
+export type AiChatActionResult<T = undefined> =
+  | (T extends undefined ? { ok: true } : { ok: true; data: T })
+  | { ok: false; error: string };
+
+async function fail(message: string): Promise<{ ok: false; error: string }> {
+  return { ok: false, error: message };
+}
+
+async function actionError(e: unknown, fallbackKey: string): Promise<string> {
+  if (e instanceof Error && e.message.trim()) return e.message;
+  return tAction(fallbackKey);
+}
 
 async function findSharedTenant(
   supabase: SupabaseClient,
@@ -136,62 +154,106 @@ export type AiChatSessionRow = {
   updated_at: string;
 };
 
-export async function createAiChatSessionAction(title?: string | null): Promise<string> {
-  const session = await requireSession();
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("ai_chat_sessions")
-    .insert({
-      user_id: session.id,
-      title: title?.trim() || null,
-    })
-    .select("id")
-    .single();
-  if (error && isMissingTable(error, "ai_chat_sessions")) {
-    revalidatePath("/dashboard/chat");
-    return LEGACY_AI_CHAT_SESSION_ID;
+export async function createAiChatSessionAction(
+  title?: string | null
+): Promise<AiChatActionResult<{ sessionId: string }>> {
+  try {
+    const session = await requireSession();
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("ai_chat_sessions")
+      .insert({
+        user_id: session.id,
+        title: title?.trim() || null,
+      })
+      .select("id")
+      .single();
+    if (error && isMissingTable(error, "ai_chat_sessions")) {
+      return { ok: true, data: { sessionId: LEGACY_AI_CHAT_SESSION_ID } };
+    }
+    if (error || !data?.id) {
+      return fail(error?.message ?? (await tAction("errors.chat.createSessionFailed")));
+    }
+    return { ok: true, data: { sessionId: data.id as string } };
+  } catch (e) {
+    return fail(await actionError(e, "errors.chat.createSessionFailed"));
   }
-  if (error || !data?.id) throw new Error(error?.message ?? (await tAction("errors.chat.createSessionFailed")));
-  revalidatePath("/dashboard/chat");
-  return data.id as string;
 }
 
-export async function listAiChatSessionsAction(): Promise<AiChatSessionRow[]> {
-  const session = await requireSession();
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("ai_chat_sessions")
-    .select("id,title,created_at,updated_at")
-    .eq("user_id", session.id)
-    .order("updated_at", { ascending: false })
-    .limit(50);
-  if (error && isMissingTable(error, "ai_chat_sessions")) return [];
-  if (error) throw new Error(error.message);
-  return (data ?? []) as AiChatSessionRow[];
+export async function listAiChatSessionsAction(): Promise<
+  AiChatActionResult<{ sessions: AiChatSessionRow[] }>
+> {
+  try {
+    const session = await requireSession();
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("ai_chat_sessions")
+      .select("id,title,created_at,updated_at")
+      .eq("user_id", session.id)
+      .order("updated_at", { ascending: false })
+      .limit(50);
+    if (error && isMissingTable(error, "ai_chat_sessions")) {
+      return { ok: true, data: { sessions: [] } };
+    }
+    if (error) return fail(error.message);
+    return { ok: true, data: { sessions: (data ?? []) as AiChatSessionRow[] } };
+  } catch (e) {
+    return fail(await actionError(e, "errors.chat.sessionsLoadFailed"));
+  }
 }
 
-export async function deleteAiChatSessionsAction(sessionIds: string[]) {
-  const session = await requireSession();
-  if (!sessionIds.length) return;
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("ai_chat_sessions")
-    .delete()
-    .eq("user_id", session.id)
-    .in("id", sessionIds);
-  if (error && isMissingTable(error, "ai_chat_sessions")) return;
-  if (error) throw new Error(error.message);
-  revalidatePath("/dashboard/chat");
+export async function deleteAiChatSessionsAction(
+  sessionIds: string[]
+): Promise<AiChatActionResult> {
+  try {
+    const session = await requireSession();
+    const ids = sessionIds.filter((id) => id && !isLegacyAiChatSessionId(id));
+    if (!ids.length) return { ok: true };
+
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("ai_chat_sessions")
+      .delete()
+      .eq("user_id", session.id)
+      .in("id", ids);
+
+    if (error && isMissingTable(error, "ai_chat_sessions")) {
+      const msgRes = await deleteAiChatMessagesForSessions(supabase, session.id, ids);
+      if (msgRes.error) return fail(msgRes.error);
+      return { ok: true };
+    }
+    if (error) return fail(error.message);
+    return { ok: true };
+  } catch (e) {
+    return fail(await actionError(e, "errors.chat.deleteSessionsFailed"));
+  }
 }
 
-export async function deleteAllAiChatSessionsAction() {
-  const session = await requireSession();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("ai_chat_sessions")
-    .delete()
-    .eq("user_id", session.id);
-  if (error && isMissingTable(error, "ai_chat_sessions")) return;
-  if (error) throw new Error(error.message);
-  revalidatePath("/dashboard/chat");
+export async function deleteAllAiChatSessionsAction(): Promise<AiChatActionResult> {
+  try {
+    const session = await requireSession();
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("ai_chat_sessions")
+      .delete()
+      .eq("user_id", session.id);
+
+    if (error && isMissingTable(error, "ai_chat_sessions")) {
+      const msgRes = await deleteAllAiChatMessagesForUser(supabase, session.id);
+      if (msgRes.error) return fail(msgRes.error);
+      return { ok: true };
+    }
+    if (error) return fail(error.message);
+
+    // Orphan messages without session_id (pre-migration backfill gaps)
+    await supabase
+      .from("ai_chat_messages")
+      .delete()
+      .eq("user_id", session.id)
+      .is("session_id", null);
+
+    return { ok: true };
+  } catch (e) {
+    return fail(await actionError(e, "errors.chat.deleteSessionsFailed"));
+  }
 }

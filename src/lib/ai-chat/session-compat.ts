@@ -101,6 +101,36 @@ export async function touchAiChatSession(
   if (error && isMissingTable(error, "ai_chat_sessions")) return;
 }
 
+/** Delete all AI chat messages for a user (legacy / pre-sessions schema). */
+export async function deleteAllAiChatMessagesForUser(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("ai_chat_messages").delete().eq("user_id", userId);
+  return { error: error ? error.message : null };
+}
+
+/** Delete messages for specific sessions; falls back to full user wipe when session_id column is missing. */
+export async function deleteAiChatMessagesForSessions(
+  supabase: SupabaseClient,
+  userId: string,
+  sessionIds: string[]
+): Promise<{ error: string | null }> {
+  const realIds = sessionIds.filter((id) => !isLegacyAiChatSessionId(id));
+  if (!realIds.length) return { error: null };
+
+  const { error } = await supabase
+    .from("ai_chat_messages")
+    .delete()
+    .eq("user_id", userId)
+    .in("session_id", realIds);
+
+  if (error && isMissingColumn(error, "session_id")) {
+    return deleteAllAiChatMessagesForUser(supabase, userId);
+  }
+  return { error: error ? error.message : null };
+}
+
 export async function fetchAiChatHistory(
   supabase: SupabaseClient,
   userId: string,
