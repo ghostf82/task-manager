@@ -11,6 +11,7 @@ import {
   documentStatusLabelsAr,
 } from "@/lib/company-documents";
 import { statusLabelsAr, type TaskStatus } from "@/lib/corporate-tasks";
+import { listOdooTasksForChat } from "@/lib/ai-chat/odoo-tasks-for-chat";
 
 export type ChatToolContext = {
   supabase: SupabaseClient;
@@ -66,6 +67,38 @@ export async function executeAiChatTool(
         };
       });
       return { text: JSON.stringify({ documents: rows }, null, 2) };
+    }
+
+    case "list_odoo_tasks": {
+      if (!ctx.licensedToolSlugs.includes("odoo")) {
+        return { text: "رفض: المستخدم لا يملك ترخيص أداة Odoo." };
+      }
+      const limit = Math.min(40, Math.max(1, Number(args.max_rows) || 20));
+      const text = typeof args.search === "string" ? args.search.trim() : "";
+      const mineOnly = Boolean(args.mine_only);
+      const res = await listOdooTasksForChat(ctx.supabase, ctx.userId, {
+        text: text || undefined,
+        limit,
+        mineOnly,
+      });
+      if (!res.ok) return { text: `تعذّر قراءة مهام Odoo: ${res.error}` };
+      const rows = res.tasks.map((t) => ({
+        id: t.id,
+        name: t.name,
+        stage: t.stage,
+        stage_id: t.stageId,
+        project: t.project,
+        project_id: t.projectId,
+        deadline: t.deadline,
+        creator: t.creator,
+        responsible: t.responsible,
+        assignees: t.assignees.map((a) => a.name),
+        tags: t.tags,
+        priority: t.priority,
+        active: t.active,
+        description_preview: t.descriptionPlain.slice(0, 500),
+      }));
+      return { text: JSON.stringify({ odoo_tasks: rows, count: rows.length }, null, 2) };
     }
 
     case "list_corporate_tasks": {
@@ -214,6 +247,22 @@ export const AI_CHAT_TOOLS_OPENAI = [
         type: "object",
         properties: {
           max_rows: { type: "integer", description: "حد أقصى للصفوف (1–50)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_odoo_tasks",
+      description:
+        "جلب مهام Odoo الحية (project.task) عبر Browser Session — مع المكلفين والمراحل والوسوم. ليست مهام الشركات الداخلية.",
+      parameters: {
+        type: "object",
+        properties: {
+          max_rows: { type: "integer", description: "حد أقصى (1–40)" },
+          search: { type: "string", description: "بحث في عنوان المهمة" },
+          mine_only: { type: "boolean", description: "مهام أنشأها المستخدم فقط" },
         },
       },
     },

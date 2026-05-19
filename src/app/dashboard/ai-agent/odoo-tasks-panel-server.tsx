@@ -48,7 +48,21 @@ export async function OdooTasksPanelWithCache() {
     .filter((n) => Number.isFinite(n));
   const lastSyncAt = times.length ? new Date(Math.max(...times)).toISOString() : null;
 
+  const { data: cred } = await supabase
+    .from("user_odoo_credentials")
+    .select("base_url")
+    .eq("user_id", session.id)
+    .maybeSingle();
+  const odooBaseUrl =
+    cred && typeof cred.base_url === "string" && cred.base_url.trim()
+      ? cred.base_url.trim()
+      : null;
+
   return (
-    <OdooTasksPanelDynamic initialWorkspace={initialWorkspace} initialLastSyncAt={lastSyncAt} />
+    <OdooTasksPanelDynamic
+      initialWorkspace={initialWorkspace}
+      initialLastSyncAt={lastSyncAt}
+      odooBaseUrl={odooBaseUrl}
+    />
   );
 }

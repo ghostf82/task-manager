@@ -40,6 +40,8 @@ import {
   listOdooDocumentsViaWebLogin,
   listOdooProjectsViaWebLogin,
   searchOdooTasksViaWebLogin,
+  listOdooTaskStagesViaWebLogin,
+  listOdooUsersViaWebLogin,
   updateOdooCalendarEventViaWebLogin,
   updateOdooDocumentViaWebLogin,
   updateOdooProjectViaWebLogin,
@@ -47,6 +49,7 @@ import {
   updateOdooTaskStageViaWebLogin,
 } from "@/lib/integrations/odoo-client";
 import { loadOdooBrowserSessionBundle, loadOdooConnectionState } from "@/lib/ai-agent/load-user-integrations";
+import { enrichOdooWebTasksToUiRows, type OdooTaskUiRow } from "@/lib/integrations/odoo-task-enrich";
 import { upsertOdooBrowserCache } from "@/lib/ai-agent/odoo-browser-cache";
 
 export type ScanResult = {
@@ -617,7 +620,7 @@ export async function listOdooTasksAction(input?: {
   stageId?: number | null;
   limit?: number;
   mineOnly?: boolean;
-}): Promise<{ ok: true; tasks: Array<{ id: number; name: string; stage: string; project: string; deadline: string; creator: string; responsible: string; assigneeIds: number[]; description: string; priority: string; active: boolean }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; tasks: OdooTaskUiRow[] } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const mode = await loadOdooConnectionState(supabase, session.id);
@@ -654,22 +657,48 @@ export async function listOdooTasksAction(input?: {
     eventType: "odoo_handshake_ok",
     message: `تمت قراءة مهام Odoo بنجاح (${res.tasks.length}).`,
   });
-  const tasks = res.tasks.map((t) => ({
-    id: t.id,
-    name: t.name ?? "",
-    stage: Array.isArray(t.stage_id) ? String(t.stage_id[1]) : "—",
-    project: Array.isArray(t.project_id) ? String(t.project_id[1]) : "—",
-    deadline: typeof t.date_deadline === "string" ? t.date_deadline : "—",
-    creator: Array.isArray(t.create_uid) ? String(t.create_uid[1]) : "—",
-    responsible: Array.isArray(t.user_id) ? String(t.user_id[1]) : "—",
-    assigneeIds: Array.isArray(t.user_ids) ? t.user_ids.map(Number) : [],
-    description: typeof t.description === "string" ? t.description : "",
-    priority: typeof t.priority === "string" ? t.priority : "",
-    active: Boolean(t.active ?? true),
-  }));
+  const tasks = await enrichOdooWebTasksToUiRows(bundle, res.tasks);
   await upsertOdooBrowserCache(supabase, session.id, "tasks", { tasks });
   revalidatePath("/dashboard/ai-agent");
   return { ok: true, tasks };
+}
+
+export async function listOdooTaskStagesAction(input?: {
+  projectId?: number | null;
+}): Promise<
+  | { ok: true; stages: Array<{ id: number; name: string; projectIds: number[] }> }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const res = await listOdooTaskStagesViaWebLogin({
+    bundle,
+    projectId: input?.projectId ?? null,
+  });
+  if (res.error && !res.stages.length) return { ok: false, error: res.error };
+  return { ok: true, stages: res.stages };
+}
+
+export async function listOdooUsersAction(input?: {
+  text?: string;
+  limit?: number;
+}): Promise<
+  | { ok: true; users: Array<{ id: number; name: string }> }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const res = await listOdooUsersViaWebLogin({
+    bundle,
+    text: input?.text,
+    limit: input?.limit ?? 200,
+  });
+  if (res.error && !res.users.length) return { ok: false, error: res.error };
+  return { ok: true, users: res.users };
 }
 
 export async function updateOdooTaskStageAction(input: {
@@ -718,6 +747,7 @@ export async function updateOdooTaskAction(input: {
   stageId?: number;
   deadline?: string;
   active?: boolean;
+  assigneeIds?: number[];
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
@@ -731,6 +761,7 @@ export async function updateOdooTaskAction(input: {
     stageId: input.stageId,
     deadline: input.deadline,
     active: input.active,
+    assigneeIds: input.assigneeIds,
   });
   if (!upd.ok) return upd;
   await appendAgentActivity(supabase, {
@@ -1344,7 +1375,7 @@ export async function listOdooWorkspaceAllAction(input?: {
 }): Promise<
   | {
       ok: true;
-      tasks: Array<{ id: number; name: string; stage: string; project: string; deadline: string; creator: string; responsible: string; assigneeIds: number[]; description: string; priority: string; active: boolean }>;
+      tasks: OdooTaskUiRow[];
       projects: Array<{ id: number; name: string; active: boolean; creator: string; manager: string; visibility: string; createdAt: string }>;
       events: OdooCalendarEventRow[];
       documents: Array<{ id: number; name: string; type: string; createdAt: string; creator: string }>;

@@ -102,7 +102,8 @@ ${reg}
 قواعد العمل:
 - ابدأ بفهم القصد (سؤال عام / تحليل / تنفيذ) قبل الأدوات.
 - للتحيات والمحادثة العامة أجب مباشرة دون أدوات.
-- list_company_documents للمستندات والتراخيص؛ list_corporate_tasks للمهام.
+- list_company_documents للمستندات والتراخيص؛ list_corporate_tasks لمهام الشركات الداخلية (Supabase)؛ list_odoo_tasks لمهام Odoo الحية (يتطلب ترخيص odoo).
+- لتعديل Odoo (إنشاء مهمة، نقل مرحلة، تعديل عنوان): استخدم create_pending_proposal مع odoo_create_task أو odoo_update_task — لا تُنفَّذ مباشرة.
 - الإجراءات الحساسة عبر create_pending_proposal فقط.
 - احترم RLS ونطاق الشركات.
 - Markdown خفيف عند الحاجة (قوائم، عناوين قصيرة).

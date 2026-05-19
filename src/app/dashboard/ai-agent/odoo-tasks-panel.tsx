@@ -6,6 +6,8 @@ import { ChevronDown, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { CalendarDeepCopyDialog } from "@/app/dashboard/ai-agent/calendar-deep-copy-dialog";
+import { OdooTaskExpandedDetail } from "@/app/dashboard/ai-agent/odoo-task-expanded-detail";
+import type { OdooTaskStageOption, OdooTaskUiRow, OdooUserOption } from "@/lib/integrations/odoo-task-ui-types";
 import {
   archiveOdooEntityAction,
   cloneOdooCalendarEventPhaseOneAction,
@@ -23,6 +25,8 @@ import {
   listOdooDocumentsAction,
   listOdooProjectsAction,
   listOdooTasksAction,
+  listOdooTaskStagesAction,
+  listOdooUsersAction,
   listOdooWorkspaceAllAction,
   updateOdooCalendarEventAction,
   updateOdooDocumentAction,
@@ -37,20 +41,6 @@ import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-type TaskRow = {
-  id: number;
-  name: string;
-  stage: string;
-  project: string;
-  deadline: string;
-  creator: string;
-  responsible: string;
-  assigneeIds: number[];
-  description: string;
-  priority: string;
-  active: boolean;
-};
 
 type ProjectRow = {
   id: number;
@@ -92,6 +82,7 @@ export type OdooTasksPanelProps = {
     documents: unknown;
   } | null;
   initialLastSyncAt?: string | null;
+  odooBaseUrl?: string | null;
 };
 
 function cleanName(v: string): string {
@@ -219,9 +210,54 @@ async function pullAgendaChunksToSetState(
   return true;
 }
 
+function taskAssigneeLabel(t: OdooTaskUiRow): string {
+  if (t.assignees.length) return t.assignees.map((a) => a.name).join("، ");
+  return t.responsible !== "—" ? t.responsible : "—";
+}
+
+function normalizeCachedTask(raw: unknown): OdooTaskUiRow | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Partial<OdooTaskUiRow>;
+  const id = Number(r.id);
+  if (!Number.isFinite(id)) return null;
+  const assignees = Array.isArray(r.assignees) ? r.assignees : [];
+  const assigneeIds =
+    Array.isArray(r.assigneeIds) && r.assigneeIds.length
+      ? r.assigneeIds
+      : assignees.map((a) => a.id);
+  const descPlain =
+    typeof r.descriptionPlain === "string"
+      ? r.descriptionPlain
+      : typeof r.description === "string"
+        ? r.description.replace(/<[^>]+>/g, " ").trim()
+        : "";
+  return {
+    id,
+    name: String(r.name ?? ""),
+    stage: String(r.stage ?? "—"),
+    stageId: r.stageId ?? null,
+    project: String(r.project ?? "—"),
+    projectId: r.projectId ?? null,
+    deadline: String(r.deadline ?? "—"),
+    creator: String(r.creator ?? "—"),
+    creatorId: r.creatorId ?? null,
+    responsible: String(r.responsible ?? "—"),
+    responsibleId: r.responsibleId ?? null,
+    assigneeIds,
+    assignees,
+    tags: Array.isArray(r.tags) ? r.tags : [],
+    tagIds: Array.isArray(r.tagIds) ? r.tagIds : [],
+    description: String(r.description ?? ""),
+    descriptionPlain: descPlain,
+    priority: String(r.priority ?? "—"),
+    active: Boolean(r.active ?? true),
+  };
+}
+
 export function OdooTasksPanel({
   initialWorkspace = null,
   initialLastSyncAt = null,
+  odooBaseUrl = null,
 }: OdooTasksPanelProps) {
   const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
   const [bulkProgress, setBulkProgress] = useState<{ cur: number; total: number } | null>(null);
@@ -243,9 +279,14 @@ export function OdooTasksPanel({
   }
   const busy = (k: string) => loadingKeys.has(k);
 
-  const [tasks, setTasks] = useState<TaskRow[]>(
-    () => (Array.isArray(initialWorkspace?.tasks) ? (initialWorkspace!.tasks as TaskRow[]) : []),
-  );
+  const [tasks, setTasks] = useState<OdooTaskUiRow[]>(() => {
+    if (!Array.isArray(initialWorkspace?.tasks)) return [];
+    return initialWorkspace.tasks
+      .map((row) => normalizeCachedTask(row))
+      .filter((row): row is OdooTaskUiRow => row != null);
+  });
+  const [taskStages, setTaskStages] = useState<OdooTaskStageOption[]>([]);
+  const [odooUsers, setOdooUsers] = useState<OdooUserOption[]>([]);
   const [query, setQuery] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -302,9 +343,21 @@ export function OdooTasksPanel({
     documents: true,
   });
 
+  async function loadTaskMeta() {
+    const [stagesRes, usersRes] = await Promise.all([
+      listOdooTaskStagesAction(),
+      listOdooUsersAction({ limit: 200 }),
+    ]);
+    if (stagesRes.ok) setTaskStages(stagesRes.stages);
+    if (usersRes.ok) setOdooUsers(usersRes.users);
+  }
+
   function loadTasks() {
     runOp("load-tasks", async () => {
-      const res = await listOdooTasksAction({ text: query, limit: 50, mineOnly });
+      const [res] = await Promise.all([
+        listOdooTasksAction({ text: query, limit: 50, mineOnly }),
+        loadTaskMeta(),
+      ]);
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -318,7 +371,10 @@ export function OdooTasksPanel({
 
   function loadAll() {
     runOp("load-all", async () => {
-      const res = await listOdooWorkspaceAllAction({ text: query, mineOnly });
+      const [res] = await Promise.all([
+        listOdooWorkspaceAllAction({ text: query, mineOnly }),
+        loadTaskMeta(),
+      ]);
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -374,7 +430,7 @@ export function OdooTasksPanel({
     });
   }
 
-  function editTaskRow(row: TaskRow) {
+  function editTaskRow(row: OdooTaskUiRow) {
     const nextName = prompt("اسم المهمة", row.name) ?? row.name;
     const nextDesc = prompt("الوصف", row.description ?? "") ?? row.description;
     const nextDeadline = prompt("تاريخ الاستحقاق YYYY-MM-DD", row.deadline === "—" ? "" : row.deadline) ?? "";
@@ -632,6 +688,10 @@ export function OdooTasksPanel({
       const r = cleanName(t.responsible);
       if (c) bag.add(c);
       if (r) bag.add(r);
+      for (const a of t.assignees) {
+        const n = cleanName(a.name);
+        if (n) bag.add(n);
+      }
     }
     for (const p of projects) {
       const c = cleanName(p.creator);
@@ -658,7 +718,9 @@ export function OdooTasksPanel({
     return normalized.some((n) => selectedPeople.includes(n));
   };
 
-  const filteredTasks = tasks.filter((t) => passPeople(t.creator, t.responsible));
+  const filteredTasks = tasks.filter((t) =>
+    passPeople(t.creator, t.responsible, ...t.assignees.map((a) => a.name))
+  );
   const filteredProjects = projects.filter((p) => passPeople(p.creator, p.manager));
   const filteredEvents = events.filter((e) => passPeople(e.creator, e.responsible));
   const filteredDocuments = documents.filter((d) => passPeople(d.creator));
@@ -873,7 +935,7 @@ export function OdooTasksPanel({
   }
 
   const tasksByStage = useMemo(() => {
-    const m = new Map<string, TaskRow[]>();
+    const m = new Map<string, OdooTaskUiRow[]>();
     for (const t of filteredTasks) {
       const k = t.stage || "—";
       if (!m.has(k)) m.set(k, []);
@@ -1162,7 +1224,7 @@ export function OdooTasksPanel({
                 <th className="py-2 text-start">المشروع</th>
                 <th className="py-2 text-start">الاستحقاق</th>
                 <th className="py-2 text-start">المنشئ</th>
-                <th className="py-2 text-start">المسؤول</th>
+                <th className="py-2 text-start">المكلفون</th>
                 <th className="py-2 text-start">إجراءات</th>
               </tr>
             </thead>
@@ -1192,7 +1254,7 @@ export function OdooTasksPanel({
                         <td className="py-2">{t.project}</td>
                         <td className="py-2">{t.deadline}</td>
                         <td className="py-2">{t.creator}</td>
-                        <td className="py-2">{t.responsible}</td>
+                        <td className="max-w-[14rem] py-2 text-xs leading-snug">{taskAssigneeLabel(t)}</td>
                         <td className="py-2">
                           <div className="flex flex-wrap gap-1">
                             <Button type="button" size="sm" variant="outline" onClick={() => setExpandedTaskId((id) => (id === t.id ? null : t.id))}>
@@ -1207,17 +1269,18 @@ export function OdooTasksPanel({
                       {expandedTaskId === t.id ? (
                         <tr key={`task-expanded-${t.id}`} className="border-b bg-muted/30">
                           <td colSpan={8} className="p-3">
-                            <div className="grid gap-2 text-sm sm:grid-cols-2">
-                              <p><span className="font-medium">عنوان المهمة:</span> {t.name}</p>
-                              <p><span className="font-medium">المشروع:</span> {t.project}</p>
-                              <p><span className="font-medium">المرحلة:</span> {t.stage}</p>
-                              <p><span className="font-medium">الأولوية:</span> {t.priority || "—"}</p>
-                              <p><span className="font-medium">المنشئ:</span> {t.creator}</p>
-                              <p><span className="font-medium">المسؤول:</span> {t.responsible}</p>
-                              <p><span className="font-medium">الحالة:</span> {t.active ? "نشطة" : "مؤرشفة"}</p>
-                              <p><span className="font-medium">الاستحقاق:</span> {t.deadline}</p>
-                              <p className="sm:col-span-2"><span className="font-medium">الوصف:</span> {t.description || "لا يوجد وصف."}</p>
-                            </div>
+                            <OdooTaskExpandedDetail
+                              task={t}
+                              stages={taskStages}
+                              users={odooUsers}
+                              odooBaseUrl={odooBaseUrl}
+                              busy={busy(`stage-${t.id}`) || busy(`assignees-${t.id}`)}
+                              onBusy={runOp}
+                              onChanged={() => {
+                                setNeedsRefresh(true);
+                                loadTasks();
+                              }}
+                            />
                           </td>
                         </tr>
                       ) : null}

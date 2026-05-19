@@ -24,14 +24,17 @@ type InitialWorkspace = {
 export function OdooTasksPanelDynamic({
   initialWorkspace,
   initialLastSyncAt,
+  odooBaseUrl = null,
 }: {
   initialWorkspace: InitialWorkspace;
   initialLastSyncAt: string | null;
+  odooBaseUrl?: string | null;
 }) {
   return (
     <OdooTasksPanel
       initialWorkspace={initialWorkspace}
       initialLastSyncAt={initialLastSyncAt}
+      odooBaseUrl={odooBaseUrl}
     />
   );
 }

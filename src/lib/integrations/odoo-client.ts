@@ -30,9 +30,16 @@ export type OdooWebTaskLite = {
   create_uid?: [number, string] | false;
   user_id?: [number, string] | false;
   user_ids?: number[];
+  tag_ids?: Array<number | [number, string]>;
   description?: string | false;
   priority?: string | false;
   active?: boolean;
+};
+
+export type OdooTaskStageLite = {
+  id: number;
+  name: string;
+  projectIds: number[];
 };
 
 export type OdooWebProjectLite = {
@@ -190,6 +197,177 @@ function readOdooMany2oneId(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
   if (typeof value === "string" && /^\s*\d+\s*$/.test(value)) return Number(value.trim());
   return 0;
+}
+
+/** Parse Odoo many2one `[id, label]` or bare id. */
+export function readOdooMany2onePair(value: unknown): { id: number | null; name: string } {
+  if (value === false || value == null) return { id: null, name: "" };
+  if (Array.isArray(value)) {
+    const id = readOdooMany2oneId(value);
+    const name =
+      value.length > 1 && typeof value[1] === "string" ? String(value[1]).trim() : "";
+    return { id: id > 0 ? id : null, name };
+  }
+  const id = readOdooMany2oneId(value);
+  return { id: id > 0 ? id : null, name: "" };
+}
+
+export async function enrichOdooUserDisplayNames(
+  bundle: OdooCredentialBundle,
+  userIds: number[]
+): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  const uniq = [...new Set(userIds.filter((n) => Number.isFinite(n) && n > 0))];
+  if (!uniq.length) return out;
+  try {
+    const json = await callKwWithSessionRetry(bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: "res.users",
+        method: "search_read",
+        args: [[["id", "in", uniq]]],
+        kwargs: {
+          fields: ["id", "name", "display_name"],
+          limit: Math.min(500, uniq.length),
+        },
+      })
+    );
+    for (const raw of Array.isArray(json.result) ? json.result : []) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      const id = Number(r.id);
+      if (!Number.isFinite(id)) continue;
+      const label =
+        String(r.display_name ?? r.name ?? "").trim() || `مستخدم #${id}`;
+      out.set(id, label);
+    }
+  } catch {
+    for (const id of uniq) out.set(id, `مستخدم #${id}`);
+  }
+  return out;
+}
+
+export async function enrichOdooTagNames(
+  bundle: OdooCredentialBundle,
+  tagIds: number[]
+): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  const uniq = [...new Set(tagIds.filter((n) => Number.isFinite(n) && n > 0))];
+  if (!uniq.length) return out;
+  const models = ["project.tags", "project.tag"];
+  for (const model of models) {
+    try {
+      const json = await callKwWithSessionRetry(bundle, async (session) =>
+        webCallKw({
+          baseUrl: session.baseUrl,
+          cookieHeader: session.cookieHeader,
+          model,
+          method: "search_read",
+          args: [[["id", "in", uniq]]],
+          kwargs: { fields: ["id", "name"], limit: Math.min(500, uniq.length) },
+        })
+      );
+      for (const raw of Array.isArray(json.result) ? json.result : []) {
+        if (!raw || typeof raw !== "object") continue;
+        const r = raw as Record<string, unknown>;
+        const id = Number(r.id);
+        if (!Number.isFinite(id)) continue;
+        out.set(id, String(r.name ?? "").trim() || `وسم #${id}`);
+      }
+      if (out.size > 0) return out;
+    } catch {
+      /* try next model name */
+    }
+  }
+  for (const id of uniq) out.set(id, `وسم #${id}`);
+  return out;
+}
+
+export async function listOdooTaskStagesViaWebLogin(params: {
+  bundle: OdooCredentialBundle;
+  projectId?: number | null;
+  limit?: number;
+}): Promise<{ stages: OdooTaskStageLite[]; error?: string }> {
+  try {
+    const domain: unknown[] = [];
+    if (Number.isFinite(Number(params.projectId))) {
+      domain.push(["project_ids", "in", [Number(params.projectId)]]);
+    }
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: "project.task.type",
+        method: "search_read",
+        args: [domain],
+        kwargs: {
+          fields: ["id", "name", "project_ids"],
+          order: "sequence asc, id asc",
+          limit: Math.min(200, Math.max(1, Number(params.limit ?? 120))),
+        },
+      })
+    );
+    const stages: OdooTaskStageLite[] = [];
+    for (const raw of Array.isArray(json.result) ? json.result : []) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      const id = Number(r.id);
+      if (!Number.isFinite(id)) continue;
+      const projectIds = Array.isArray(r.project_ids)
+        ? r.project_ids.map((x) => Number(x)).filter((n) => n > 0)
+        : [];
+      stages.push({
+        id,
+        name: String(r.name ?? "").trim() || `مرحلة #${id}`,
+        projectIds,
+      });
+    }
+    return { stages };
+  } catch (e) {
+    return { stages: [], error: humanizeGatewayError(e) };
+  }
+}
+
+export async function listOdooUsersViaWebLogin(params: {
+  bundle: OdooCredentialBundle;
+  text?: string;
+  limit?: number;
+}): Promise<{ users: Array<{ id: number; name: string }>; error?: string }> {
+  try {
+    const domain: unknown[] = [["active", "=", true]];
+    if (params.text?.trim()) {
+      domain.push(["name", "ilike", params.text.trim()]);
+    }
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: "res.users",
+        method: "search_read",
+        args: [domain],
+        kwargs: {
+          fields: ["id", "name", "display_name"],
+          order: "name asc",
+          limit: Math.min(300, Math.max(1, Number(params.limit ?? 150))),
+        },
+      })
+    );
+    const users: Array<{ id: number; name: string }> = [];
+    for (const raw of Array.isArray(json.result) ? json.result : []) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      const id = Number(r.id);
+      if (!Number.isFinite(id)) continue;
+      users.push({
+        id,
+        name: String(r.display_name ?? r.name ?? "").trim() || `مستخدم #${id}`,
+      });
+    }
+    return { users };
+  } catch (e) {
+    return { users: [], error: humanizeGatewayError(e) };
+  }
 }
 
 async function fetchMailActivitiesForCalendarEvents(params: {
@@ -2107,6 +2285,7 @@ export async function searchOdooTasksViaWebLogin(params: {
               "create_uid",
               "user_id",
               "user_ids",
+              "tag_ids",
               "description",
               "priority",
               "active",
@@ -2182,6 +2361,7 @@ export async function updateOdooTaskViaWebLogin(params: {
   stageId?: number;
   deadline?: string;
   active?: boolean;
+  assigneeIds?: number[];
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const values: Record<string, unknown> = {};
@@ -2190,6 +2370,10 @@ export async function updateOdooTaskViaWebLogin(params: {
     if (Number.isFinite(Number(params.stageId))) values.stage_id = Number(params.stageId);
     if (typeof params.deadline === "string" && params.deadline.trim()) values.date_deadline = params.deadline.trim();
     if (typeof params.active === "boolean") values.active = params.active;
+    if (Array.isArray(params.assigneeIds)) {
+      const ids = params.assigneeIds.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+      values.user_ids = [[6, 0, ids]];
+    }
     if (!Object.keys(values).length) return { ok: false, error: "لا توجد بيانات تعديل للمهمة." };
     const json = await callKwWithSessionRetry(params.bundle, async (session) =>
       webCallKw({
@@ -2213,12 +2397,17 @@ export async function createOdooTaskViaWebLogin(params: {
   description?: string | null;
   projectId?: number | null;
   stageId?: number | null;
+  assigneeIds?: number[];
 }): Promise<{ ok: true; taskId: number } | { ok: false; error: string }> {
   try {
     const values: Record<string, unknown> = { name: params.title.trim() };
     if (params.description?.trim()) values.description = params.description.trim();
     if (Number.isFinite(Number(params.projectId))) values.project_id = Number(params.projectId);
     if (Number.isFinite(Number(params.stageId))) values.stage_id = Number(params.stageId);
+    if (Array.isArray(params.assigneeIds) && params.assigneeIds.length) {
+      const ids = params.assigneeIds.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+      if (ids.length) values.user_ids = [[6, 0, ids]];
+    }
     const json = await callKwWithSessionRetry(params.bundle, async (session) =>
       webCallKw({
         baseUrl: session.baseUrl,
