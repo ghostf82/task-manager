@@ -562,6 +562,7 @@
     "threadTitleWithPeer": "محادثة مع {name}",
     "pickMember": "اختر عضواً",
     "threadDescAi": "ردود تدفقية عبر الخادم — التنفيذ الفعلي يمر دائماً بموافقة المقترحات.",
+    "aiKeysBanner": "لم يُضبط مفتاح ذكاء اصطناعي على الخادم. أضِف GEMINI_API_KEY أو GROQ_API_KEY أو OPENAI_API_KEY في .env.local (محلياً) أو Netlify → Environment، ثم أعد التشغيل.",
     "threadDescDm": "رسائل فورية مع الزميل المختار",
     "closeThread": "إغلاق المحادثة",
     "historyTitle": "سجل المحادثات",
@@ -678,7 +679,9 @@
       "odoo_action_success": "إجراء Odoo",
       "vault": "الخزنة",
       "proposed": "مقترح",
-      "scan": "مسح"
+      "scan": "مسح",
+      "scan_odoo_error": "Odoo: مسح — خطأ",
+      "scan_email_error": "بريد: مسح — خطأ"
     }
   },
   "aiAgentScan": {

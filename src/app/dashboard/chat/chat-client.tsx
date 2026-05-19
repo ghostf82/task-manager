@@ -22,6 +22,7 @@ import {
 } from "@/app/dashboard/chat/actions";
 import type { PendingProposalRow } from "@/app/dashboard/ai-agent/pending-proposals-panel";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
+import { debugLog } from "@/lib/debug-log";
 import { createClient } from "@/lib/supabase/client";
 import { isLegacyAiChatSessionId, isMissingColumn } from "@/lib/supabase/schema-compat";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -91,11 +92,13 @@ export function ChatClient({
   currentUserId,
   currentUserName,
   colleagues,
+  aiKeysConfigured = true,
   className,
 }: {
   currentUserId: string;
   currentUserName: string;
   colleagues: ChatColleague[];
+  aiKeysConfigured?: boolean;
   className?: string;
 }) {
   const { t, dateLocale } = useDashboardI18n();
@@ -202,6 +205,16 @@ export function ChatClient({
         return;
       }
       const chronological = [...(data ?? [])].reverse();
+      debugLog(
+        "chat-client.tsx:loadAiMessages",
+        "loaded",
+        {
+          sid,
+          legacy: isLegacyAiChatSessionId(sid),
+          count: chronological.length,
+        },
+        "C"
+      );
       setAiMessages(chronological as AiChatMessage[]);
       scrollToBottom();
     },
@@ -254,6 +267,15 @@ export function ChatClient({
         toast.error(res.error || t("chatClient.toastOpenThreadFail"));
         return;
       }
+      debugLog(
+        "chat-client.tsx:startNewAiChat",
+        "session created",
+        {
+          sessionId: res.data.sessionId,
+          legacy: isLegacyAiChatSessionId(res.data.sessionId),
+        },
+        "D"
+      );
       setPeerId(AI_AGENT_PEER_ID);
       setConvId(null);
       setMessages([]);
@@ -716,6 +738,11 @@ export function ChatClient({
           </div>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
+          {isAiThread && !aiKeysConfigured ? (
+            <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-950 dark:text-amber-100">
+              {t("chatClient.aiKeysBanner")}
+            </div>
+          ) : null}
           {isAiThread && planCard ? (
             <div className="border-border/80 bg-muted/30 shrink-0 space-y-3 border-b p-3">
               <p className="text-xs font-medium text-violet-800 dark:text-violet-100">
@@ -1066,18 +1093,30 @@ export function ChatClient({
               onClick={() => {
                 if (!confirm(t("chatClient.confirmDeleteAllSessions"))) return;
                 const prevSessions = aiSessions;
+                const wasAiThread = isAiThread;
                 setHistoryMutating(true);
                 setAiSessions([]);
                 setSelectedSessionIds(new Set());
-                closeThread();
                 void (async () => {
+                  const t0 = Date.now();
                   const res = await deleteAllAiChatSessionsAction();
+                  debugLog(
+                    "chat-client.tsx:deleteAll",
+                    "action result",
+                    { ok: res.ok, ms: Date.now() - t0, wasAiThread },
+                    "E"
+                  );
                   if (!res.ok) {
                     setAiSessions(prevSessions);
                     toast.error(res.error || t("chatClient.toastSessionsFail"));
                   } else {
                     toast.success(t("chatClient.sessionsDeleted"));
                     setHistoryOpen(false);
+                    if (wasAiThread) {
+                      await startNewAiChat();
+                    } else {
+                      closeThread();
+                    }
                   }
                   setHistoryMutating(false);
                 })();

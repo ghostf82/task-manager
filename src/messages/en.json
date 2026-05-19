@@ -562,6 +562,7 @@
     "threadTitleWithPeer": "Chat with {name}",
     "pickMember": "Choose a member",
     "threadDescAi": "Streaming replies from the server — real execution always goes through proposal approval.",
+    "aiKeysBanner": "No AI API key is configured on the server. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in .env.local (local) or Netlify → Environment, then restart.",
     "threadDescDm": "Instant messages with the selected colleague",
     "closeThread": "Close conversation",
     "historyTitle": "Chat history",
@@ -678,7 +679,9 @@
       "odoo_action_success": "Odoo action",
       "vault": "Vault",
       "proposed": "Proposal",
-      "scan": "Scan"
+      "scan": "Scan",
+      "scan_odoo_error": "Odoo scan error",
+      "scan_email_error": "Email scan error"
     }
   },
   "aiAgentScan": {

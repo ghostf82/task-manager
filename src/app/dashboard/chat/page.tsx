@@ -1,4 +1,5 @@
 import { ChatClient, type ChatColleague } from "@/app/dashboard/chat/chat-client";
+import { isAnyLlmApiKeyConfigured } from "@/lib/ai/keys-configured";
 import { requireSession } from "@/lib/dashboard-auth";
 import { getTranslator } from "@/lib/i18n/get-translator";
 import { createClient } from "@/lib/supabase/server";
@@ -85,6 +86,7 @@ export default async function ChatPage() {
         currentUserId={session.id}
         currentUserName={currentUserName}
         colleagues={colleagues}
+        aiKeysConfigured={isAnyLlmApiKeyConfigured()}
       />
     </div>
   );

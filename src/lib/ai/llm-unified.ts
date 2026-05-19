@@ -20,7 +20,7 @@ export type CallLLMResult = {
 };
 
 const NO_KEYS_AR =
-  "يرجى إضافة مفتاح Gemini المجاني من الإعدادات (GEMINI_API_KEY)، أو مفتاح Groq (GROQ_API_KEY)، أو مفتاح OpenAI (OPENAI_API_KEY) لتمكين التحليل الذكي. يجب أن تكون المفاتيح نصاً إنجليزياً/رموزاً فقط (ASCII) — لا تضع نصاً عربياً من قوالب التوثيق داخل المتغيرات.";
+  "لم يُضبط أي مفتاح ذكاء اصطناعي على الخادم. أضِف أحد المتغيرات في ملف .env.local (محلياً) أو في Netlify → Environment: GEMINI_API_KEY أو GROQ_API_KEY أو OPENAI_API_KEY، ثم أعد تشغيل الخادم/النشر. يجب أن تكون القيمة ASCII فقط (بدون نص عربي من القوالب).";
 
 const ALL_PROVIDERS_FAILED_AR =
   "تعذّر الحصول على رد من المزودين المتاحين. راجع المفاتيح في إعدادات النشر (مثل Netlify) أو البيئة المحلية.";

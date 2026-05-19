@@ -6,6 +6,7 @@ import {
   deleteAiChatMessagesForSessions,
   deleteAllAiChatMessagesForUser,
 } from "@/lib/ai-chat/session-compat";
+import { debugLogServer } from "@/lib/debug-log-server";
 import { requireSession } from "@/lib/dashboard-auth";
 import { tAction } from "@/lib/i18n/action-messages";
 import { createClient } from "@/lib/supabase/server";
@@ -211,6 +212,9 @@ export async function deleteAiChatSessionsAction(
     if (!ids.length) return { ok: true };
 
     const supabase = await createClient();
+    const msgRes = await deleteAiChatMessagesForSessions(supabase, session.id, ids);
+    if (msgRes.error) return fail(msgRes.error);
+
     const { error } = await supabase
       .from("ai_chat_sessions")
       .delete()
@@ -218,11 +222,15 @@ export async function deleteAiChatSessionsAction(
       .in("id", ids);
 
     if (error && isMissingTable(error, "ai_chat_sessions")) {
-      const msgRes = await deleteAiChatMessagesForSessions(supabase, session.id, ids);
-      if (msgRes.error) return fail(msgRes.error);
       return { ok: true };
     }
     if (error) return fail(error.message);
+    debugLogServer(
+      "actions.ts:deleteAiChatSessionsAction",
+      "sessions deleted",
+      { count: ids.length },
+      "B"
+    );
     return { ok: true };
   } catch (e) {
     return fail(await actionError(e, "errors.chat.deleteSessionsFailed"));
@@ -233,25 +241,42 @@ export async function deleteAllAiChatSessionsAction(): Promise<AiChatActionResul
   try {
     const session = await requireSession();
     const supabase = await createClient();
+
+    const { count: msgCountBefore } = await supabase
+      .from("ai_chat_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", session.id);
+
+    const msgRes = await deleteAllAiChatMessagesForUser(supabase, session.id);
+    debugLogServer(
+      "actions.ts:deleteAllAiChatSessionsAction",
+      "messages wipe",
+      { msgCountBefore: msgCountBefore ?? null, msgError: msgRes.error },
+      "A"
+    );
+    if (msgRes.error) return fail(msgRes.error);
+
     const { error } = await supabase
       .from("ai_chat_sessions")
       .delete()
       .eq("user_id", session.id);
 
     if (error && isMissingTable(error, "ai_chat_sessions")) {
-      const msgRes = await deleteAllAiChatMessagesForUser(supabase, session.id);
-      if (msgRes.error) return fail(msgRes.error);
       return { ok: true };
     }
     if (error) return fail(error.message);
 
-    // Orphan messages without session_id (pre-migration backfill gaps)
-    await supabase
+    const { count: msgCountAfter } = await supabase
       .from("ai_chat_messages")
-      .delete()
-      .eq("user_id", session.id)
-      .is("session_id", null);
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", session.id);
 
+    debugLogServer(
+      "actions.ts:deleteAllAiChatSessionsAction",
+      "done",
+      { msgCountAfter: msgCountAfter ?? null },
+      "A"
+    );
     return { ok: true };
   } catch (e) {
     return fail(await actionError(e, "errors.chat.deleteSessionsFailed"));
