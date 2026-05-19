@@ -43,9 +43,18 @@ export async function POST(req: NextRequest) {
       ? (body as { content: string }).content
       : "";
 
+  const sessionId =
+    typeof body === "object" &&
+    body !== null &&
+    "sessionId" in body &&
+    typeof (body as { sessionId: unknown }).sessionId === "string"
+      ? (body as { sessionId: string }).sessionId
+      : null;
+
   return handleAiChatPost({
     supabase,
     userId: user.id,
     content,
+    sessionId,
   });
 }

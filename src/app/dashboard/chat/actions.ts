@@ -124,3 +124,63 @@ export async function sendChatMessageAction(
   if (error) throw new Error(error.message);
   revalidatePath("/dashboard/chat");
 }
+
+export type AiChatSessionRow = {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function createAiChatSessionAction(title?: string | null): Promise<string> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("ai_chat_sessions")
+    .insert({
+      user_id: session.id,
+      title: title?.trim() || null,
+    })
+    .select("id")
+    .single();
+  if (error || !data?.id) throw new Error(error?.message ?? (await tAction("errors.chat.createSessionFailed")));
+  revalidatePath("/dashboard/chat");
+  return data.id as string;
+}
+
+export async function listAiChatSessionsAction(): Promise<AiChatSessionRow[]> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("ai_chat_sessions")
+    .select("id,title,created_at,updated_at")
+    .eq("user_id", session.id)
+    .order("updated_at", { ascending: false })
+    .limit(50);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as AiChatSessionRow[];
+}
+
+export async function deleteAiChatSessionsAction(sessionIds: string[]) {
+  const session = await requireSession();
+  if (!sessionIds.length) return;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("ai_chat_sessions")
+    .delete()
+    .eq("user_id", session.id)
+    .in("id", sessionIds);
+  if (error) throw new Error(error.message);
+  revalidatePath("/dashboard/chat");
+}
+
+export async function deleteAllAiChatSessionsAction() {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("ai_chat_sessions")
+    .delete()
+    .eq("user_id", session.id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/dashboard/chat");
+}

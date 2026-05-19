@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Phone, Send, Sparkles } from "lucide-react";
+import { History, Phone, Send, Sparkles, X } from "lucide-react";
 
 import {
   advanceExecutionPlanStepAction,
@@ -12,8 +12,13 @@ import {
 } from "@/app/dashboard/ai-agent/actions";
 import { AiProposalReviewDialog } from "@/app/dashboard/chat/ai-proposal-review-dialog";
 import {
+  createAiChatSessionAction,
+  deleteAiChatSessionsAction,
+  deleteAllAiChatSessionsAction,
   ensureDmConversationAction,
+  listAiChatSessionsAction,
   sendChatMessageAction,
+  type AiChatSessionRow,
 } from "@/app/dashboard/chat/actions";
 import type { PendingProposalRow } from "@/app/dashboard/ai-agent/pending-proposals-panel";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
@@ -118,8 +123,21 @@ export function ChatClient({
   const [planIncludeChat, setPlanIncludeChat] = useState<boolean[]>([]);
   const [planPhaseChat, setPlanPhaseChat] = useState<"plan_review" | "running">("plan_review");
   const [planBusy, startPlanChat] = useTransition();
+  const [aiSessionId, setAiSessionId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [aiSessions, setAiSessions] = useState<AiChatSessionRow[]>([]);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
+  const scrollRafRef = useRef<number | null>(null);
 
   const isAiThread = peerId === AI_AGENT_PEER_ID;
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    if (scrollRafRef.current != null) cancelAnimationFrame(scrollRafRef.current);
+    scrollRafRef.current = requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior, block: "end" });
+      scrollRafRef.current = null;
+    });
+  }, []);
 
   const nameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -144,32 +162,92 @@ export function ChatClient({
         return;
       }
       setMessages((data ?? []) as ChatMessage[]);
-      requestAnimationFrame(() =>
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-      );
+      scrollToBottom();
     },
-    []
+    [scrollToBottom]
   );
 
-  const loadAiMessages = useCallback(async () => {
-    const supabase = createClient();
-    const { data, error } = await supabase
-      .from("ai_chat_messages")
-      .select("id,role,body,metadata,created_at")
-      .eq("user_id", currentUserId)
-      /* Single round-trip; index ai_chat_messages_user_created_idx (user_id, created_at desc) supports DESC+limit. */
-      .order("created_at", { ascending: false })
-      .limit(150);
-    if (error) {
-      toast.error(error.message);
-      return;
+  const loadAiMessages = useCallback(
+    async (sessionId?: string | null) => {
+      const sid = sessionId ?? aiSessionId;
+      if (!sid) {
+        setAiMessages([]);
+        return;
+      }
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("ai_chat_messages")
+        .select("id,role,body,metadata,created_at")
+        .eq("user_id", currentUserId)
+        .eq("session_id", sid)
+        .order("created_at", { ascending: false })
+        .limit(150);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      const chronological = [...(data ?? [])].reverse();
+      setAiMessages(chronological as AiChatMessage[]);
+      scrollToBottom();
+    },
+    [aiSessionId, currentUserId, scrollToBottom]
+  );
+
+  const refreshAiSessions = useCallback(async () => {
+    try {
+      const rows = await listAiChatSessionsAction();
+      setAiSessions(rows);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("chatClient.toastSessionsFail"));
     }
-    const chronological = [...(data ?? [])].reverse();
-    setAiMessages(chronological as AiChatMessage[]);
-    requestAnimationFrame(() =>
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-    );
-  }, [currentUserId]);
+  }, [t]);
+
+  const closeThread = useCallback(() => {
+    aiChatAbortRef.current?.abort();
+    setPeerId(null);
+    setConvId(null);
+    setMessages([]);
+    setAiMessages([]);
+    setAiSessionId(null);
+    setStreamingText("");
+    setDraft("");
+    setPlanCard(null);
+    setPlanIncludeChat([]);
+    setPlanPhaseChat("plan_review");
+    setAiPending(false);
+  }, []);
+
+  const startNewAiChat = useCallback(async () => {
+    try {
+      const id = await createAiChatSessionAction();
+      setPeerId(AI_AGENT_PEER_ID);
+      setConvId(null);
+      setMessages([]);
+      setAiSessionId(id);
+      setAiMessages([]);
+      setStreamingText("");
+      setDraft("");
+      setPlanCard(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("chatClient.toastOpenThreadFail"));
+    }
+  }, [t]);
+
+  const openAiSession = useCallback(
+    async (sessionId: string) => {
+      setPeerId(AI_AGENT_PEER_ID);
+      setConvId(null);
+      setMessages([]);
+      setAiSessionId(sessionId);
+      setHistoryOpen(false);
+      await loadAiMessages(sessionId);
+    },
+    [loadAiMessages]
+  );
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages.length, aiMessages.length, streamingText, scrollToBottom]);
 
   useEffect(() => {
     if (!convId || isAiThread) return;
@@ -191,9 +269,7 @@ export function ChatClient({
             if (prev.some((m) => m.id === row.id)) return prev;
             return [...prev, row];
           });
-          requestAnimationFrame(() =>
-            bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-          );
+          scrollToBottom();
         }
       )
       .subscribe();
@@ -201,7 +277,7 @@ export function ChatClient({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [convId, isAiThread, loadMessages]);
+  }, [convId, isAiThread, loadMessages, scrollToBottom]);
 
   useEffect(() => {
     if (!isAiThread) {
@@ -210,10 +286,11 @@ export function ChatClient({
       setPlanPhaseChat("plan_review");
       return;
     }
-    void loadAiMessages();
+    if (aiSessionId) void loadAiMessages(aiSessionId);
+    if (!aiSessionId) return;
     const supabase = createClient();
     const channel = supabase
-      .channel(`ai_chat:${currentUserId}`)
+      .channel(`ai_chat:${currentUserId}:${aiSessionId}`)
       .on(
         "postgres_changes",
         {
@@ -222,9 +299,11 @@ export function ChatClient({
           table: "ai_chat_messages",
           filter: `user_id=eq.${currentUserId}`,
         },
-        () => {
+        (payload) => {
           if (skipAiRealtimeReloadRef.current) return;
-          void loadAiMessages();
+          const row = payload.new as { session_id?: string };
+          if (row.session_id && row.session_id !== aiSessionId) return;
+          void loadAiMessages(aiSessionId);
         }
       )
       .subscribe();
@@ -232,7 +311,7 @@ export function ChatClient({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [isAiThread, currentUserId, loadAiMessages]);
+  }, [isAiThread, aiSessionId, currentUserId, loadAiMessages]);
 
   async function openThread(other: ChatColleague) {
     setPeerId(other.id);
@@ -247,10 +326,7 @@ export function ChatClient({
   }
 
   function openAiAgent() {
-    setPeerId(AI_AGENT_PEER_ID);
-    setConvId(null);
-    setMessages([]);
-    void loadAiMessages();
+    void startNewAiChat();
   }
 
   async function openProposalReview(proposalId: string) {
@@ -275,6 +351,7 @@ export function ChatClient({
     startTransition(async () => {
       try {
         await sendChatMessageAction(convId, text);
+        scrollToBottom();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : t("chatClient.toastSendFail"));
       }
@@ -290,6 +367,17 @@ export function ChatClient({
   async function sendAi() {
     const text = draft.trim();
     if (!text || aiSendInFlightRef.current) return;
+
+    let sessionId = aiSessionId;
+    if (!sessionId) {
+      try {
+        sessionId = await createAiChatSessionAction();
+        setAiSessionId(sessionId);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : t("chatClient.toastOpenThreadFail"));
+        return;
+      }
+    }
 
     const optimisticId = `temp-user-${crypto.randomUUID()}`;
     const nowIso = new Date().toISOString();
@@ -308,6 +396,7 @@ export function ChatClient({
     setPlanCard(null);
     setPlanIncludeChat([]);
     setPlanPhaseChat("plan_review");
+    scrollToBottom();
 
     aiSendInFlightRef.current = true;
     setAiPending(true);
@@ -335,7 +424,7 @@ export function ChatClient({
           "Content-Type": "application/json; charset=utf-8",
           Accept: "text/event-stream",
         },
-        body: JSON.stringify({ content: text }),
+        body: JSON.stringify({ content: text, sessionId }),
         signal: ac.signal,
       });
 
@@ -398,6 +487,7 @@ export function ChatClient({
           }
           if (parsed.type === "text" && typeof parsed.text === "string") {
             setStreamingText((s) => s + parsed.text);
+            scrollToBottom("auto");
           }
           /* Do not clear on "done" here: the same tick would wipe streamed text before
            * the assistant row is readable from Supabase. Clear after loadAiMessages(). */
@@ -448,7 +538,7 @@ export function ChatClient({
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col gap-4 lg:flex-row", className)}>
-      <Card className="premium-surface lg:w-72 shrink-0">
+      <Card className="premium-surface w-full shrink-0 lg:w-72 lg:max-w-xs">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">{t("chatClient.membersTitle")}</CardTitle>
           <CardDescription className="text-xs">{t("chatClient.membersSubtitle")}</CardDescription>
@@ -529,21 +619,52 @@ export function ChatClient({
         </CardContent>
       </Card>
 
-      <Card className="premium-surface flex min-h-0 flex-1 flex-col overflow-hidden lg:max-h-[calc(100dvh-11.5rem)]">
+      <Card className="premium-surface flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:max-h-[calc(100dvh-11.5rem)]">
         <CardHeader className="shrink-0 border-b border-border pb-3">
-          <CardTitle className="text-base">
-            {isAiThread
-              ? t("chatClient.threadTitleAi")
-              : activePeer
-                ? t("chatClient.threadTitleWithPeer").replace(
-                    "{name}",
-                    activePeer.full_name || activePeer.email
-                  )
-                : t("chatClient.pickMember")}
-          </CardTitle>
-          <CardDescription className="text-xs">
-            {isAiThread ? t("chatClient.threadDescAi") : t("chatClient.threadDescRealtime")}
-          </CardDescription>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <CardTitle className="text-base">
+                {isAiThread
+                  ? t("chatClient.threadTitleAi")
+                  : activePeer
+                    ? t("chatClient.threadTitleWithPeer").replace(
+                        "{name}",
+                        activePeer.full_name || activePeer.email
+                      )
+                    : t("chatClient.pickMember")}
+              </CardTitle>
+              <CardDescription className="text-xs">
+                {isAiThread ? t("chatClient.threadDescAi") : t("chatClient.threadDescDm")}
+              </CardDescription>
+            </div>
+            {peerId ? (
+              <div className="flex shrink-0 gap-1">
+                {isAiThread ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    title={t("chatClient.historyTitle")}
+                    onClick={() => {
+                      void refreshAiSessions();
+                      setHistoryOpen(true);
+                    }}
+                  >
+                    <History className="size-4" />
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  title={t("chatClient.closeThread")}
+                  onClick={closeThread}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col gap-0 p-0">
           {isAiThread && planCard ? (
@@ -834,6 +955,105 @@ export function ChatClient({
         }}
         onResolved={() => void loadAiMessages()}
       />
+
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("chatClient.historyTitle")}</DialogTitle>
+            <DialogDescription>{t("chatClient.historyDesc")}</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" onClick={() => void startNewAiChat()}>
+              {t("chatClient.newChat")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={selectedSessionIds.size === 0}
+              onClick={() => {
+                const ids = [...selectedSessionIds];
+                if (!ids.length) return;
+                if (!confirm(t("chatClient.confirmDeleteSessions"))) return;
+                startTransition(async () => {
+                  try {
+                    await deleteAiChatSessionsAction(ids);
+                    setSelectedSessionIds(new Set());
+                    if (aiSessionId && ids.includes(aiSessionId)) closeThread();
+                    await refreshAiSessions();
+                    toast.success(t("chatClient.sessionsDeleted"));
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : t("chatClient.toastSessionsFail"));
+                  }
+                });
+              }}
+            >
+              {t("chatClient.deleteSelected")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                if (!confirm(t("chatClient.confirmDeleteAllSessions"))) return;
+                startTransition(async () => {
+                  try {
+                    await deleteAllAiChatSessionsAction();
+                    setSelectedSessionIds(new Set());
+                    closeThread();
+                    await refreshAiSessions();
+                    toast.success(t("chatClient.sessionsDeleted"));
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : t("chatClient.toastSessionsFail"));
+                  }
+                });
+              }}
+            >
+              {t("chatClient.deleteAllHistory")}
+            </Button>
+          </div>
+          <ScrollArea className="max-h-72">
+            <ul className="divide-y divide-border">
+              {aiSessions.length === 0 ? (
+                <li className="text-muted-foreground px-2 py-6 text-center text-xs">
+                  {t("chatClient.noSessions")}
+                </li>
+              ) : (
+                aiSessions.map((s) => (
+                  <li key={s.id} className="flex items-center gap-2 px-1 py-2">
+                    <Checkbox
+                      checked={selectedSessionIds.has(s.id)}
+                      onCheckedChange={(v) => {
+                        setSelectedSessionIds((prev) => {
+                          const next = new Set(prev);
+                          if (v === true) next.add(s.id);
+                          else next.delete(s.id);
+                          return next;
+                        });
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-start text-sm"
+                      onClick={() => void openAiSession(s.id)}
+                    >
+                      <p className="truncate font-medium">
+                        {s.title?.trim() || t("chatClient.untitledSession")}
+                      </p>
+                      <p className="text-muted-foreground text-[10px]" suppressHydrationWarning>
+                        {new Date(s.updated_at).toLocaleString(dateLocale, {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </p>
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

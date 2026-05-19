@@ -315,10 +315,37 @@ function utf8SafeTextChunks(text: string, maxUtf8Bytes: number): string[] {
   return out;
 }
 
+async function resolveAiChatSessionId(
+  supabase: SupabaseClient,
+  userId: string,
+  sessionId?: string | null
+): Promise<string> {
+  const sid = sessionId?.trim();
+  if (sid) {
+    const { data } = await supabase
+      .from("ai_chat_sessions")
+      .select("id")
+      .eq("id", sid)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (data?.id) return data.id as string;
+  }
+  const { data: created, error } = await supabase
+    .from("ai_chat_sessions")
+    .insert({ user_id: userId, title: null })
+    .select("id")
+    .single();
+  if (error || !created?.id) {
+    throw new Error(error?.message ?? "تعذر إنشاء جلسة المحادثة");
+  }
+  return created.id as string;
+}
+
 export async function handleAiChatPost(params: {
   supabase: SupabaseClient;
   userId: string;
   content: string;
+  sessionId?: string | null;
 }): Promise<Response> {
   const text = params.content.trim();
   if (!text || text.length > 12000) {
@@ -328,8 +355,23 @@ export async function handleAiChatPost(params: {
     });
   }
 
+  let chatSessionId: string;
+  try {
+    chatSessionId = await resolveAiChatSessionId(
+      params.supabase,
+      params.userId,
+      params.sessionId
+    );
+  } catch (e) {
+    return new Response(
+      JSON.stringify({ error: e instanceof Error ? e.message : "session error" }),
+      { status: 500, headers: { "Content-Type": "application/json; charset=utf-8" } }
+    );
+  }
+
   const { error: insUserErr } = await params.supabase.from("ai_chat_messages").insert({
     user_id: params.userId,
+    session_id: chatSessionId,
     role: "user",
     body: text,
     metadata: { source: "chat" },
@@ -395,6 +437,7 @@ export async function handleAiChatPost(params: {
       return streamAssistantResponse(
         params.supabase,
         params.userId,
+        chatSessionId,
         "فهمت نية إنشاء مهمة، لكن عنوان المهمة غير واضح. اكتبها مثلاً: `أنشئ مهمة باسم مراجعة الجوازات`.",
         [],
         [],
@@ -407,6 +450,7 @@ export async function handleAiChatPost(params: {
       return streamAssistantResponse(
         params.supabase,
         params.userId,
+        chatSessionId,
         "لا أستطيع إنشاء مهمة الآن لأنه لا توجد شركة مرتبطة بصلاحيات حسابك. اربط شركة أولاً ثم أتابع معك فوراً.",
         [],
         [],
@@ -508,6 +552,7 @@ export async function handleAiChatPost(params: {
       return streamAssistantResponse(
         params.supabase,
         params.userId,
+        chatSessionId,
         final,
         taskProposalIds,
         taskProposals,
@@ -537,6 +582,7 @@ export async function handleAiChatPost(params: {
           return streamAssistantResponse(
             params.supabase,
             params.userId,
+            chatSessionId,
             "أفهم طلب التحديث، لكن التاريخ الجديد غير واضح بعد. اكتب التاريخ بصيغة `YYYY-MM-DD` أو حدده بصيغة `بعد 7 أيام` لأجهّز المقترح فوراً.",
             [],
             [],
@@ -597,6 +643,7 @@ export async function handleAiChatPost(params: {
             return streamAssistantResponse(
               params.supabase,
               params.userId,
+              chatSessionId,
               final,
               [proposal.id],
               [proposal],
@@ -691,11 +738,21 @@ export async function handleAiChatPost(params: {
     }
   }
 
+  await params.supabase
+    .from("ai_chat_sessions")
+    .update({
+      updated_at: new Date().toISOString(),
+      title: text.slice(0, 80) || null,
+    })
+    .eq("id", chatSessionId)
+    .eq("user_id", params.userId)
+    .is("title", null);
+
   const { data: histRows } = await params.supabase
     .from("ai_chat_messages")
     .select("role,body")
     .eq("user_id", params.userId)
-    /* Uses index ai_chat_messages_user_created_idx (user_id, created_at desc) when ordered DESC. */
+    .eq("session_id", chatSessionId)
     .order("created_at", { ascending: false })
     .limit(HISTORY_LIMIT);
 
@@ -840,6 +897,7 @@ export async function handleAiChatPost(params: {
   return streamAssistantResponse(
     params.supabase,
     params.userId,
+    chatSessionId,
     finalContent,
     proposalIds,
     proposals,
@@ -854,6 +912,7 @@ export async function handleAiChatPost(params: {
 function streamAssistantResponse(
   supabase: SupabaseClient,
   userId: string,
+  sessionId: string,
   finalContent: string,
   proposalIds: string[],
   proposals: CreatedProposalInfo[],
@@ -876,10 +935,16 @@ function streamAssistantResponse(
       }
       await supabase.from("ai_chat_messages").insert({
         user_id: userId,
+        session_id: sessionId,
         role: "assistant",
         body: finalContent,
         metadata,
       });
+      await supabase
+        .from("ai_chat_sessions")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", sessionId)
+        .eq("user_id", userId);
       await appendConversationMemory(supabase, {
         userId,
         sessionId: "ai_chat",

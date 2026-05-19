@@ -75,7 +75,7 @@ export default async function ChatPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-4">
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <div className="shrink-0">
         <h1 className="text-2xl font-semibold tracking-tight">{t("chatPage.title")}</h1>
         <p className="text-muted-foreground mt-1 text-sm">{t("chatPage.subtitle")}</p>

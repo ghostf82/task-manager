@@ -31,15 +31,30 @@ function toIsoString(v: unknown): string {
 }
 
 function serializeNotifications(
-  rows: { id: string; title: string | null; body: string | null; created_at: string; read_at: string | null }[] | null,
+  rows:
+    | {
+        id: string;
+        type?: string | null;
+        title: string | null;
+        body: string | null;
+        payload?: unknown;
+        created_at: string;
+        read_at: string | null;
+      }[]
+    | null,
 ): NotificationItem[] {
   if (!rows?.length) return [];
   return rows
     .filter((r) => r != null && String(r.id ?? "").length > 0)
     .map((r) => ({
       id: String(r.id),
+      type: typeof r.type === "string" ? r.type : "info",
       title: typeof r.title === "string" ? r.title : r.title == null ? "" : String(r.title),
       body: r.body == null || r.body === "" ? null : String(r.body),
+      payload:
+        r.payload && typeof r.payload === "object" && !Array.isArray(r.payload)
+          ? (r.payload as Record<string, unknown>)
+          : null,
       created_at: toIsoString(r.created_at),
       read_at: r.read_at == null || r.read_at === "" ? null : toIsoString(r.read_at),
     }));
@@ -69,8 +84,9 @@ export default async function DashboardLayout({
       .maybeSingle(),
     supabase
       .from("notifications")
-      .select("id,title,body,created_at,read_at")
+      .select("id,type,title,body,payload,created_at,read_at")
       .eq("user_id", session.id)
+      .is("archived_at", null)
       .order("created_at", { ascending: false })
       .limit(12),
     supabase.from("odoo_browser_cache").select("updated_at").eq("user_id", session.id),
