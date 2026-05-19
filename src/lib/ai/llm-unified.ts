@@ -10,7 +10,6 @@ import {
   resolveOpenAiApiKey,
 } from "@/lib/ai/llm-env";
 import { debugLogServer } from "@/lib/debug-log-server";
-import { trimHeaderSafeSecret } from "@/lib/env/bearer-key";
 
 export type CallLLMOptions = {
   systemPrompt: string;
@@ -58,7 +57,7 @@ function summarizeProviderFailures(errors: string[]): string {
       hints.push(`${name}: مفتاح غير صالح أو طلب مرفوض (400)`);
     } else if (code === 404) {
       hints.push(
-        `${name}: اسم النموذج غير متاح (404) — جرّب GEMINI_MODEL=gemini-2.0-flash-001 أو gemini-1.5-flash`
+        `${name}: اسم النموذج غير متاح (404) — جرّب GEMINI_MODEL=gemini-2.5-flash (النماذج 2.0/1.5 قد لا تعمل للمفاتيح الجديدة)`
       );
     } else if (code === 429) {
       hints.push(`${name}: تجاوز الحصة أو معدل الطلبات (429)`);

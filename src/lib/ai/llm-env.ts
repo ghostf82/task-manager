@@ -69,15 +69,26 @@ function diagnoseEnv(names: readonly string[]): LlmKeyDiagnostic {
   };
 }
 
+/** Default Gemini model for new Google AI Studio keys (2.0/1.5 often 404 for new users). */
+export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+
 /** Model IDs to try in order (configured first, then known-good fallbacks). */
 export function getGeminiModelCandidates(): string[] {
   const configured = process.env.GEMINI_MODEL?.trim();
-  const fallbacks = ["gemini-2.0-flash-001", "gemini-1.5-flash", "gemini-1.5-pro"];
+  const fallbacks = [
+    DEFAULT_GEMINI_MODEL,
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-001",
+  ];
   if (!configured) return fallbacks;
-  const extras: string[] = [];
-  if (configured === "gemini-2.0-flash") {
-    extras.push("gemini-2.0-flash-001");
-  }
+  const legacyMap: Record<string, string[]> = {
+    "gemini-2.0-flash": [DEFAULT_GEMINI_MODEL, "gemini-2.0-flash-001"],
+    "gemini-2.0-flash-001": [DEFAULT_GEMINI_MODEL],
+    "gemini-1.5-flash": [DEFAULT_GEMINI_MODEL],
+    "gemini-1.5-pro": [DEFAULT_GEMINI_MODEL],
+  };
+  const extras = legacyMap[configured] ?? [];
   return [...new Set([configured, ...extras, ...fallbacks])];
 }
 
