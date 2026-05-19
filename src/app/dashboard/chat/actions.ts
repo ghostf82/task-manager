@@ -5,6 +5,10 @@ import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/dashboard-auth";
 import { tAction } from "@/lib/i18n/action-messages";
 import { createClient } from "@/lib/supabase/server";
+import {
+  isMissingTable,
+  LEGACY_AI_CHAT_SESSION_ID,
+} from "@/lib/supabase/schema-compat";
 
 async function findSharedTenant(
   supabase: SupabaseClient,
@@ -143,6 +147,10 @@ export async function createAiChatSessionAction(title?: string | null): Promise<
     })
     .select("id")
     .single();
+  if (error && isMissingTable(error, "ai_chat_sessions")) {
+    revalidatePath("/dashboard/chat");
+    return LEGACY_AI_CHAT_SESSION_ID;
+  }
   if (error || !data?.id) throw new Error(error?.message ?? (await tAction("errors.chat.createSessionFailed")));
   revalidatePath("/dashboard/chat");
   return data.id as string;
@@ -157,6 +165,7 @@ export async function listAiChatSessionsAction(): Promise<AiChatSessionRow[]> {
     .eq("user_id", session.id)
     .order("updated_at", { ascending: false })
     .limit(50);
+  if (error && isMissingTable(error, "ai_chat_sessions")) return [];
   if (error) throw new Error(error.message);
   return (data ?? []) as AiChatSessionRow[];
 }
@@ -170,6 +179,7 @@ export async function deleteAiChatSessionsAction(sessionIds: string[]) {
     .delete()
     .eq("user_id", session.id)
     .in("id", sessionIds);
+  if (error && isMissingTable(error, "ai_chat_sessions")) return;
   if (error) throw new Error(error.message);
   revalidatePath("/dashboard/chat");
 }
@@ -181,6 +191,7 @@ export async function deleteAllAiChatSessionsAction() {
     .from("ai_chat_sessions")
     .delete()
     .eq("user_id", session.id);
+  if (error && isMissingTable(error, "ai_chat_sessions")) return;
   if (error) throw new Error(error.message);
   revalidatePath("/dashboard/chat");
 }

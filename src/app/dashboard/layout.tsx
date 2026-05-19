@@ -16,6 +16,7 @@ import {
   type NotificationItem,
 } from "@/components/dashboard/notifications-menu";
 import { requireSession } from "@/lib/dashboard-auth";
+import { fetchNotificationsForUser } from "@/lib/notifications/queries";
 import { formatOdooLastSyncLine } from "@/lib/dashboard/format-odoo-last-sync";
 import { DASHBOARD_NAV_LINKS } from "@/lib/i18n/nav-config";
 import { getTranslator } from "@/lib/i18n/get-translator";
@@ -67,33 +68,32 @@ export default async function DashboardLayout({
 }) {
   const session = await requireSession();
   const supabase = await createClient();
-  const [{ t, locale, catalog }, profileRes, membershipRes, notifsRes, odooSyncRes] = await Promise.all([
-    getTranslator(),
-    supabase
-      .from("users")
-      .select("full_name, email, avatar_url")
-      .eq("id", session.id)
-      .single(),
-    supabase
-      .from("tenant_memberships")
-      .select("job_title, tenants(name)")
-      .eq("user_id", session.id)
-      .eq("status", "active")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from("notifications")
-      .select("id,type,title,body,payload,created_at,read_at")
-      .eq("user_id", session.id)
-      .is("archived_at", null)
-      .order("created_at", { ascending: false })
-      .limit(12),
-    supabase.from("odoo_browser_cache").select("updated_at").eq("user_id", session.id),
-  ]);
+  const [{ t, locale, catalog }, profileRes, membershipRes, notifsResult, odooSyncRes] =
+    await Promise.all([
+      getTranslator(),
+      supabase
+        .from("users")
+        .select("full_name, email, avatar_url")
+        .eq("id", session.id)
+        .single(),
+      supabase
+        .from("tenant_memberships")
+        .select("job_title, tenants(name)")
+        .eq("user_id", session.id)
+        .eq("status", "active")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      fetchNotificationsForUser(supabase, {
+        userId: session.id,
+        limit: 12,
+        activeOnly: true,
+      }),
+      supabase.from("odoo_browser_cache").select("updated_at").eq("user_id", session.id),
+    ]);
   const profile = profileRes.data;
   const membership = membershipRes.data;
-  const notifs = notifsRes.data;
+  const notifs = notifsResult.ok ? notifsResult.rows : [];
   const odooSyncRows = odooSyncRes.data;
   const odooSyncTimes = (odooSyncRows ?? [])
     .map((r) => Date.parse(String(r.updated_at)))
@@ -182,7 +182,17 @@ export default async function DashboardLayout({
             </div>
             <div className="flex items-center gap-2">
               <NotificationsMenu
-                initialItems={serializeNotifications(notifs)}
+                initialItems={serializeNotifications(
+                  notifs.map((n) => ({
+                    id: n.id,
+                    type: n.type,
+                    title: n.title,
+                    body: n.body,
+                    payload: n.payload,
+                    created_at: n.created_at,
+                    read_at: n.read_at,
+                  }))
+                )}
                 label={t("dashboard.notifications")}
               />
               <HeaderUserMenu {...headerUser} />

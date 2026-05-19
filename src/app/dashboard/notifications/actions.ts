@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireSession } from "@/lib/dashboard-auth";
 import { createClient } from "@/lib/supabase/server";
+import { isMissingColumn } from "@/lib/supabase/schema-compat";
 
 export async function markNotificationsReadAction(ids: string[]) {
   await requireSession();
@@ -23,12 +24,19 @@ export async function archiveNotificationsAction(ids: string[]) {
   if (!ids.length) return;
   const supabase = await createClient();
   const now = new Date().toISOString();
-  const { error } = await supabase
+  let { error } = await supabase
     .from("notifications")
     .update({ archived_at: now, read_at: now })
     .eq("user_id", session.id)
     .in("id", ids);
-  if (error) throw new Error(error.message);
+  if (error && isMissingColumn(error, "archived_at")) {
+    ({ error } = await supabase
+      .from("notifications")
+      .update({ read_at: now })
+      .eq("user_id", session.id)
+      .in("id", ids));
+  }
+  if (error) throw new Error("تعذّر أرشفة الإشعارات. حاول لاحقاً.");
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/notifications");
 }

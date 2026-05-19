@@ -1,4 +1,9 @@
--- AI chat sessions + notification archive/delete (idempotent — safe to re-run in SQL Editor)
+-- =============================================================================
+-- Supabase SQL Editor — production project hihznbzjiszdowouhxis
+-- Fixes: notifications.archived_at, ai_chat_sessions, ai_chat_messages.session_id
+-- Idempotent: safe to run multiple times.
+-- Source: supabase/migrations/20260519100000_chat_sessions_notifications.sql
+-- =============================================================================
 
 create table if not exists public.ai_chat_sessions (
   id uuid primary key default gen_random_uuid (),
@@ -17,7 +22,6 @@ alter table public.ai_chat_messages
 create index if not exists ai_chat_messages_session_created_idx
   on public.ai_chat_messages (session_id, created_at);
 
--- Backfill legacy messages into one session per user (skip if legacy session already exists)
 insert into public.ai_chat_sessions (user_id, title, created_at, updated_at)
 select
   m.user_id,
@@ -75,3 +79,10 @@ for delete using (user_id = auth.uid ());
 grant select, insert, update, delete on public.ai_chat_sessions to authenticated, service_role;
 grant delete on public.ai_chat_messages to authenticated;
 grant delete on public.notifications to authenticated;
+
+-- Optional verification (run separately):
+-- select column_name from information_schema.columns
+--   where table_schema = 'public' and table_name = 'notifications' and column_name = 'archived_at';
+-- select to_regclass('public.ai_chat_sessions') as ai_chat_sessions;
+-- select column_name from information_schema.columns
+--   where table_schema = 'public' and table_name = 'ai_chat_messages' and column_name = 'session_id';

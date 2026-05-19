@@ -42,8 +42,10 @@ function formatDate(iso: string, dateLocale: string) {
 
 export function NotificationsPageClient({
   initialItems,
+  supportsArchive = true,
 }: {
   initialItems: NotificationRow[];
+  supportsArchive?: boolean;
 }) {
   const { t, dateLocale } = useDashboardI18n();
   const router = useRouter();
@@ -105,15 +107,17 @@ export function NotificationsPageClient({
           <h1 className="text-2xl font-semibold tracking-tight">{t("notificationsPage.title")}</h1>
           <p className="text-muted-foreground mt-1 text-sm">{t("notificationsPage.subtitle")}</p>
         </div>
-        <Button
-          type="button"
-          variant={showArchived ? "default" : "outline"}
-          size="sm"
-          onClick={() => setShowArchived((v) => !v)}
-        >
-          <Archive className="size-3.5" />
-          {showArchived ? t("notificationsPage.showActive") : t("notificationsPage.showArchived")}
-        </Button>
+        {supportsArchive ? (
+          <Button
+            type="button"
+            variant={showArchived ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowArchived((v) => !v)}
+          >
+            <Archive className="size-3.5" />
+            {showArchived ? t("notificationsPage.showActive") : t("notificationsPage.showArchived")}
+          </Button>
+        ) : null}
       </div>
 
       {unreadCount > 0 && !showArchived ? (
@@ -142,15 +146,17 @@ export function NotificationsPageClient({
               >
                 {t("notificationsPage.markRead")}
               </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={pending}
-                onClick={() => runSelected("archive", [...selected])}
-              >
-                {t("notificationsPage.archive")}
-              </Button>
+              {supportsArchive ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={pending}
+                  onClick={() => runSelected("archive", [...selected])}
+                >
+                  {t("notificationsPage.archive")}
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 size="sm"
@@ -222,7 +228,7 @@ export function NotificationsPageClient({
                             {t("notificationsMenu.read")}
                           </Button>
                         ) : null}
-                        {!n.archived_at ? (
+                        {supportsArchive && !n.archived_at ? (
                           <Button
                             type="button"
                             size="xs"

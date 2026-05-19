@@ -23,6 +23,7 @@ import {
 import type { PendingProposalRow } from "@/app/dashboard/ai-agent/pending-proposals-panel";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { createClient } from "@/lib/supabase/client";
+import { isLegacyAiChatSessionId, isMissingColumn } from "@/lib/supabase/schema-compat";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -175,22 +176,33 @@ export function ChatClient({
         return;
       }
       const supabase = createClient();
-      const { data, error } = await supabase
+      let query = supabase
         .from("ai_chat_messages")
         .select("id,role,body,metadata,created_at")
         .eq("user_id", currentUserId)
-        .eq("session_id", sid)
         .order("created_at", { ascending: false })
         .limit(150);
+      if (!isLegacyAiChatSessionId(sid)) {
+        query = query.eq("session_id", sid);
+      }
+      let { data, error } = await query;
+      if (error && isMissingColumn(error, "session_id") && !isLegacyAiChatSessionId(sid)) {
+        ({ data, error } = await supabase
+          .from("ai_chat_messages")
+          .select("id,role,body,metadata,created_at")
+          .eq("user_id", currentUserId)
+          .order("created_at", { ascending: false })
+          .limit(150));
+      }
       if (error) {
-        toast.error(error.message);
+        toast.error(t("chatClient.toastSessionsFail"));
         return;
       }
       const chronological = [...(data ?? [])].reverse();
       setAiMessages(chronological as AiChatMessage[]);
       scrollToBottom();
     },
-    [aiSessionId, currentUserId, scrollToBottom]
+    [aiSessionId, currentUserId, scrollToBottom, t]
   );
 
   const refreshAiSessions = useCallback(async () => {

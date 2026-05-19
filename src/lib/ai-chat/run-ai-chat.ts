@@ -16,6 +16,13 @@ import { callLLM, buildExecutiveSystemPrompt } from "@/lib/ai/llm-unified";
 import { getRegisteredAiTools } from "@/lib/ai-tools/registry";
 import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
 import { normalizeProposedAction } from "@/lib/ai/llm-proposal-normalize";
+import {
+  fetchAiChatHistory,
+  insertAiChatMessage,
+  isLegacyAiChatSessionId,
+  resolveAiChatSessionId,
+  touchAiChatSession,
+} from "@/lib/ai-chat/session-compat";
 import { trimHeaderSafeSecret } from "@/lib/env/bearer-key";
 
 const MAX_TOOL_ROUNDS = 6;
@@ -315,32 +322,6 @@ function utf8SafeTextChunks(text: string, maxUtf8Bytes: number): string[] {
   return out;
 }
 
-async function resolveAiChatSessionId(
-  supabase: SupabaseClient,
-  userId: string,
-  sessionId?: string | null
-): Promise<string> {
-  const sid = sessionId?.trim();
-  if (sid) {
-    const { data } = await supabase
-      .from("ai_chat_sessions")
-      .select("id")
-      .eq("id", sid)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (data?.id) return data.id as string;
-  }
-  const { data: created, error } = await supabase
-    .from("ai_chat_sessions")
-    .insert({ user_id: userId, title: null })
-    .select("id")
-    .single();
-  if (error || !created?.id) {
-    throw new Error(error?.message ?? "تعذر إنشاء جلسة المحادثة");
-  }
-  return created.id as string;
-}
-
 export async function handleAiChatPost(params: {
   supabase: SupabaseClient;
   userId: string;
@@ -369,7 +350,7 @@ export async function handleAiChatPost(params: {
     );
   }
 
-  const { error: insUserErr } = await params.supabase.from("ai_chat_messages").insert({
+  const { error: insUserErr } = await insertAiChatMessage(params.supabase, {
     user_id: params.userId,
     session_id: chatSessionId,
     role: "user",
@@ -738,25 +719,25 @@ export async function handleAiChatPost(params: {
     }
   }
 
-  await params.supabase
-    .from("ai_chat_sessions")
-    .update({
-      updated_at: new Date().toISOString(),
-      title: text.slice(0, 80) || null,
-    })
-    .eq("id", chatSessionId)
-    .eq("user_id", params.userId)
-    .is("title", null);
+  if (!isLegacyAiChatSessionId(chatSessionId)) {
+    await params.supabase
+      .from("ai_chat_sessions")
+      .update({
+        updated_at: new Date().toISOString(),
+        title: text.slice(0, 80) || null,
+      })
+      .eq("id", chatSessionId)
+      .eq("user_id", params.userId)
+      .is("title", null);
+  }
 
-  const { data: histRows } = await params.supabase
-    .from("ai_chat_messages")
-    .select("role,body")
-    .eq("user_id", params.userId)
-    .eq("session_id", chatSessionId)
-    .order("created_at", { ascending: false })
-    .limit(HISTORY_LIMIT);
-
-  const hist = [...(histRows ?? [])].reverse();
+  const histRows = await fetchAiChatHistory(
+    params.supabase,
+    params.userId,
+    chatSessionId,
+    HISTORY_LIMIT
+  );
+  const hist = [...histRows].reverse();
   const historyMessages: ChatCompletionMessageParam[] = [];
   for (const row of hist) {
     const role = row.role as string;
@@ -933,18 +914,16 @@ function streamAssistantResponse(
       for (const part of utf8SafeTextChunks(finalContent, 2048)) {
         controller.enqueue(encodeSse({ type: "text", text: part }));
       }
-      await supabase.from("ai_chat_messages").insert({
+      await insertAiChatMessage(supabase, {
         user_id: userId,
         session_id: sessionId,
         role: "assistant",
         body: finalContent,
         metadata,
       });
-      await supabase
-        .from("ai_chat_sessions")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", sessionId)
-        .eq("user_id", userId);
+      await touchAiChatSession(supabase, userId, sessionId, {
+        updated_at: new Date().toISOString(),
+      });
       await appendConversationMemory(supabase, {
         userId,
         sessionId: "ai_chat",
