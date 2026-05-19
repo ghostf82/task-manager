@@ -214,6 +214,9 @@
       "createSessionFailed": "تعذر إنشاء جلسة المحادثة",
       "sessionsLoadFailed": "تعذّر تحميل سجل المحادثات",
       "deleteSessionsFailed": "تعذّر حذف السجل",
+      "deleteConversationFailed": "تعذّر حذف المحادثة",
+      "deleteConversationForbidden": "لا يمكنك حذف هذه المحادثة",
+      "invalidConversation": "محادثة غير صالحة",
       "emptyMessage": "الرسالة فارغة"
     },
     "aiGovernance": {
@@ -565,6 +568,9 @@
     "aiKeysBanner": "لم يُضبط مفتاح ذكاء اصطناعي على الخادم. أضِف GEMINI_API_KEY أو GROQ_API_KEY أو OPENAI_API_KEY في .env.local (محلياً) أو Netlify → Environment، ثم أعد التشغيل.",
     "threadDescDm": "رسائل فورية مع الزميل المختار",
     "closeThread": "إغلاق المحادثة",
+    "deleteDmThread": "حذف المحادثة",
+    "confirmDeleteDm": "حذف كل رسائل المحادثة مع {name}؟ لا يمكن التراجع.",
+    "dmDeleted": "تم حذف المحادثة",
     "historyTitle": "سجل المحادثات",
     "historyDesc": "محادثات سابقة مع المساعد الذكي — افتح جلسة أو احذف المحدد.",
     "newChat": "محادثة جديدة",

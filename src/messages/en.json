@@ -214,6 +214,9 @@
       "createSessionFailed": "Could not create chat session",
       "sessionsLoadFailed": "Could not load chat history",
       "deleteSessionsFailed": "Could not delete history",
+      "deleteConversationFailed": "Could not delete conversation",
+      "deleteConversationForbidden": "You cannot delete this conversation",
+      "invalidConversation": "Invalid conversation",
       "emptyMessage": "Message is empty"
     },
     "aiGovernance": {
@@ -565,6 +568,9 @@
     "aiKeysBanner": "No AI API key is configured on the server. Add GEMINI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in .env.local (local) or Netlify → Environment, then restart.",
     "threadDescDm": "Instant messages with the selected colleague",
     "closeThread": "Close conversation",
+    "deleteDmThread": "Delete conversation",
+    "confirmDeleteDm": "Delete all messages with {name}? This cannot be undone.",
+    "dmDeleted": "Conversation deleted",
     "historyTitle": "Chat history",
     "historyDesc": "Previous AI assistant sessions — open or delete selected.",
     "newChat": "New chat",

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { History, Phone, Send, Sparkles, X } from "lucide-react";
+import { History, Phone, Send, Sparkles, Trash2, X } from "lucide-react";
 
 import {
   advanceExecutionPlanStepAction,
@@ -15,6 +15,7 @@ import {
   createAiChatSessionAction,
   deleteAiChatSessionsAction,
   deleteAllAiChatSessionsAction,
+  deleteDmConversationAction,
   ensureDmConversationAction,
   listAiChatSessionsAction,
   sendChatMessageAction,
@@ -592,6 +593,24 @@ export function ChatClient({
 
   const activePeer = colleagues.find((c) => c.id === peerId);
 
+  async function deleteDmThread() {
+    if (!convId || !activePeer) return;
+    const name = activePeer.full_name || activePeer.email;
+    if (!confirm(t("chatClient.confirmDeleteDm").replace("{name}", name))) return;
+    setHistoryMutating(true);
+    try {
+      const res = await deleteDmConversationAction(convId);
+      if (!res.ok) {
+        toast.error(res.error || t("chatClient.toastSessionsFail"));
+        return;
+      }
+      toast.success(t("chatClient.dmDeleted"));
+      closeThread();
+    } finally {
+      setHistoryMutating(false);
+    }
+  }
+
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col gap-4 lg:flex-row", className)}>
       <Card className="premium-surface w-full shrink-0 lg:w-72 lg:max-w-xs">
@@ -704,6 +723,17 @@ export function ChatClient({
                     onClick={openHistoryDialog}
                   >
                     <History className="size-4" />
+                  </Button>
+                ) : convId ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    title={t("chatClient.deleteDmThread")}
+                    disabled={historyMutating || pending}
+                    onClick={() => void deleteDmThread()}
+                  >
+                    <Trash2 className="size-4" />
                   </Button>
                 ) : null}
                 <Button

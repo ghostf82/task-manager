@@ -129,6 +129,36 @@ export async function ensureDmConversationAction(otherUserId: string) {
   return cid;
 }
 
+export async function deleteDmConversationAction(
+  conversationId: string
+): Promise<AiChatActionResult> {
+  try {
+    const session = await requireSession();
+    const cid = conversationId?.trim();
+    if (!cid) return fail(await tAction("errors.chat.invalidConversation"));
+
+    const supabase = await createClient();
+    const { data: allowed } = await supabase
+      .from("conversation_participants")
+      .select("conversation_id")
+      .eq("conversation_id", cid)
+      .eq("user_id", session.id)
+      .maybeSingle();
+
+    if (!allowed) {
+      return fail(await tAction("errors.chat.deleteConversationForbidden"));
+    }
+
+    const { error } = await supabase.from("conversations").delete().eq("id", cid);
+    if (error) return fail(error.message);
+
+    revalidatePath("/dashboard/chat");
+    return { ok: true };
+  } catch (e) {
+    return fail(await actionError(e, "errors.chat.deleteConversationFailed"));
+  }
+}
+
 export async function sendChatMessageAction(
   conversationId: string,
   body: string
