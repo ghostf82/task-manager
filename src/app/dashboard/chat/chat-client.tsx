@@ -4,7 +4,17 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { History, Phone, Send, Sparkles, Trash2, X } from "lucide-react";
+import {
+  Bell,
+  History,
+  Mic,
+  Paperclip,
+  Send,
+  Sparkles,
+  Square,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import {
   advanceExecutionPlanStepAction,
@@ -19,8 +29,14 @@ import {
   ensureDmConversationAction,
   listAiChatSessionsAction,
   sendChatMessageAction,
+  sendChatPingAction,
   type AiChatSessionRow,
+  type ChatMessageAttachment,
 } from "@/app/dashboard/chat/actions";
+import {
+  signedUrlForChatAttachment,
+  uploadChatAttachment,
+} from "@/lib/chat/upload-attachment";
 import type { PendingProposalRow } from "@/app/dashboard/ai-agent/pending-proposals-panel";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
 import { createClient } from "@/lib/supabase/client";
@@ -59,6 +75,10 @@ type ChatMessage = {
   body: string;
   user_id: string;
   created_at: string;
+  attachment_url?: string | null;
+  attachment_type?: string | null;
+  attachment_name?: string | null;
+  attachmentSignedUrl?: string | null;
 };
 
 type AiChatMessage = {
@@ -137,6 +157,11 @@ export function ChatClient({
   const [aiSessions, setAiSessions] = useState<AiChatSessionRow[]>([]);
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
   const scrollRafRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
+  const [recording, setRecording] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const isAiThread = peerId === AI_AGENT_PEER_ID;
 
@@ -161,19 +186,55 @@ export function ChatClient({
   const loadMessages = useCallback(
     async (cid: string) => {
       const supabase = createClient();
-      const { data, error } = await supabase
+      let data: Record<string, unknown>[] | null = null;
+      let error: { message?: string; code?: string } | null = null;
+
+      const rich = await supabase
         .from("messages")
-        .select("id,body,user_id,created_at")
+        .select(
+          "id,body,user_id,created_at,attachment_url,attachment_type,attachment_name"
+        )
         .eq("conversation_id", cid)
         .order("created_at", { ascending: true });
+
+      if (rich.error && isMissingColumn(rich.error, "attachment_url")) {
+        const legacy = await supabase
+          .from("messages")
+          .select("id,body,user_id,created_at")
+          .eq("conversation_id", cid)
+          .order("created_at", { ascending: true });
+        data = legacy.data as Record<string, unknown>[] | null;
+        error = legacy.error;
+      } else {
+        data = rich.data as Record<string, unknown>[] | null;
+        error = rich.error;
+      }
+
       if (error) {
-        toast.error(error.message);
+        toast.error(error.message ?? t("chatClient.toastSendFail"));
         return;
       }
-      setMessages((data ?? []) as ChatMessage[]);
+
+      const rows: ChatMessage[] = await Promise.all(
+        (data ?? []).map(async (row) => {
+          const path = row.attachment_url ? String(row.attachment_url) : null;
+          const signed = path ? await signedUrlForChatAttachment(path) : null;
+          return {
+            id: String(row.id),
+            body: String(row.body ?? ""),
+            user_id: String(row.user_id),
+            created_at: String(row.created_at),
+            attachment_url: path,
+            attachment_type: row.attachment_type ? String(row.attachment_type) : null,
+            attachment_name: row.attachment_name ? String(row.attachment_name) : null,
+            attachmentSignedUrl: signed,
+          };
+        })
+      );
+      setMessages(rows);
       scrollToBottom();
     },
-    [scrollToBottom]
+    [scrollToBottom, t]
   );
 
   const loadAiMessages = useCallback(
@@ -401,18 +462,89 @@ export function ChatClient({
     setReviewOpen(true);
   }
 
-  async function sendHuman() {
-    if (!convId || !draft.trim()) return;
-    const text = draft.trim();
-    setDraft("");
+  async function sendHumanMessage(text: string, attachment?: ChatMessageAttachment | null) {
+    if (!convId) return;
+    const trimmed = text.trim();
+    if (!trimmed && !attachment) return;
     startTransition(async () => {
       try {
-        await sendChatMessageAction(convId, text);
+        await sendChatMessageAction(convId, trimmed, attachment);
+        await loadMessages(convId);
         scrollToBottom();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : t("chatClient.toastSendFail"));
       }
     });
+  }
+
+  async function sendHuman() {
+    if (!convId || !draft.trim()) return;
+    const text = draft.trim();
+    setDraft("");
+    await sendHumanMessage(text, null);
+  }
+
+  async function sendDmAttachment(file: File, caption?: string) {
+    if (!convId) return;
+    setUploading(true);
+    const text = (caption ?? draft).trim();
+    setDraft("");
+    try {
+      const uploaded = await uploadChatAttachment(convId, currentUserId, file);
+      const attachment: ChatMessageAttachment = {
+        path: uploaded.path,
+        type: uploaded.type,
+        name: uploaded.name,
+      };
+      await sendHumanMessage(text, attachment);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("chatClient.toastUploadFail"));
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function pingPeer(targetUserId: string) {
+    if (!convId) return;
+    const res = await sendChatPingAction(convId, targetUserId);
+    if (!res.ok) {
+      toast.error(res.error || t("chatClient.toastPingFail"));
+      return;
+    }
+    toast.success(t("chatClient.pingSent"));
+  }
+
+  async function toggleVoiceRecord() {
+    if (!convId) return;
+    if (!recording) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mr = new MediaRecorder(stream);
+        recordChunksRef.current = [];
+        mr.ondataavailable = (ev) => {
+          if (ev.data.size > 0) recordChunksRef.current.push(ev.data);
+        };
+        mr.onstop = () => {
+          stream.getTracks().forEach((tr) => tr.stop());
+          const blob = new Blob(recordChunksRef.current, { type: "audio/webm" });
+          if (blob.size > 0) {
+            const file = new File([blob], `voice-${Date.now()}.webm`, {
+              type: "audio/webm",
+            });
+            void sendDmAttachment(file, "");
+          }
+          mediaRecorderRef.current = null;
+        };
+        mediaRecorderRef.current = mr;
+        mr.start();
+        setRecording(true);
+      } catch {
+        toast.error(t("chatClient.toastMicDenied"));
+      }
+      return;
+    }
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
   }
 
   useEffect(() => {
@@ -613,17 +745,19 @@ export function ChatClient({
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col gap-4 lg:flex-row", className)}>
-      <Card className="premium-surface w-full shrink-0 lg:w-72 lg:max-w-xs">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">{t("chatClient.membersTitle")}</CardTitle>
-          <CardDescription className="text-xs">{t("chatClient.membersSubtitle")}</CardDescription>
+      <Card className="premium-surface w-full shrink-0 lg:w-64 lg:max-w-[16rem]">
+        <CardHeader className="space-y-0.5 px-2.5 pb-1 pt-2.5">
+          <CardTitle className="text-[13px] leading-tight">{t("chatClient.membersTitle")}</CardTitle>
+          <CardDescription className="text-[10px] leading-snug line-clamp-2">
+            {t("chatClient.membersSubtitle")}
+          </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="h-[420px]">
+          <ScrollArea className="h-[min(72dvh,520px)]">
             <ul className="divide-y divide-border">
               <li
                 className={cn(
-                  "flex items-center gap-2 px-3 py-2 text-sm",
+                  "flex items-center gap-1 px-1.5 py-1",
                   isAiThread ? "bg-violet-500/10 ring-1 ring-violet-500/25" : "hover:bg-muted/40"
                 )}
               >
@@ -632,13 +766,15 @@ export function ChatClient({
                   className="min-w-0 flex-1 text-start"
                   onClick={() => openAiAgent()}
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-violet-700 ring-1 ring-violet-500/30 dark:text-violet-200">
-                      <Sparkles className="size-4" />
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-violet-700 ring-1 ring-violet-500/30 dark:text-violet-200">
+                      <Sparkles className="size-3.5" />
                     </div>
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{t("chatClient.aiAssistantCardTitle")}</p>
-                      <p className="text-muted-foreground truncate text-[11px]">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-medium leading-tight line-clamp-2">
+                        {t("chatClient.aiAssistantCardTitle")}
+                      </p>
+                      <p className="text-muted-foreground text-[9px] leading-tight line-clamp-2">
                         {t("chatClient.aiAssistantCardHint")}
                       </p>
                     </div>
@@ -654,7 +790,7 @@ export function ChatClient({
                   <li
                     key={c.id}
                     className={cn(
-                      "flex items-center gap-2 px-3 py-2 text-sm",
+                      "flex items-center gap-0.5 px-1.5 py-1",
                       peerId === c.id ? "bg-muted/60" : "hover:bg-muted/40"
                     )}
                   >
@@ -663,11 +799,13 @@ export function ChatClient({
                       className="min-w-0 flex-1 text-start"
                       onClick={() => void openThread(c)}
                     >
-                      <div className="flex items-center gap-2">
-                        <Avatar src={c.avatar_url} label={c.full_name || c.email} />
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{c.full_name || c.email}</p>
-                          <p className="text-muted-foreground truncate text-[11px]">
+                      <div className="flex items-center gap-1.5">
+                        <Avatar compact src={c.avatar_url} label={c.full_name || c.email} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-medium leading-tight line-clamp-2">
+                            {c.full_name || c.email}
+                          </p>
+                          <p className="text-muted-foreground text-[9px] leading-tight line-clamp-1">
                             {c.email}
                           </p>
                         </div>
@@ -677,14 +815,12 @@ export function ChatClient({
                       type="button"
                       variant="ghost"
                       size="icon-sm"
-                      className="shrink-0 text-muted-foreground"
-                      title={t("chatClient.voiceCallSoonTitle")}
-                      onClick={() => {
-                        setVoiceLabel(c.full_name || c.email);
-                        setVoiceOpen(true);
-                      }}
+                      className="size-7 shrink-0 p-0 text-muted-foreground"
+                      title={t("chatClient.pingPeer")}
+                      disabled={!convId || peerId !== c.id}
+                      onClick={() => void pingPeer(c.id)}
                     >
-                      <Phone className="size-4" />
+                      <Bell className="size-3.5" />
                     </Button>
                   </li>
                 ))
@@ -724,17 +860,29 @@ export function ChatClient({
                   >
                     <History className="size-4" />
                   </Button>
-                ) : convId ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    title={t("chatClient.deleteDmThread")}
-                    disabled={historyMutating || pending}
-                    onClick={() => void deleteDmThread()}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
+                ) : convId && activePeer ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      title={t("chatClient.pingPeer")}
+                      disabled={historyMutating || pending}
+                      onClick={() => void pingPeer(activePeer.id)}
+                    >
+                      <Bell className="size-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      title={t("chatClient.deleteDmThread")}
+                      disabled={historyMutating || pending}
+                      onClick={() => void deleteDmThread()}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </>
                 ) : null}
                 <Button
                   type="button"
@@ -980,7 +1128,30 @@ export function ChatClient({
                           })}
                         </span>
                       </p>
-                      <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
+                      {m.attachmentSignedUrl && m.attachment_type === "image" ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={m.attachmentSignedUrl}
+                          alt=""
+                          className="mt-1 max-h-48 rounded-lg object-contain"
+                        />
+                      ) : null}
+                      {m.attachmentSignedUrl && m.attachment_type === "audio" ? (
+                        <audio controls className="mt-1 max-w-full" src={m.attachmentSignedUrl} />
+                      ) : null}
+                      {m.attachmentSignedUrl && m.attachment_type === "file" ? (
+                        <a
+                          href={m.attachmentSignedUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 block text-xs underline"
+                        >
+                          {m.attachment_name || t("chatClient.downloadAttachment")}
+                        </a>
+                      ) : null}
+                      {m.body.trim() ? (
+                        <p className="whitespace-pre-wrap leading-relaxed">{m.body}</p>
+                      ) : null}
                     </div>
                   );
                 })
@@ -988,33 +1159,85 @@ export function ChatClient({
               <div ref={bottomRef} />
             </div>
           </div>
-          <div className="shrink-0 space-y-2 border-t border-border bg-background/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-sm md:bg-background">
-            <div className="flex gap-2">
-            <Input
-              data-chat-draft-input
-              placeholder={isAiThread ? t("chatClient.placeholderAi") : t("chatClient.placeholderDm")}
-              value={draft}
-              disabled={
-                (!convId && !isAiThread) || pending || (isAiThread && aiPending)
-              }
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (isAiThread) void sendAi();
-                  else void sendHuman();
+          <div className="shrink-0 space-y-1.5 border-t border-border bg-background/95 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] backdrop-blur-sm md:bg-background">
+            {!isAiThread && convId ? (
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*,audio/*,*/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  e.target.value = "";
+                  if (f) void sendDmAttachment(f);
+                }}
+              />
+            ) : null}
+            <div className="flex gap-1">
+              {!isAiThread && convId ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-9 shrink-0"
+                    title={t("chatClient.attachFile")}
+                    disabled={pending || uploading || recording}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Paperclip className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={recording ? "destructive" : "outline"}
+                    size="icon"
+                    className="size-9 shrink-0"
+                    title={
+                      recording ? t("chatClient.stopRecording") : t("chatClient.recordVoice")
+                    }
+                    disabled={pending || uploading}
+                    onClick={() => void toggleVoiceRecord()}
+                  >
+                    {recording ? <Square className="size-4" /> : <Mic className="size-4" />}
+                  </Button>
+                </>
+              ) : null}
+              <Input
+                data-chat-draft-input
+                className="min-w-0 flex-1"
+                placeholder={isAiThread ? t("chatClient.placeholderAi") : t("chatClient.placeholderDm")}
+                value={draft}
+                disabled={
+                  (!convId && !isAiThread) ||
+                  pending ||
+                  uploading ||
+                  recording ||
+                  (isAiThread && aiPending)
                 }
-              }}
-            />
-            <Button
-              type="button"
-              disabled={
-                (!convId && !isAiThread) || pending || aiPending || !draft.trim()
-              }
-              onClick={() => (isAiThread ? void sendAi() : void sendHuman())}
-            >
-              <Send className="size-4" />
-            </Button>
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (isAiThread) void sendAi();
+                    else void sendHuman();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                className="shrink-0"
+                disabled={
+                  (!convId && !isAiThread) ||
+                  pending ||
+                  aiPending ||
+                  uploading ||
+                  recording ||
+                  !draft.trim()
+                }
+                onClick={() => (isAiThread ? void sendAi() : void sendHuman())}
+              >
+                <Send className="size-4" />
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -1180,20 +1403,36 @@ export function ChatClient({
   );
 }
 
-function Avatar({ src, label }: { src: string | null; label: string }) {
+function Avatar({
+  src,
+  label,
+  compact,
+}: {
+  src: string | null;
+  label: string;
+  compact?: boolean;
+}) {
+  const size = compact ? "size-7" : "size-9";
+  const text = compact ? "text-[10px]" : "text-xs";
   if (src) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={src}
         alt=""
-        className="size-9 shrink-0 rounded-full object-cover ring-1 ring-border"
+        className={cn(size, "shrink-0 rounded-full object-cover ring-1 ring-border")}
       />
     );
   }
   const ch = label.trim().charAt(0) || "?";
   return (
-    <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold uppercase ring-1 ring-border">
+    <div
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full bg-muted font-semibold uppercase ring-1 ring-border",
+        size,
+        text
+      )}
+    >
       {ch}
     </div>
   );

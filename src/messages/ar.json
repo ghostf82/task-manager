@@ -217,7 +217,9 @@
       "deleteConversationFailed": "تعذّر حذف المحادثة",
       "deleteConversationForbidden": "لا يمكنك حذف هذه المحادثة",
       "invalidConversation": "محادثة غير صالحة",
-      "emptyMessage": "الرسالة فارغة"
+      "emptyMessage": "الرسالة فارغة",
+      "pingFailed": "تعذّر إرسال التنبيه",
+      "pingForbidden": "لا يمكنك تنبيه هذا العضو"
     },
     "aiGovernance": {
       "unknownTool": "أداة غير معتمدة في النظام."
@@ -549,8 +551,17 @@
   },
   "chatClient": {
     "aiAssistant": "المساعد الذكي",
-    "aiAssistantCardTitle": "المساعد الذكي (AI Agent)",
-    "aiAssistantCardHint": "أسئلة عن المهام والمستندات ومقترحات تنفيذ",
+    "aiAssistantCardTitle": "المساعد الذكي",
+    "aiAssistantCardHint": "مهام، مستندات، مقترحات",
+    "pingPeer": "تنبيه زميل (جرس)",
+    "pingSent": "تم إرسال التنبيه",
+    "toastPingFail": "تعذّر إرسال التنبيه",
+    "toastUploadFail": "تعذّر رفع المرفق",
+    "toastMicDenied": "لم يُسمح بالوصول للميكروفون",
+    "attachFile": "إرفاق صورة أو ملف",
+    "recordVoice": "تسجيل رسالة صوتية",
+    "stopRecording": "إيقاف التسجيل",
+    "downloadAttachment": "تحميل المرفق",
     "membersTitle": "الأعضاء",
     "membersSubtitle": "محادثة مع الزملاء أو مع المساعد الذكي (سياق شركتك وأدواتك المصرّح بها).",
     "noColleagues": "لا يوجد زملاء للعرض في نطاق شركتك.",

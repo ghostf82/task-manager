@@ -217,7 +217,9 @@
       "deleteConversationFailed": "Could not delete conversation",
       "deleteConversationForbidden": "You cannot delete this conversation",
       "invalidConversation": "Invalid conversation",
-      "emptyMessage": "Message is empty"
+      "emptyMessage": "Message is empty",
+      "pingFailed": "Could not send alert",
+      "pingForbidden": "You cannot alert this member"
     },
     "aiGovernance": {
       "unknownTool": "This tool is not registered in the system."
@@ -599,7 +601,16 @@
     "planEdit": "Edit in AI Agent",
     "planCancel": "Dismiss card",
     "planNextStep": "Run next step",
-    "planOpenAgent": "Open AI Agent panel"
+    "planOpenAgent": "Open AI Agent panel",
+    "pingPeer": "Ping colleague (bell)",
+    "pingSent": "Alert sent",
+    "toastPingFail": "Could not send alert",
+    "toastUploadFail": "Upload failed",
+    "toastMicDenied": "Microphone access denied",
+    "attachFile": "Attach image or file",
+    "recordVoice": "Record voice message",
+    "stopRecording": "Stop recording",
+    "downloadAttachment": "Download attachment"
   },
   "proposalReview": {
     "bodyRequiredToast": "Message body is required before sending.",

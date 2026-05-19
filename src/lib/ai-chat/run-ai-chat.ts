@@ -58,6 +58,8 @@ function buildSystemPrompt(input: {
   tenantNames: string[];
   intentHint: string;
   proactiveContext: string;
+  userDisplayName: string;
+  userEmail: string;
 }): string {
   const reg = getRegisteredAiTools()
     .map(
@@ -76,7 +78,12 @@ function buildSystemPrompt(input: {
       ? input.tenantNames.join("، ")
       : "لا شركات مرتبطة بالحساب";
 
-  return `أنت الوكيل التنفيذي لشركة أبناء صالح المديفر القابضة. أنت لست مجرد برنامج، أنت عقل مفكر ومنفذ. ردودك يجب أن تكون حازمة، ذكية، استباقية، ولبقة جداً.
+  const userLine = input.userDisplayName
+    ? `المستخدم الحالي (صاحب الحساب): ${input.userDisplayName}${input.userEmail ? ` (${input.userEmail})` : ""}. أنت تخاطبه وتساعده — هو ليس «الوكيل التنفيذي»، بل المسؤول/الموظف الذي تخدمه.`
+    : "المستخدم الحالي هو صاحب الحساب الذي تخاطبه وتساعده.";
+
+  return `أنت المساعد الذكي الرقمي لمنصة إدارة المهام لدى مجموعة أبناء صالح المديفر القابضة. دورك: مساعد تنفيذي ذكي وواضح — وليس أن تتبنى منصب المستخدم أو تخلط الأدوار.
+${userLine}
 تاريخ اليوم (UTC): ${input.todayStr}
 الشركات ضمن نطاق صلاحية المستخدم: ${tenants}
 الأدوات الخارجية المصرّح بها لهذا المستخدم: ${tools}
@@ -85,19 +92,21 @@ function buildSystemPrompt(input: {
 الأدوات المسجّلة في النظام (للمرجعية فقط — التنفيذ الفعلي يمر عبر مقترحات):
 ${reg}
 
-قواعد:
-- ابدأ دائماً بفهم القصد قبل التنفيذ: حدّد هل الطلب (سؤال عام / تحليل / تنفيذ) ثم قرر إن كانت الأداة مطلوبة.
-- إذا كان السؤال عاماً أو تحية (مثل: كيف حالك؟ ماذا تفعل؟) أجب مباشرة بأسلوب تنفيذي لبق دون أي استدعاء أدوات.
-- لقراءة المستندات استخدم list_company_documents فقط عندما يكون الطلب عن تراخيص/مستندات/انتهاء.
-- لقراءة المهام استخدم list_corporate_tasks فقط عندما يكون الطلب عن مهام/أعمال/متابعة.
-- لا تستدعِ أدوات متعددة بلا حاجة. اختر أقل عدد أدوات يحقق الدقة.
-- أي إجراء تنفيذي (بريد، Odoo، إنشاء مهمة شركة) يجب أن يمر عبر دالة create_pending_proposal فقط — لا تدّعي التنفيذ الفوري.
-- أبلغ المستخدم بخطوات التنفيذ قبل أي إجراء حساس واطلب الموافقة عبر المقترحات في الواجهة.
-- احترم نطاق الشركات: لا تفترض بيانات خارج ما يعيده النظام (RLS).
-- عند عرض نتائج فعلية، صِغ العبارة بهذه الروح: "بناءً على صلاحياتك..." أو "ضمن نطاق صلاحياتك...".
-- بعد أي تنفيذ ناجح/تحديث بيانات: أعطِ تأكيداً تنفيذياً واضحاً في سطر قصير، واذكر النتيجة النهائية فقط (لا تُعد سرد كل البيانات إلا عند الطلب).
-- نسّق الردود باحتراف باستخدام Markdown (عناوين قصيرة، قوائم، جدول عند مقارنة عناصر متعددة).
-- اجعل كل رد يبدأ بتمهيد لبق قصير وينتهي بخطوة تالية مقترحة أو سؤال متابعة واضح.`;
+لغة وأسلوب (إلزامي):
+- اكتب بالعربية الفصحى الواضحة فقط. ممنوع دمج كلمات إنجليزية داخل الجمل (مثل assistance أو help داخل عبارة عربية). استخدم «مساعدتك»، «خدمتك»، «أقدّم لك».
+- التزم بضمير المخاطب المناسب: الأسماء العربية المذكّرة (مثل فريد، محمد) بصيغة المذكر ما لم يصرّح المستخدم بغير ذلك. لا تستخدم صيغة المؤنث إلا عند تأكيد صريح.
+- احفظ تفضيلات المستخدم (الاسم المفضل، أسلوب الخطاب) واستخدمها في الردود التالية.
+- جمل قصيرة ومرتبة. فقرات منفصلة. تجنّب التراخي والتكرار.
+- لا تقل للمستخدم إنه «الوكيل التنفيذي»؛ أنت المساعد وهو المستخدم.
+
+قواعد العمل:
+- ابدأ بفهم القصد (سؤال عام / تحليل / تنفيذ) قبل الأدوات.
+- للتحيات والمحادثة العامة أجب مباشرة دون أدوات.
+- list_company_documents للمستندات والتراخيص؛ list_corporate_tasks للمهام.
+- الإجراءات الحساسة عبر create_pending_proposal فقط.
+- احترم RLS ونطاق الشركات.
+- Markdown خفيف عند الحاجة (قوائم، عناوين قصيرة).
+- اختم بسؤال متابعة أو خطوة تالية واحدة واضحة.`;
 }
 
 function isGeneralConversation(text: string): boolean {
@@ -374,9 +383,13 @@ export async function handleAiChatPost(params: {
 
   const { data: me } = await params.supabase
     .from("users")
-    .select("is_super_admin,email")
+    .select("is_super_admin,email,full_name")
     .eq("id", params.userId)
     .maybeSingle();
+  const userDisplayName =
+    (me?.full_name as string | null)?.trim() ||
+    (me?.email as string | undefined)?.split("@")[0] ||
+    "المستخدم";
   const isSuperAdmin = Boolean(me?.is_super_admin);
 
   let licensedSlugs = await getLicensedActiveToolSlugs(params.supabase, params.userId);
@@ -671,6 +684,8 @@ export async function handleAiChatPost(params: {
     tenantNames,
     intentHint: generalMode ? "general_chat" : plan.intent,
     proactiveContext,
+    userDisplayName,
+    userEmail: String(me?.email ?? ""),
   });
 
   const showPlanCard =

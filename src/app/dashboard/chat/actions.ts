@@ -159,20 +159,95 @@ export async function deleteDmConversationAction(
   }
 }
 
+export type ChatMessageAttachment = {
+  /** Storage path inside bucket `chat-attachments`. */
+  path: string;
+  type: "image" | "audio" | "file";
+  name: string;
+};
+
+export async function sendChatPingAction(
+  conversationId: string,
+  targetUserId: string
+): Promise<AiChatActionResult> {
+  try {
+    const session = await requireSession();
+    const cid = conversationId?.trim();
+    const target = targetUserId?.trim();
+    if (!cid || !target || target === session.id) {
+      return fail(await tAction("errors.chat.invalidUser"));
+    }
+
+    const supabase = await createClient();
+    const { data: peer } = await supabase
+      .from("conversation_participants")
+      .select("user_id")
+      .eq("conversation_id", cid)
+      .eq("user_id", target)
+      .maybeSingle();
+    if (!peer) return fail(await tAction("errors.chat.pingForbidden"));
+
+    const { data: sender } = await supabase
+      .from("users")
+      .select("full_name,email")
+      .eq("id", session.id)
+      .maybeSingle();
+    const senderName =
+      (sender?.full_name as string | null)?.trim() ||
+      (sender?.email as string | undefined)?.split("@")[0] ||
+      "زميل";
+
+    const { error } = await supabase.from("notifications").insert({
+      user_id: target,
+      type: "chat_ping",
+      title: "تنبيه محادثة",
+      body: `${senderName} يناديك في المحادثة — راجع الرسائل.`,
+      payload: {
+        conversation_id: cid,
+        sender_id: session.id,
+        href: "/dashboard/chat",
+      },
+    });
+    if (error) return fail(error.message);
+
+    revalidatePath("/dashboard/chat");
+    return { ok: true };
+  } catch (e) {
+    return fail(await actionError(e, "errors.chat.pingFailed"));
+  }
+}
+
 export async function sendChatMessageAction(
   conversationId: string,
-  body: string
+  body: string,
+  attachment?: ChatMessageAttachment | null
 ) {
   const session = await requireSession();
   const text = body.trim();
-  if (!text) throw new Error(await tAction("errors.chat.emptyMessage"));
+  const att = attachment?.path?.trim() ? attachment : null;
+  if (!text && !att) throw new Error(await tAction("errors.chat.emptyMessage"));
 
   const supabase = await createClient();
-  const { error } = await supabase.from("messages").insert({
+  const fallbackBody =
+    text ||
+    (att?.type === "audio"
+      ? "رسالة صوتية"
+      : att?.type === "image"
+        ? "صورة"
+        : "مرفق");
+
+  const row: Record<string, unknown> = {
     conversation_id: conversationId,
     user_id: session.id,
-    body: text,
-  });
+    body: fallbackBody,
+  };
+  if (att) {
+    row.attachment_url = att.path;
+    row.attachment_type = att.type;
+    row.attachment_name = att.name;
+  }
+
+  const { error } = await supabase.from("messages").insert(row);
   if (error) throw new Error(error.message);
   revalidatePath("/dashboard/chat");
 }
