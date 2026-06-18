@@ -26,7 +26,9 @@ import {
 
 function formatDt(iso: string | null, locale: string) {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString(locale === "en" ? "en-GB" : "ar-SA");
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return "—";
+  return new Date(ms).toLocaleString(locale === "en" ? "en-GB" : "ar-SA");
 }
 
 function modeLabel(mode: OdooConnectionAdminRow["connectionMode"], t: (k: string) => string) {
@@ -44,7 +46,13 @@ export async function OdooCompanyAdminSection({
   dateLocale: string;
   t: (key: string) => string;
 }) {
-  const rows = await loadOdooConnectionsAdminOverview();
+  let rows: OdooConnectionAdminRow[] = [];
+  let connectionsLoadFailed = false;
+  try {
+    rows = await loadOdooConnectionsAdminOverview();
+  } catch {
+    connectionsLoadFailed = true;
+  }
 
   return (
     <div className="space-y-6">
@@ -125,6 +133,11 @@ export async function OdooCompanyAdminSection({
           <CardDescription>{t("integrations.odooAdmin.connectionsDesc")}</CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
+          {connectionsLoadFailed ? (
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
+              {t("integrations.odooAdmin.connectionsLoadFailed")}
+            </p>
+          ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -156,6 +169,7 @@ export async function OdooCompanyAdminSection({
               ))}
             </TableBody>
           </Table>
+          )}
         </CardContent>
       </Card>
     </div>

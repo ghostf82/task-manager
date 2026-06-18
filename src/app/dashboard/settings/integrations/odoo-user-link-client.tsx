@@ -17,6 +17,7 @@ import {
   deleteOdooCredentialsAction,
   saveOdooCredentialsAction,
 } from "@/app/dashboard/settings/integrations/actions";
+import type { OdooUserLinkLabels } from "@/app/dashboard/settings/integrations/odoo-user-link-labels";
 import {
   OdooConnectionTestButton,
   OdooSavedConnectionTestButton,
@@ -56,12 +57,14 @@ type Props = {
   errorCode: string | null;
   errorMessage: string | null;
   justLinked: boolean;
-  t: (key: string) => string;
+  labels: OdooUserLinkLabels;
 };
 
-function formatDt(iso: string | null, locale: string) {
+function formatDt(iso: string | null | undefined, locale: string): string | null {
   if (!iso) return null;
-  return new Date(iso).toLocaleString(locale === "en" ? "en-GB" : "ar-SA");
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toLocaleString(locale === "en" ? "en-GB" : "ar-SA");
 }
 
 export function OdooUserLinkClient({
@@ -72,7 +75,7 @@ export function OdooUserLinkClient({
   errorCode,
   errorMessage,
   justLinked,
-  t,
+  labels,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
@@ -82,7 +85,7 @@ export function OdooUserLinkClient({
   const view = useMemo(
     () =>
       deriveOdooLinkViewModel({
-        companyBaseUrl,
+        companyBaseUrl: companyBaseUrl ?? "",
         link,
         errorCode,
         errorMessage,
@@ -127,13 +130,11 @@ export function OdooUserLinkClient({
             <CardTitle className="flex items-center gap-2">
               <span className={cn("inline-flex size-2 rounded-full", statusDot)} />
               {view.state === "connected" && !editing
-                ? t("integrations.odoo.connectedTitle")
-                : t("integrations.odoo.linkTitle")}
+                ? labels.connectedTitle
+                : labels.linkTitle}
             </CardTitle>
             <CardDescription>
-              {view.state === "connected" && !editing
-                ? t("integrations.odoo.connectedDesc")
-                : t("integrations.odoo.linkDesc")}
+              {view.state === "connected" && !editing ? labels.connectedDesc : labels.linkDesc}
             </CardDescription>
           </div>
           {view.state === "connected" && !editing ? (
@@ -142,7 +143,7 @@ export function OdooUserLinkClient({
               variant="outline"
             >
               <CheckCircle2Icon data-icon="inline-start" />
-              {t("integrations.odoo.statusConnected")}
+              {labels.statusConnected}
             </Badge>
           ) : null}
           {view.state === "reconnect_needed" && !editing ? (
@@ -151,7 +152,7 @@ export function OdooUserLinkClient({
               variant="outline"
             >
               <AlertCircleIcon data-icon="inline-start" />
-              {t("integrations.odoo.statusReconnect")}
+              {labels.statusReconnect}
             </Badge>
           ) : null}
         </div>
@@ -160,7 +161,7 @@ export function OdooUserLinkClient({
       <CardContent className="space-y-4">
         {view.state === "admin_missing" ? (
           <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
-            {t("integrations.odoo.waitingAdmin")}
+            {labels.waitingAdmin}
           </p>
         ) : null}
 
@@ -168,10 +169,8 @@ export function OdooUserLinkClient({
           <div className="flex gap-3 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-950 dark:text-emerald-100">
             <SparklesIcon className="mt-0.5 size-4 shrink-0 text-emerald-600" />
             <div>
-              <p className="font-medium">{t("integrations.odoo.justLinkedTitle")}</p>
-              <p className="mt-0.5 text-xs leading-relaxed opacity-90">
-                {t("integrations.odoo.justLinkedDesc")}
-              </p>
+              <p className="font-medium">{labels.justLinkedTitle}</p>
+              <p className="mt-0.5 text-xs leading-relaxed opacity-90">{labels.justLinkedDesc}</p>
             </div>
           </div>
         ) : null}
@@ -188,9 +187,7 @@ export function OdooUserLinkClient({
             <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
             <div>
               <p className="font-medium">
-                {view.state === "reconnect_needed"
-                  ? t("integrations.odoo.reconnectTitle")
-                  : t("integrations.odoo.errorTitle")}
+                {view.state === "reconnect_needed" ? labels.reconnectTitle : labels.errorTitle}
               </p>
               <p className="mt-0.5 text-xs leading-relaxed opacity-90">{view.errorMessage}</p>
             </div>
@@ -201,7 +198,7 @@ export function OdooUserLinkClient({
           <div className="flex justify-end">
             <Button type="button" onClick={() => setEditing(true)}>
               <KeyRoundIcon className="size-4" />
-              {t("integrations.odoo.updateLink")}
+              {labels.updateLink}
             </Button>
           </div>
         ) : null}
@@ -213,7 +210,7 @@ export function OdooUserLinkClient({
             lastSyncAt={lastSyncAt}
             lastTestOkAt={lastTestOkAt}
             dateLocale={dateLocale}
-            t={t}
+            labels={labels}
           />
         ) : null}
 
@@ -224,12 +221,10 @@ export function OdooUserLinkClient({
               view.link && editing ? "rounded-lg border border-border/70 bg-muted/15 p-4" : null
             )}
           >
-            {editing ? (
-              <p className="text-sm font-medium">{t("integrations.odoo.editTitle")}</p>
-            ) : null}
+            {editing ? <p className="text-sm font-medium">{labels.editTitle}</p> : null}
             {!view.link ? (
               <p className="text-muted-foreground rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-relaxed">
-                {t("integrations.odoo.companyUrlHint")}{" "}
+                {labels.companyUrlHint}{" "}
                 <span className="font-mono text-foreground" dir="ltr">
                   {companyBaseUrl}
                 </span>
@@ -237,7 +232,7 @@ export function OdooUserLinkClient({
             ) : null}
             <form id="integrations-odoo-form" action={saveOdooCredentialsAction} className="grid gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="login_username">{t("integrations.odoo.usernameSimple")}</Label>
+                <Label htmlFor="login_username">{labels.usernameSimple}</Label>
                 <Input
                   id="login_username"
                   name="login_username"
@@ -249,33 +244,31 @@ export function OdooUserLinkClient({
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="password">{t("integrations.odoo.passwordSimple")}</Label>
+                <Label htmlFor="password">{labels.passwordSimple}</Label>
                 <Input
                   id="password"
                   name="password"
                   type="password"
                   dir="ltr"
                   className="font-mono text-sm"
-                  placeholder={
-                    link ? t("integrations.odoo.passwordKeep") : t("integrations.odoo.passwordRequired")
-                  }
+                  placeholder={link ? labels.passwordKeep : labels.passwordRequired}
                   autoComplete="current-password"
                 />
               </div>
               <div className="flex flex-wrap gap-2">
                 <PendingSubmitButton
-                  label={editing ? t("integrations.odoo.saveUpdate") : t("integrations.odoo.saveSimple")}
-                  pendingLabel={t("integrations.odoo.saving")}
+                  label={editing ? labels.saveUpdate : labels.saveSimple}
+                  pendingLabel={labels.saving}
                 />
                 <OdooConnectionTestButton
                   formId="integrations-odoo-form"
-                  testLabel={t("integrations.odoo.testSimple")}
-                  formMissingMessage={t("integrations.formMissingOdoo")}
+                  testLabel={labels.testSimple}
+                  formMissingMessage={labels.formMissingOdoo}
                   onResult={onTestResult}
                 />
                 {editing ? (
                   <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
-                    {t("integrations.odoo.cancelEdit")}
+                    {labels.cancelEdit}
                   </Button>
                 ) : null}
               </div>
@@ -287,19 +280,19 @@ export function OdooUserLinkClient({
           <div className="flex flex-wrap gap-2 border-t border-border/60 pt-4">
             <OdooSavedConnectionTestButton
               loginUsername={view.link.login_username}
-              testLabel={t("integrations.odoo.testSimple")}
+              testLabel={labels.testSimple}
               onResult={onTestResult}
             />
-            <OdooBrowserOpenLink baseUrl={companyBaseUrl} label={t("integrations.odoo.openBrowser")} />
+            <OdooBrowserOpenLink baseUrl={companyBaseUrl} label={labels.openBrowser} />
             <Link
               href="/dashboard/ai-agent"
               className={cn(buttonVariants({ variant: "default" }), "h-8")}
             >
-              {t("integrations.odoo.openTasks")}
+              {labels.openTasks}
             </Link>
             <Button type="button" variant="outline" onClick={() => setEditing(true)}>
               <KeyRoundIcon className="size-4" />
-              {t("integrations.odoo.updateLink")}
+              {labels.updateLink}
             </Button>
             <Button
               type="button"
@@ -308,7 +301,7 @@ export function OdooUserLinkClient({
               onClick={() => setDisconnectOpen(true)}
             >
               <Link2OffIcon className="size-4" />
-              {t("integrations.odoo.disconnect")}
+              {labels.disconnect}
             </Button>
           </div>
         ) : null}
@@ -316,17 +309,17 @@ export function OdooUserLinkClient({
         <Dialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
           <DialogContent showCloseButton>
             <DialogHeader>
-              <DialogTitle>{t("integrations.odoo.disconnectTitle")}</DialogTitle>
-              <DialogDescription>{t("integrations.odoo.disconnectDesc")}</DialogDescription>
+              <DialogTitle>{labels.disconnectTitle}</DialogTitle>
+              <DialogDescription>{labels.disconnectDesc}</DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDisconnectOpen(false)}>
-                {t("integrations.odoo.disconnectCancel")}
+                {labels.disconnectCancel}
               </Button>
               <form action={deleteOdooCredentialsAction}>
                 <PendingSubmitButton
-                  label={t("integrations.odoo.disconnectConfirm")}
-                  pendingLabel={t("integrations.odoo.saving")}
+                  label={labels.disconnectConfirm}
+                  pendingLabel={labels.saving}
                   variant="destructive"
                 />
               </form>
@@ -344,48 +337,48 @@ function ConnectedSummary({
   lastSyncAt,
   lastTestOkAt,
   dateLocale,
-  t,
+  labels,
 }: {
   companyBaseUrl: string;
   link: OdooLinkRecord;
   lastSyncAt: string | null;
   lastTestOkAt: string | null;
   dateLocale: string;
-  t: (key: string) => string;
+  labels: OdooUserLinkLabels;
 }) {
   const rows = [
     {
       icon: UserIcon,
-      label: t("integrations.odoo.summaryAccount"),
-      value: link.login_username,
+      label: labels.summaryAccount,
+      value: link.login_username || "—",
     },
     {
       icon: ExternalLinkIcon,
-      label: t("integrations.odoo.summaryServer"),
-      value: companyBaseUrl,
+      label: labels.summaryServer,
+      value: companyBaseUrl || "—",
       mono: true,
     },
     {
       icon: KeyRoundIcon,
-      label: t("integrations.odoo.summaryPassword"),
-      value: t("integrations.odoo.passwordSecured"),
+      label: labels.summaryPassword,
+      value: labels.passwordSecured,
     },
     {
       icon: RefreshCwIcon,
-      label: t("integrations.odoo.summaryLinked"),
+      label: labels.summaryLinked,
       value: formatDt(link.updated_at, dateLocale) ?? "—",
     },
     {
       icon: RefreshCwIcon,
-      label: t("integrations.odoo.summarySync"),
-      value: formatDt(lastSyncAt, dateLocale) ?? t("integrations.odoo.neverSynced"),
+      label: labels.summarySync,
+      value: formatDt(lastSyncAt, dateLocale) ?? labels.neverSynced,
     },
   ];
 
   if (lastTestOkAt) {
     rows.push({
       icon: CheckCircle2Icon,
-      label: t("integrations.odoo.summaryLastTest"),
+      label: labels.summaryLastTest,
       value: formatDt(lastTestOkAt, dateLocale) ?? "—",
     });
   }
@@ -393,7 +386,7 @@ function ConnectedSummary({
   return (
     <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
       <p className="mb-3 text-sm font-medium text-emerald-900 dark:text-emerald-100">
-        {t("integrations.odoo.connectedReady")}
+        {labels.connectedReady}
       </p>
       <dl className="grid gap-2.5">
         {rows.map((row) => (

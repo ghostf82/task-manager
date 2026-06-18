@@ -9,7 +9,10 @@ import {
   PendingSubmitButton,
 } from "@/app/dashboard/settings/integrations/integrations-connection-test";
 import { OdooCompanyAdminSection } from "@/app/dashboard/settings/integrations/odoo-company-admin-section";
-import { OdooUserLinkCard } from "@/app/dashboard/settings/integrations/odoo-user-link-card";
+import {
+  buildOdooUserLinkLabels,
+  OdooUserLinkCard,
+} from "@/app/dashboard/settings/integrations/odoo-user-link-card";
 import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -24,6 +27,8 @@ import { requireSession } from "@/lib/dashboard-auth";
 import { getTranslator } from "@/lib/i18n/get-translator";
 import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
 import { loadCompanyOdooSettings } from "@/lib/integrations/company-odoo-settings";
+import type { CompanyOdooSettings } from "@/lib/integrations/company-odoo-settings";
+import type { OdooLinkRecord } from "@/lib/integrations/odoo-link-state";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
@@ -41,27 +46,56 @@ export default async function IntegrationsSettingsPage({
   const showOdoo = licensedSlugs.includes("odoo");
   const showEmail = licensedSlugs.includes("email");
 
-  const companyOdoo = showOdoo ? await loadCompanyOdooSettings(supabase) : null;
+  const emptyCompanyOdoo: CompanyOdooSettings = {
+    baseUrl: "",
+    connectionMode: "browser_session",
+    apiDatabaseName: "",
+    updatedAt: null,
+  };
 
-  const { data: odoo } = showOdoo
-    ? await supabase
+  let companyOdoo: CompanyOdooSettings | null = null;
+  if (showOdoo) {
+    try {
+      companyOdoo = await loadCompanyOdooSettings(supabase);
+    } catch {
+      companyOdoo = emptyCompanyOdoo;
+    }
+  }
+
+  let odoo: OdooLinkRecord | null = null;
+  if (showOdoo) {
+    try {
+      const { data } = await supabase
         .from("user_odoo_credentials")
         .select("login_username, updated_at")
         .eq("user_id", session.id)
-        .maybeSingle()
-    : { data: null };
+        .maybeSingle();
+      if (data?.login_username) {
+        odoo = {
+          login_username: String(data.login_username),
+          updated_at: String(data.updated_at ?? ""),
+        };
+      }
+    } catch {
+      odoo = null;
+    }
+  }
 
   let odooLastSyncAt: string | null = null;
   if (showOdoo) {
-    const { data: cacheRows } = await supabase
-      .from("odoo_browser_cache")
-      .select("updated_at")
-      .eq("user_id", session.id);
-    const times = (cacheRows ?? [])
-      .map((r) => Date.parse(String(r.updated_at)))
-      .filter((n) => Number.isFinite(n));
-    if (times.length) {
-      odooLastSyncAt = new Date(Math.max(...times)).toISOString();
+    try {
+      const { data: cacheRows } = await supabase
+        .from("odoo_browser_cache")
+        .select("updated_at")
+        .eq("user_id", session.id);
+      const times = (cacheRows ?? [])
+        .map((r) => Date.parse(String(r.updated_at ?? "")))
+        .filter((n) => Number.isFinite(n));
+      if (times.length) {
+        odooLastSyncAt = new Date(Math.max(...times)).toISOString();
+      }
+    } catch {
+      odooLastSyncAt = null;
     }
   }
 
@@ -86,6 +120,7 @@ export default async function IntegrationsSettingsPage({
     : null;
   const odooJustLinked = sp.saved === "odoo";
   const odooErrCode = sp.err?.startsWith("odoo") ? sp.err : null;
+  const odooLinkLabels = buildOdooUserLinkLabels(t);
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
@@ -149,7 +184,7 @@ export default async function IntegrationsSettingsPage({
             errorCode={odooErrCode}
             errorMessage={odooErrCode ? errMsg : null}
             justLinked={odooJustLinked}
-            t={t}
+            labels={odooLinkLabels}
           />
         </>
       ) : null}

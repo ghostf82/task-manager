@@ -1,4 +1,8 @@
 import { OdooUserLinkClient } from "@/app/dashboard/settings/integrations/odoo-user-link-client";
+import {
+  buildOdooUserLinkLabels,
+  type OdooUserLinkLabels,
+} from "@/app/dashboard/settings/integrations/odoo-user-link-labels";
 import type { CompanyOdooSettings } from "@/lib/integrations/company-odoo-settings";
 import type { OdooLinkRecord } from "@/lib/integrations/odoo-link-state";
 
@@ -10,7 +14,7 @@ export function OdooUserLinkCard({
   errorCode,
   errorMessage,
   justLinked,
-  t,
+  labels,
 }: {
   company: CompanyOdooSettings;
   odoo: OdooLinkRecord | null;
@@ -19,7 +23,7 @@ export function OdooUserLinkCard({
   errorCode: string | null;
   errorMessage: string | null;
   justLinked: boolean;
-  t: (key: string) => string;
+  labels: OdooUserLinkLabels;
 }) {
   return (
     <OdooUserLinkClient
@@ -30,7 +34,9 @@ export function OdooUserLinkCard({
       errorCode={errorCode}
       errorMessage={errorMessage}
       justLinked={justLinked}
-      t={t}
+      labels={labels}
     />
   );
 }
+
+export { buildOdooUserLinkLabels };

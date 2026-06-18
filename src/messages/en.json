@@ -170,7 +170,8 @@
       "colUpdated": "Link updated",
       "colSync": "Last sync",
       "yes": "Yes",
-      "no": "No"
+      "no": "No",
+      "connectionsLoadFailed": "Could not load employee connection status right now. Company settings below are still available."
     },
     "email": {
       "title": "Email IMAP / SMTP",
