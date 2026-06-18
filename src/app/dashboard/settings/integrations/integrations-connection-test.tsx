@@ -19,10 +19,12 @@ export function OdooConnectionTestButton({
   formId,
   testLabel,
   formMissingMessage,
+  onResult,
 }: {
   formId: string;
   testLabel: string;
   formMissingMessage: string;
+  onResult?: (res: { ok: boolean; message: string }) => void;
 }) {
   const [pending, start] = useTransition();
 
@@ -39,13 +41,56 @@ export function OdooConnectionTestButton({
           login_username: String(fd.get("login_username") ?? ""),
           password: String(fd.get("password") ?? ""),
         });
+        onResult?.(res);
         if (res.ok) {
           toast.success(res.message);
         } else {
           toast.error(res.message);
         }
       } catch {
-        toast.error("تعذر إكمال فحص اتصال Odoo حالياً. أعد المحاولة خلال ثوانٍ.");
+        const msg = "تعذر إكمال فحص اتصال Odoo حالياً. أعد المحاولة خلال ثوانٍ.";
+        onResult?.({ ok: false, message: msg });
+        toast.error(msg);
+      }
+    });
+  }
+
+  return (
+    <Button type="button" variant="outline" disabled={pending} onClick={runTest}>
+      {pending ? <Loader2Icon className="size-4 animate-spin" /> : null}
+      {testLabel}
+    </Button>
+  );
+}
+
+export function OdooSavedConnectionTestButton({
+  loginUsername,
+  testLabel,
+  onResult,
+}: {
+  loginUsername: string;
+  testLabel: string;
+  onResult?: (res: { ok: boolean; message: string }) => void;
+}) {
+  const [pending, start] = useTransition();
+
+  function runTest() {
+    start(async () => {
+      try {
+        const res = await testOdooConnectionAction({
+          login_username: loginUsername,
+          password: "",
+        });
+        onResult?.(res);
+        if (res.ok) {
+          toast.success(res.message);
+        } else {
+          toast.error(res.message);
+        }
+      } catch {
+        const msg = "تعذر إكمال فحص اتصال Odoo حالياً. أعد المحاولة خلال ثوانٍ.";
+        onResult?.({ ok: false, message: msg });
+        toast.error(msg);
       }
     });
   }
@@ -66,7 +111,7 @@ export function PendingSubmitButton({
 }: {
   label: string;
   pendingLabel: string;
-  variant?: "default" | "outline" | "ghost";
+  variant?: "default" | "outline" | "ghost" | "destructive";
   disabled?: boolean;
 }) {
   const { pending } = useFormStatus();

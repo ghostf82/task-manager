@@ -51,6 +51,20 @@ export default async function IntegrationsSettingsPage({
         .maybeSingle()
     : { data: null };
 
+  let odooLastSyncAt: string | null = null;
+  if (showOdoo) {
+    const { data: cacheRows } = await supabase
+      .from("odoo_browser_cache")
+      .select("updated_at")
+      .eq("user_id", session.id);
+    const times = (cacheRows ?? [])
+      .map((r) => Date.parse(String(r.updated_at)))
+      .filter((n) => Number.isFinite(n));
+    if (times.length) {
+      odooLastSyncAt = new Date(Math.max(...times)).toISOString();
+    }
+  }
+
   const { data: email } = await supabase
     .from("user_email_credentials")
     .select(
@@ -61,7 +75,8 @@ export default async function IntegrationsSettingsPage({
 
   const dateLocale = locale === "en" ? "en-GB" : "ar-SA";
 
-  const okMsg = sp.saved ? t(`integrations.notices.${sp.saved}`) : null;
+  const okMsg =
+    sp.saved && sp.saved !== "odoo" ? t(`integrations.notices.${sp.saved}`) : null;
   const errMsg = sp.err
     ? (() => {
         const p = `integrations.errors.${sp.err}`;
@@ -69,6 +84,8 @@ export default async function IntegrationsSettingsPage({
         return m === p ? t("integrations.errors.generic") : m;
       })()
     : null;
+  const odooJustLinked = sp.saved === "odoo";
+  const odooErrCode = sp.err?.startsWith("odoo") ? sp.err : null;
 
   return (
     <div className="mx-auto max-w-3xl space-y-8">
@@ -93,7 +110,7 @@ export default async function IntegrationsSettingsPage({
           {okMsg}
         </p>
       ) : null}
-      {errMsg ? (
+      {errMsg && !odooErrCode ? (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {errMsg}
         </p>
@@ -127,7 +144,11 @@ export default async function IntegrationsSettingsPage({
           <OdooUserLinkCard
             company={companyOdoo}
             odoo={odoo}
+            lastSyncAt={odooLastSyncAt}
             dateLocale={dateLocale}
+            errorCode={odooErrCode}
+            errorMessage={odooErrCode ? errMsg : null}
+            justLinked={odooJustLinked}
             t={t}
           />
         </>
