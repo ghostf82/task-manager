@@ -4,37 +4,47 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { OdooCredentialBundle } from "@/lib/integrations/odoo-client";
 import type { EmailCredentialBundle } from "@/lib/integrations/email-client";
-import { sanitizeOdooBaseUrl } from "@/lib/integrations/odoo-xmlrpc";
+import {
+  databaseNameForMode,
+  loadCompanyOdooSettings,
+  resolveEffectiveOdooBaseUrl,
+  resolveEffectiveOdooConnectionMode,
+} from "@/lib/integrations/company-odoo-settings";
 
 const ODOO_SETTINGS_HINT =
   "تحقق من ربط Odoo في صفحة الإعدادات > التكاملات (/dashboard/settings/integrations).";
 export const ODOO_BROWSER_MODE_DB = "__browser_session__";
 type OdooConnectionMode = "none" | "api" | "browser_session";
 
-function normalizeBaseUrl(url: string): string {
-  const v = sanitizeOdooBaseUrl(url.trim());
-  if (!v) return "";
-  return v.endsWith("/") ? v.slice(0, -1) : v;
+async function readUserCredentialRow(supabase: SupabaseClient, userId: string) {
+  const { data } = await supabase
+    .from("user_odoo_credentials")
+    .select("base_url, database_name, login_username, password_encrypted")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return data;
 }
 
 export async function loadOdooCredentialBundle(
   supabase: SupabaseClient,
   userId: string
 ): Promise<OdooCredentialBundle | null> {
-  const { data } = await supabase
-    .from("user_odoo_credentials")
-    .select("base_url, database_name, login_username, password_encrypted")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const data = await readUserCredentialRow(supabase, userId);
   if (!data) return null;
-  const baseUrl = normalizeBaseUrl(String(data.base_url ?? ""));
-  const databaseName = String(data.database_name ?? "").trim();
+
+  const { mode } = await resolveEffectiveOdooConnectionMode(supabase, userId);
+  if (mode !== "api") return null;
+
+  const baseUrl = await resolveEffectiveOdooBaseUrl(supabase, userId);
+  const company = await loadCompanyOdooSettings(supabase);
+  const storedDb = String(data.database_name ?? "").trim();
+  const databaseName =
+    company.apiDatabaseName ||
+    (storedDb !== ODOO_BROWSER_MODE_DB ? storedDb : "");
   const username = String(data.login_username ?? "").trim();
   const passwordEncrypted = String(data.password_encrypted ?? "").trim();
-  if (databaseName === ODOO_BROWSER_MODE_DB) {
-    return null;
-  }
-  if (!baseUrl || !username || !passwordEncrypted) {
+
+  if (!baseUrl || !databaseName || !username || !passwordEncrypted) {
     return null;
   }
   return {
@@ -49,40 +59,29 @@ export async function loadOdooConnectionState(
   supabase: SupabaseClient,
   userId: string
 ): Promise<{ mode: OdooConnectionMode; baseUrl: string }> {
-  const { data } = await supabase
-    .from("user_odoo_credentials")
-    .select("base_url, database_name")
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (!data) return { mode: "none", baseUrl: "" };
-  const baseUrl = normalizeBaseUrl(String(data.base_url ?? ""));
-  const databaseName = String(data.database_name ?? "").trim();
-  if (!baseUrl) return { mode: "none", baseUrl: "" };
-  if (databaseName === ODOO_BROWSER_MODE_DB) {
-    return { mode: "browser_session", baseUrl };
-  }
-  return { mode: "api", baseUrl };
+  return resolveEffectiveOdooConnectionMode(supabase, userId);
 }
 
 export async function loadOdooBrowserSessionBundle(
   supabase: SupabaseClient,
   userId: string
 ): Promise<OdooCredentialBundle | null> {
-  const { data } = await supabase
-    .from("user_odoo_credentials")
-    .select("base_url, database_name, login_username, password_encrypted")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const data = await readUserCredentialRow(supabase, userId);
   if (!data) return null;
-  const baseUrl = normalizeBaseUrl(String(data.base_url ?? ""));
-  const databaseName = String(data.database_name ?? "").trim();
+
+  const { mode } = await resolveEffectiveOdooConnectionMode(supabase, userId);
+  if (mode !== "browser_session") return null;
+
+  const baseUrl = await resolveEffectiveOdooBaseUrl(supabase, userId);
   const username = String(data.login_username ?? "").trim();
   const passwordEncrypted = String(data.password_encrypted ?? "").trim();
-  if (databaseName !== ODOO_BROWSER_MODE_DB) return null;
-  if (!baseUrl || !username || !passwordEncrypted) return null;
+
+  if (!baseUrl || !username || !passwordEncrypted) {
+    return null;
+  }
   return {
     baseUrl,
-    databaseName,
+    databaseName: ODOO_BROWSER_MODE_DB,
     username,
     passwordEncrypted,
   };
@@ -90,6 +89,25 @@ export async function loadOdooBrowserSessionBundle(
 
 export function odooCredentialsMissingMessage(): string {
   return `بيانات ربط Odoo غير مكتملة أو غير محفوظة. ${ODOO_SETTINGS_HINT}`;
+}
+
+export function odooGlobalUrlMissingMessage(): string {
+  return "لم يضبط مسؤول النظام رابط Odoo للشركة بعد. تواصل مع الإدارة لإكمال الإعداد.";
+}
+
+/** Resolve database_name value to store on user_odoo_credentials for the current company mode. */
+export async function resolveStoredOdooDatabaseName(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<string> {
+  const company = await loadCompanyOdooSettings(supabase);
+  if (company.baseUrl) {
+    return databaseNameForMode(company.connectionMode, company.apiDatabaseName);
+  }
+  const data = await readUserCredentialRow(supabase, userId);
+  const stored = String(data?.database_name ?? "").trim();
+  if (stored) return stored;
+  return ODOO_BROWSER_MODE_DB;
 }
 
 export async function loadEmailCredentialBundle(

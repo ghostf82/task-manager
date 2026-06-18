@@ -36,8 +36,6 @@ export function OdooConnectionTestButton({
     start(async () => {
       try {
         const res = await testOdooConnectionAction({
-          base_url: String(fd.get("base_url") ?? ""),
-          database_name: String(fd.get("database_name") ?? ""),
           login_username: String(fd.get("login_username") ?? ""),
           password: String(fd.get("password") ?? ""),
         });

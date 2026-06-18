@@ -1,4 +1,5 @@
 import { requireSession } from "@/lib/dashboard-auth";
+import { resolveEffectiveOdooBaseUrl } from "@/lib/integrations/company-odoo-settings";
 import { createClient } from "@/lib/supabase/server";
 
 import { OdooTasksPanelDynamic } from "@/app/dashboard/ai-agent/odoo-tasks-panel-dynamic";
@@ -48,15 +49,7 @@ export async function OdooTasksPanelWithCache() {
     .filter((n) => Number.isFinite(n));
   const lastSyncAt = times.length ? new Date(Math.max(...times)).toISOString() : null;
 
-  const { data: cred } = await supabase
-    .from("user_odoo_credentials")
-    .select("base_url")
-    .eq("user_id", session.id)
-    .maybeSingle();
-  const odooBaseUrl =
-    cred && typeof cred.base_url === "string" && cred.base_url.trim()
-      ? cred.base_url.trim()
-      : null;
+  const odooBaseUrl = (await resolveEffectiveOdooBaseUrl(supabase, session.id)) || null;
 
   return (
     <OdooTasksPanelDynamic

@@ -2,16 +2,14 @@ import Link from "next/link";
 
 import {
   deleteEmailCredentialsAction,
-  deleteOdooCredentialsAction,
   saveEmailCredentialsAction,
-  saveOdooCredentialsAction,
 } from "@/app/dashboard/settings/integrations/actions";
 import {
   EmailConnectionTestButton,
-  OdooConnectionTestButton,
   PendingSubmitButton,
 } from "@/app/dashboard/settings/integrations/integrations-connection-test";
-import { OdooBrowserOpenLink } from "@/app/dashboard/settings/integrations/odoo-browser-open-link";
+import { OdooCompanyAdminSection } from "@/app/dashboard/settings/integrations/odoo-company-admin-section";
+import { OdooUserLinkCard } from "@/app/dashboard/settings/integrations/odoo-user-link-card";
 import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -25,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { requireSession } from "@/lib/dashboard-auth";
 import { getTranslator } from "@/lib/i18n/get-translator";
 import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
+import { loadCompanyOdooSettings } from "@/lib/integrations/company-odoo-settings";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
@@ -42,13 +41,15 @@ export default async function IntegrationsSettingsPage({
   const showOdoo = licensedSlugs.includes("odoo");
   const showEmail = licensedSlugs.includes("email");
 
-  const { data: odoo } = await supabase
-    .from("user_odoo_credentials")
-    .select("base_url, database_name, login_username, updated_at")
-    .eq("user_id", session.id)
-    .maybeSingle();
-  const isOdooBrowserMode = odoo?.database_name === "__browser_session__";
-  const canToggleOdooMode = Boolean(odoo?.base_url && odoo?.login_username);
+  const companyOdoo = showOdoo ? await loadCompanyOdooSettings(supabase) : null;
+
+  const { data: odoo } = showOdoo
+    ? await supabase
+        .from("user_odoo_credentials")
+        .select("login_username, updated_at")
+        .eq("user_id", session.id)
+        .maybeSingle()
+    : { data: null };
 
   const { data: email } = await supabase
     .from("user_email_credentials")
@@ -118,139 +119,18 @@ export default async function IntegrationsSettingsPage({
         </div>
       ) : null}
 
-      {showOdoo ? (
-        <Card className="border-violet-500/20 shadow-sm ring-1 ring-violet-500/10">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <span className="inline-flex size-2 rounded-full bg-violet-500 shadow-[0_0_12px_rgba(139,92,246,0.8)]" />
-              {t("integrations.odoo.title")}
-            </CardTitle>
-            <CardDescription>
-              {t("integrations.odoo.desc")}
-              {odoo ? (
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {t("integrations.odoo.updated")}:{" "}
-                  {new Date(odoo.updated_at).toLocaleString(dateLocale)}
-                </span>
-              ) : null}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <form id="integrations-odoo-form" action={saveOdooCredentialsAction} className="grid gap-4">
-              <input
-                type="hidden"
-                name="connection_mode"
-                value={isOdooBrowserMode ? "browser_session" : "api"}
-              />
-              {isOdooBrowserMode ? (
-                <p className="rounded-md border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-blue-800 dark:text-blue-200">
-                  Browser Session Mode مفعل: الربط يعتمد على جلسة المتصفح بعد تسجيل دخولك في Odoo.
-                </p>
-              ) : null}
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="grid gap-2 sm:col-span-2">
-                  <Label htmlFor="base_url">{t("integrations.odoo.baseUrl")}</Label>
-                  <Input
-                    id="base_url"
-                    name="base_url"
-                    required
-                    dir="ltr"
-                    className="font-mono text-sm"
-                    placeholder="https://odoo.example.com"
-                    defaultValue={odoo?.base_url ?? ""}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="database_name">{t("integrations.odoo.dbName")}</Label>
-                  <Input
-                    id="database_name"
-                    name="database_name"
-                    dir="ltr"
-                    className="font-mono text-sm"
-                    placeholder="production (اختياري)"
-                    defaultValue={odoo?.database_name ?? ""}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="login_username">{t("integrations.odoo.username")}</Label>
-                  <Input
-                    id="login_username"
-                    name="login_username"
-                    required
-                    dir="ltr"
-                    className="font-mono text-sm"
-                    defaultValue={odoo?.login_username ?? ""}
-                    autoComplete="username"
-                  />
-                </div>
-                <div className="grid gap-2 sm:col-span-2">
-                  <Label htmlFor="password">{t("integrations.odoo.password")}</Label>
-                  <Input
-                    id="password"
-                    name="password"
-                    type="password"
-                    dir="ltr"
-                    className="font-mono text-sm"
-                    placeholder={
-                      isOdooBrowserMode
-                        ? "يوصى بإدخال كلمة المرور/مفتاح API لتفعيل قراءة المهام عبر الجلسة"
-                        : (odoo ? t("integrations.odoo.passwordKeep") : t("integrations.odoo.passwordRequired"))
-                    }
-                    autoComplete="current-password"
-                  />
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <PendingSubmitButton
-                  label={t("integrations.odoo.save")}
-                  pendingLabel="جارٍ الحفظ..."
-                />
-                <OdooConnectionTestButton
-                  formId="integrations-odoo-form"
-                  testLabel={t("integrations.testConnection")}
-                  formMissingMessage={t("integrations.formMissingOdoo")}
-                />
-                <OdooBrowserOpenLink baseUrl={odoo?.base_url ?? ""} label="فتح Odoo بالمتصفح" />
-              </div>
-            </form>
-            {!isOdooBrowserMode ? (
-              <form action={saveOdooCredentialsAction} className="pt-1">
-                <input type="hidden" name="base_url" value={odoo?.base_url ?? ""} />
-                <input type="hidden" name="login_username" value={odoo?.login_username ?? ""} />
-                <input type="hidden" name="connection_mode" value="browser_session" />
-                <PendingSubmitButton
-                  label="تفعيل Browser Session Mode"
-                  pendingLabel="جارٍ التفعيل..."
-                  variant="outline"
-                  disabled={!canToggleOdooMode}
-                />
-              </form>
-            ) : (
-              <form action={saveOdooCredentialsAction} className="pt-1 grid gap-2 sm:grid-cols-[1fr_auto]">
-                <input type="hidden" name="connection_mode" value="api" />
-                <input type="hidden" name="login_username" value={odoo?.login_username ?? ""} />
-                <Input name="base_url" dir="ltr" className="font-mono text-sm" defaultValue={odoo?.base_url ?? ""} />
-                <PendingSubmitButton
-                  label="الرجوع إلى API Mode"
-                  pendingLabel="جارٍ التفعيل..."
-                  variant="outline"
-                  disabled={!canToggleOdooMode}
-                />
-              </form>
-            )}
-            {odoo ? (
-              <form action={deleteOdooCredentialsAction}>
-                <div className="inline-flex">
-                  <PendingSubmitButton
-                    label={t("integrations.odoo.delete")}
-                    pendingLabel="جارٍ الحذف..."
-                    variant="ghost"
-                  />
-                </div>
-              </form>
-            ) : null}
-          </CardContent>
-        </Card>
+      {showOdoo && companyOdoo ? (
+        <>
+          {session.isSuperAdmin ? (
+            <OdooCompanyAdminSection company={companyOdoo} dateLocale={dateLocale} t={t} />
+          ) : null}
+          <OdooUserLinkCard
+            company={companyOdoo}
+            odoo={odoo}
+            dateLocale={dateLocale}
+            t={t}
+          />
+        </>
       ) : null}
 
       {showEmail ? (

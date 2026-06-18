@@ -5,17 +5,20 @@ import { redirect } from "next/navigation";
 
 import { decryptCredentialSecret, encryptCredentialSecret } from "@/lib/crypto/credentials-cipher";
 import { appendAgentActivity } from "@/lib/ai-agent/activity-log";
-import { loadOdooBrowserSessionBundle } from "@/lib/ai-agent/load-user-integrations";
+import {
+  loadOdooBrowserSessionBundle,
+  odooGlobalUrlMissingMessage,
+  resolveStoredOdooDatabaseName,
+} from "@/lib/ai-agent/load-user-integrations";
 import { userHasAiToolLicense } from "@/lib/ai-tools/user-licenses";
 import { requireSession } from "@/lib/dashboard-auth";
 import { tAction } from "@/lib/i18n/action-messages";
+import { loadCompanyOdooSettings, resolveEffectiveOdooBaseUrl, resolveEffectiveOdooConnectionMode } from "@/lib/integrations/company-odoo-settings";
 import { testEmailConnectionsPlain } from "@/lib/integrations/email-client";
 import { fetchOdooOpenTasksViaWebLogin, testOdooLoginPlain } from "@/lib/integrations/odoo-client";
-import { sanitizeOdooBaseUrl } from "@/lib/integrations/odoo-xmlrpc";
 import { createClient } from "@/lib/supabase/server";
 
 const ODOO_DEBUG_BUILD = "odoo-jsonrpc-debug-v2";
-const ODOO_BROWSER_MODE_DB = "__browser_session__";
 
 function makeOdooTraceId(userId: string): string {
   const shortUser = userId.slice(0, 6) || "anon";
@@ -62,15 +65,22 @@ export async function saveOdooCredentialsAction(formData: FormData) {
     redirect("/dashboard/settings/integrations?err=no_license_odoo");
   }
 
-  const baseUrl = sanitizeOdooBaseUrl(String(formData.get("base_url") ?? "").trim());
-  const requestedMode = String(formData.get("connection_mode") ?? "").trim();
-  const databaseName = String(formData.get("database_name") ?? "").trim();
-  const browserMode = requestedMode === "browser_session" || !databaseName;
+  const baseUrl = await resolveEffectiveOdooBaseUrl(supabase, session.id);
+  if (!baseUrl) {
+    redirect("/dashboard/settings/integrations?err=odoo_global_missing");
+  }
+
   const loginUsername = String(formData.get("login_username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
-  if (!baseUrl || !loginUsername) {
+  if (!loginUsername) {
     redirect("/dashboard/settings/integrations?err=odoo_fields");
+  }
+
+  const databaseName = await resolveStoredOdooDatabaseName(supabase, session.id);
+  const company = await loadCompanyOdooSettings(supabase);
+  if (company.baseUrl && company.connectionMode === "api" && !databaseName) {
+    redirect("/dashboard/settings/integrations?err=odoo_global_db");
   }
 
   const { data: existing } = await supabase
@@ -97,7 +107,7 @@ export async function saveOdooCredentialsAction(formData: FormData) {
     {
       user_id: session.id,
       base_url: baseUrl,
-      database_name: browserMode ? ODOO_BROWSER_MODE_DB : databaseName || null,
+      database_name: databaseName,
       login_username: loginUsername,
       password_encrypted: passwordEncrypted,
     },
@@ -109,8 +119,7 @@ export async function saveOdooCredentialsAction(formData: FormData) {
       console.error("[odoo-debug] save upsert failed", {
         traceId,
         baseUrl,
-        browserMode,
-        db: browserMode ? ODOO_BROWSER_MODE_DB : databaseName || null,
+        databaseName,
         message: error.message,
       });
     }
@@ -247,47 +256,70 @@ export async function deleteEmailCredentialsAction() {
 export type ConnectionTestResult = { ok: boolean; message: string };
 
 export async function testOdooConnectionAction(input: {
-  base_url: string;
-  database_name: string;
   login_username: string;
   password: string;
 }): Promise<ConnectionTestResult> {
   const session = await requireSession();
   const supabase = await createClient();
   const traceId = makeOdooTraceId(session.id);
-  if (process.env.NODE_ENV === "development") {
-    console.error("[odoo-debug] action start", {
-      traceId,
-      build: ODOO_DEBUG_BUILD,
-      baseUrl: String(input.base_url ?? "").trim(),
-      databaseName: String(input.database_name ?? "").trim(),
-      loginUsername: String(input.login_username ?? "").trim(),
-      hasPassword: Boolean(String(input.password ?? "").trim()),
-    });
+
+  const baseUrl = await resolveEffectiveOdooBaseUrl(supabase, session.id);
+  if (!baseUrl) {
+    return { ok: false, message: odooGlobalUrlMissingMessage() };
   }
 
-  const dbInput = String(input.database_name ?? "").trim();
-  if (dbInput === ODOO_BROWSER_MODE_DB || !dbInput) {
+  const effective = await resolveEffectiveOdooConnectionMode(supabase, session.id);
+  const loginUsername = String(input.login_username ?? "").trim();
+
+  if (effective.mode === "browser_session") {
     await safeAppendActivity(supabase, {
       userId: session.id,
       eventType: "odoo_handshake_start",
-      message: `[${traceId}] بدء اختبار Odoo عبر Browser Session.`,
+      message: `[${traceId}] بدء فحص ربط Odoo.`,
     });
-    const browserBundle = await loadOdooBrowserSessionBundle(supabase, session.id);
-    if (!browserBundle) {
-      await safeAppendActivity(supabase, {
-        userId: session.id,
-        eventType: "odoo_handshake_fail",
-        message: `[${traceId}] Browser Session Mode مفعّل لكن البيانات غير مكتملة.`,
-      });
+
+    const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+    const passwordPlain = String(input.password ?? "").trim();
+
+    if (!bundle && loginUsername && passwordPlain) {
+      try {
+        const probeBundle = {
+          baseUrl,
+          databaseName: "__browser_session__" as const,
+          username: loginUsername,
+          passwordEncrypted: encryptCredentialSecret(passwordPlain),
+        };
+        const probe = await fetchOdooOpenTasksViaWebLogin({
+          ...probeBundle,
+          traceId,
+        });
+        if (probe.error) {
+          return { ok: false, message: probe.error };
+        }
+        await safeAppendActivity(supabase, {
+          userId: session.id,
+          eventType: "odoo_handshake_ok",
+          message: `[${traceId}] نجح الفحص وقراءة ${probe.tasks.length} مهمة.`,
+        });
+        return {
+          ok: true,
+          message: `تم الاتصال بنجاح — وُجدت ${probe.tasks.length} مهمة في Odoo.`,
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { ok: false, message: msg };
+      }
+    }
+
+    if (!bundle) {
       return {
         ok: false,
-        message:
-          "Browser Session Mode مفعّل لكن بياناته غير مكتملة (اسم المستخدم/كلمة المرور). أعد الحفظ من صفحة الربط.",
+        message: "أكمل اسم المستخدم وكلمة المرور ثم احفظ الربط أو أعد الفحص.",
       };
     }
+
     const probe = await fetchOdooOpenTasksViaWebLogin({
-      ...browserBundle,
+      ...bundle,
       traceId,
     });
     if (probe.error) {
@@ -305,7 +337,7 @@ export async function testOdooConnectionAction(input: {
     });
     return {
       ok: true,
-      message: `Browser Session Mode جاهز: تم إنشاء جلسة Odoo بنجاح وقراءة ${probe.tasks.length} مهمة.`,
+      message: `تم الاتصال بنجاح — وُجدت ${probe.tasks.length} مهمة في Odoo.`,
     };
   }
 
@@ -333,14 +365,15 @@ export async function testOdooConnectionAction(input: {
     }
   }
 
+  const databaseName = await resolveStoredOdooDatabaseName(supabase, session.id);
   const r = await testOdooLoginPlain({
-    baseUrl: sanitizeOdooBaseUrl(input.base_url.trim()),
-    databaseName: String(input.database_name ?? "").trim(),
-    loginUsername: input.login_username.trim(),
+    baseUrl,
+    databaseName,
+    loginUsername,
     passwordPlain,
   });
   if (process.env.NODE_ENV === "development") {
-    console.error("[odoo-debug] action result", { traceId, ...r });
+    console.error("[odoo-debug] action result", { traceId, build: ODOO_DEBUG_BUILD, ...r });
   }
 
   return r.ok
