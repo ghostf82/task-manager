@@ -15,7 +15,7 @@ import { requireSession } from "@/lib/dashboard-auth";
 import { tAction } from "@/lib/i18n/action-messages";
 import { loadCompanyOdooSettings, resolveEffectiveOdooBaseUrl, resolveEffectiveOdooConnectionMode } from "@/lib/integrations/company-odoo-settings";
 import { testEmailConnectionsPlain } from "@/lib/integrations/email-client";
-import { fetchOdooOpenTasksViaWebLogin, testOdooLoginPlain } from "@/lib/integrations/odoo-client";
+import { testOdooBrowserSessionPlain, testOdooLoginPlain } from "@/lib/integrations/odoo-client";
 import { createClient } from "@/lib/supabase/server";
 
 const ODOO_DEBUG_BUILD = "odoo-jsonrpc-debug-v2";
@@ -281,64 +281,56 @@ export async function testOdooConnectionAction(input: {
     const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
     const passwordPlain = String(input.password ?? "").trim();
 
+    let probeBundle: Parameters<typeof testOdooBrowserSessionPlain>[0] | null = null;
+
     if (!bundle && loginUsername && passwordPlain) {
-      try {
-        const probeBundle = {
-          baseUrl,
-          databaseName: "__browser_session__" as const,
-          username: loginUsername,
-          passwordEncrypted: encryptCredentialSecret(passwordPlain),
-        };
-        const probe = await fetchOdooOpenTasksViaWebLogin({
-          ...probeBundle,
-          traceId,
-        });
-        if (probe.error) {
-          return { ok: false, message: probe.error };
-        }
-        await safeAppendActivity(supabase, {
-          userId: session.id,
-          eventType: "odoo_handshake_ok",
-          message: `[${traceId}] نجح الفحص وقراءة ${probe.tasks.length} مهمة.`,
-        });
-        return {
-          ok: true,
-          message: `تم الاتصال بنجاح — وُجدت ${probe.tasks.length} مهمة في Odoo.`,
-        };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return { ok: false, message: msg };
-      }
+      probeBundle = {
+        baseUrl,
+        databaseName: "__browser_session__" as const,
+        username: loginUsername,
+        passwordEncrypted: encryptCredentialSecret(passwordPlain),
+        traceId,
+      };
+    } else if (bundle) {
+      probeBundle = { ...bundle, traceId };
     }
 
-    if (!bundle) {
+    if (!probeBundle) {
       return {
         ok: false,
         message: "أكمل اسم المستخدم وكلمة المرور ثم احفظ الربط أو أعد الفحص.",
       };
     }
 
-    const probe = await fetchOdooOpenTasksViaWebLogin({
-      ...bundle,
-      traceId,
-    });
-    if (probe.error) {
+    try {
+      const probe = await testOdooBrowserSessionPlain(probeBundle);
+      if (!probe.ok) {
+        await safeAppendActivity(supabase, {
+          userId: session.id,
+          eventType: "odoo_handshake_fail",
+          message: `[${traceId}] ${probe.message}`,
+        });
+        return { ok: false, message: probe.message };
+      }
       await safeAppendActivity(supabase, {
         userId: session.id,
-        eventType: "odoo_handshake_fail",
-        message: `[${traceId}] ${probe.error}`,
+        eventType: "odoo_handshake_ok",
+        message:
+          probe.sampleCount > 0
+            ? `[${traceId}] نجح الفحص — الجلسة نشطة (${probe.sampleCount} مهمة في العينة).`
+            : `[${traceId}] نجح الفحص — الجلسة نشطة دون مهام مرئية حالياً.`,
       });
-      return { ok: false, message: probe.error };
+      return {
+        ok: true,
+        message:
+          probe.sampleCount > 0
+            ? `تم الاتصال بنجاح — الجلسة نشطة وقراءة المهام تعمل (${probe.sampleCount} مهمة في العينة).`
+            : "تم الاتصال بنجاح — الجلسة نشطة. لا توجد مهام مرئية حالياً وفق صلاحيات حسابك في Odoo.",
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return { ok: false, message: msg };
     }
-    await safeAppendActivity(supabase, {
-      userId: session.id,
-      eventType: "odoo_handshake_ok",
-      message: `[${traceId}] تم إنشاء جلسة Odoo بنجاح وقراءة ${probe.tasks.length} مهمة.`,
-    });
-    return {
-      ok: true,
-      message: `تم الاتصال بنجاح — وُجدت ${probe.tasks.length} مهمة في Odoo.`,
-    };
   }
 
   if (!(await userHasAiToolLicense(supabase, session.id, "odoo"))) {

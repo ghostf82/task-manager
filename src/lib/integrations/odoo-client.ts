@@ -1952,7 +1952,15 @@ function humanizeOdooError(raw: string): string {
     return "Database Name Error: Odoo رفض اسم قاعدة البيانات. افتح صفحة قاعدة البيانات في Odoo (/web/database/selector أو /web/login) وخذ الاسم الدقيق ثم ضعه في الحقل.";
   }
   if (msg.includes("odoo server error")) {
-    return "Odoo Server Error: تعذر تسجيل الدخول من الخادم. إذا كان حساب Odoo Online يستخدم حماية إضافية/2FA فأنشئ API Key من Odoo واستخدمه بدل كلمة المرور.";
+    if (
+      msg.includes("access") ||
+      msg.includes("permission") ||
+      msg.includes("forbidden") ||
+      msg.includes("not allowed")
+    ) {
+      return "Odoo Server Error: ليس لديك صلاحية لهذه العملية في Odoo. تحقق من صلاحيات المستخدم أو من نطاق المهام المطلوب.";
+    }
+    return "Odoo Server Error: رفض Odoo الطلب. تحقق من اسم المستخدم وكلمة المرور. على Odoo Online مع 2FA قد يلزم مفتاح API بدل كلمة المرور.";
   }
   if (msg.includes("<title>") || msg.includes("title tag") || msg.includes("html")) {
     return "Base URL Error: استخدم رابط Odoo الصحيح كما يفتح عندك (قد يكون مع /odoo)، وتجنب فقط إضافة /web في النهاية.";
@@ -2210,6 +2218,7 @@ export async function fetchOdooOpenTasksViaWebLogin(
         [],
       ];
       let lastCallError: string | undefined;
+      let rpcReachable = false;
       for (const domain of domainAttempts) {
         try {
           const tasksJson = await webCallKw({
@@ -2220,6 +2229,7 @@ export async function fetchOdooOpenTasksViaWebLogin(
             args: [domain],
             kwargs: { fields: [...TASK_FIELDS], limit: 60 },
           });
+          rpcReachable = true;
           const result = Array.isArray(tasksJson.result) ? tasksJson.result : [];
           const tasks = result
             .filter((x) => x && typeof x === "object")
@@ -2235,6 +2245,9 @@ export async function fetchOdooOpenTasksViaWebLogin(
         } catch (e) {
           lastCallError = humanizeGatewayError(e);
         }
+      }
+      if (rpcReachable) {
+        return { tasks: [] };
       }
       return { tasks: [], error: lastCallError };
     })) as { tasks: OdooTaskRecord[]; error?: string };
@@ -2975,7 +2988,7 @@ export async function deleteOdooRecordViaWebLogin(params: {
   }
 }
 
-/** Lightweight auth check only (no task fetch). Used by «فحص الاتصال». */
+/** Lightweight auth check only (no task fetch). Used by «فحص الاتصال» in API mode. */
 export async function testOdooLoginPlain(params: {
   baseUrl: string;
   databaseName: string;
@@ -3002,6 +3015,24 @@ export async function testOdooLoginPlain(params: {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, message: humanizeOdooError(msg) };
   }
+}
+
+/**
+ * Browser-session connection check using the same RPC path as the Odoo task panel
+ * (`searchOdooTasksViaWebLogin`). Does not require open-task domain matches.
+ */
+export async function testOdooBrowserSessionPlain(
+  bundle: OdooCredentialBundle
+): Promise<{ ok: true; sampleCount: number } | { ok: false; message: string }> {
+  const res = await searchOdooTasksViaWebLogin({
+    bundle,
+    limit: 5,
+    mineOnly: false,
+  });
+  if (res.error) {
+    return { ok: false, message: res.error };
+  }
+  return { ok: true, sampleCount: res.tasks.length };
 }
 
 export async function odooConnectionProbe(bundle: OdooCredentialBundle): Promise<{
