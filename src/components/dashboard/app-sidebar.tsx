@@ -9,6 +9,8 @@ import {
   ClipboardList,
   FileText,
   Home,
+  LayoutGrid,
+  Mail,
   Menu,
   MessageCircle,
   Shield,
@@ -31,6 +33,8 @@ import { cn } from "@/lib/utils";
 
 const ICONS: Record<string, LucideIcon> = {
   Home,
+  LayoutGrid,
+  Mail,
   Building2,
   Users,
   SlidersHorizontal,

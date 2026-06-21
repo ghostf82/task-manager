@@ -157,6 +157,24 @@ export default async function AiAgentPage({
             >
               {t("aiAgentPage.vaultLink")}
             </Link>
+            {vaultReadyOdoo ? (
+              <Link
+                prefetch={false}
+                href="/dashboard/odoo"
+                className={cn(buttonVariants({ variant: "outline" }), "border-white/30 bg-white/10 text-white hover:bg-white/20")}
+              >
+                {t("aiAgentPage.commandCenterOdoo")}
+              </Link>
+            ) : null}
+            {vaultReadyEmail ? (
+              <Link
+                prefetch={false}
+                href="/dashboard/email"
+                className={cn(buttonVariants({ variant: "outline" }), "border-white/30 bg-white/10 text-white hover:bg-white/20")}
+              >
+                {t("aiAgentPage.commandCenterEmail")}
+              </Link>
+            ) : null}
             {!licensedSlugs.length ? (
               <p className="max-w-xs text-[11px] leading-relaxed text-amber-100">
                 {t("aiAgentPage.bannerNoTools")}

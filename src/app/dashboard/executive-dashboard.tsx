@@ -457,6 +457,20 @@ export function ExecutiveDashboard({
         <CardContent className="flex flex-wrap gap-2">
           <Link
             prefetch={false}
+            href="/dashboard/odoo"
+            className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+          >
+            {t("executiveDashboard.shortcutsOdooCommand")}
+          </Link>
+          <Link
+            prefetch={false}
+            href="/dashboard/email"
+            className={cn(buttonVariants({ variant: "default", size: "sm" }))}
+          >
+            {t("executiveDashboard.shortcutsEmailCommand")}
+          </Link>
+          <Link
+            prefetch={false}
             href="/dashboard/tasks"
             className={cn(buttonVariants({ variant: "secondary", size: "sm" }))}
           >
