@@ -36,6 +36,7 @@ export function OdooTasksPanelDynamic({
   workspaceFilter = null,
   initialFolders,
   openFutureArchive = false,
+  initialFolderId = null,
 }: {
   initialWorkspace: InitialWorkspace;
   initialLastSyncAt: string | null;
@@ -47,6 +48,7 @@ export function OdooTasksPanelDynamic({
   workspaceFilter?: OdooWorkspaceFilter;
   initialFolders?: OdooFolderRow[];
   openFutureArchive?: boolean;
+  initialFolderId?: number | null;
 }) {
   return (
     <OdooTasksPanel
@@ -59,6 +61,7 @@ export function OdooTasksPanelDynamic({
       workspaceMode={workspaceMode}
       workspaceFilter={workspaceFilter}
       initialFolders={initialFolders}
+      initialFolderId={initialFolderId}
       openFutureArchive={openFutureArchive}
     />
   );

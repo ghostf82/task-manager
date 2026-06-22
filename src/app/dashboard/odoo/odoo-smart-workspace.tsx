@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   BarChart3Icon,
@@ -31,6 +31,7 @@ import {
   type OdooWorkspaceFilter,
 } from "@/lib/command-center/odoo-workspace-filters";
 import { isOdooSoundEnabled, setOdooSoundEnabled } from "@/lib/odoo-alerts/notification-sound";
+import { replaceOdooWorkspaceUrl } from "@/lib/integrations/odoo-workspace-url";
 
 type WorkspaceTab = "dashboard" | "tasks" | "projects" | "calendar" | "documents" | "reports";
 
@@ -77,6 +78,9 @@ export function OdooSmartWorkspace({
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const filterParam = parseOdooWorkspaceFilter(searchParams.get("filter"));
+  const folderParamRaw = searchParams.get("folder");
+  const folderParam = folderParamRaw != null ? Number(folderParamRaw) : null;
+  const initialFolderId = Number.isFinite(folderParam) ? folderParam : null;
 
   const [tab, setTab] = useState<WorkspaceTab>(() => parseTab(tabParam));
   const [workspaceFilter, setWorkspaceFilter] = useState<OdooWorkspaceFilter>(filterParam);
@@ -91,18 +95,27 @@ export function OdooSmartWorkspace({
     return raw as OdooFolderRow[];
   }, [initialWorkspace]);
 
-  const setTabFilterAndUrl = useCallback(
-    (nextTab: WorkspaceTab, filter?: OdooWorkspaceFilter) => {
-      setTab(nextTab);
-      setWorkspaceFilter(filter ?? null);
-      const params = new URLSearchParams();
-      if (nextTab !== "dashboard") params.set("tab", nextTab);
-      if (filter) params.set("filter", filter);
-      const qs = params.toString();
-      router.replace(qs ? `/dashboard/odoo?${qs}` : "/dashboard/odoo", { scroll: false });
-    },
-    [router]
-  );
+  const setTabFilterAndUrl = useCallback((nextTab: WorkspaceTab, filter?: OdooWorkspaceFilter) => {
+    setTab(nextTab);
+    setWorkspaceFilter(filter ?? null);
+    let folder: number | null = null;
+    if (nextTab === "documents" && typeof window !== "undefined") {
+      const raw = new URLSearchParams(window.location.search).get("folder");
+      const n = raw != null ? Number(raw) : NaN;
+      folder = Number.isFinite(n) ? n : null;
+    }
+    replaceOdooWorkspaceUrl({ tab: nextTab, filter: filter ?? null, folder });
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      setTab(parseTab(params.get("tab")));
+      setWorkspaceFilter(parseOdooWorkspaceFilter(params.get("filter")));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const onlySection = tab in TAB_SECTION ? TAB_SECTION[tab as keyof typeof TAB_SECTION] : null;
 
@@ -231,7 +244,7 @@ export function OdooSmartWorkspace({
         <OdooReportsPanel labels={labels} locale={locale} />
       ) : (
         <OdooTasksPanelDynamic
-          key={`${tab}-${workspaceFilter ?? "all"}-${initialLastSyncAt ?? "none"}`}
+          key={`${onlySection}-${workspaceFilter ?? "all"}-${initialLastSyncAt ?? "none"}`}
           initialWorkspace={initialWorkspace}
           initialLastSyncAt={initialLastSyncAt}
           odooBaseUrl={odooBaseUrl}
@@ -241,6 +254,7 @@ export function OdooSmartWorkspace({
           workspaceMode
           workspaceFilter={workspaceFilter}
           initialFolders={initialFolders}
+          initialFolderId={tab === "documents" ? initialFolderId : null}
           openFutureArchive={workspaceFilter === "future_archive"}
         />
       )}

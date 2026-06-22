@@ -126,6 +126,7 @@ export type OdooTasksPanelProps = {
   workspaceMode?: boolean;
   workspaceFilter?: OdooWorkspaceFilter;
   initialFolders?: OdooFolderRow[];
+  initialFolderId?: number | null;
   openFutureArchive?: boolean;
 };
 
@@ -308,6 +309,7 @@ export function OdooTasksPanel({
   workspaceMode = false,
   workspaceFilter = null,
   initialFolders,
+  initialFolderId = null,
   openFutureArchive = false,
 }: OdooTasksPanelProps) {
   const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
@@ -1915,6 +1917,7 @@ export function OdooTasksPanel({
               odooBaseUrl={odooBaseUrl}
               initialMode={workspaceDocumentsMeta?.documentsMode}
               initialWarning={workspaceDocumentsMeta?.documentsWarning ?? undefined}
+              initialFolderId={initialFolderId}
             />
           ) : (
           <div className="w-full">
