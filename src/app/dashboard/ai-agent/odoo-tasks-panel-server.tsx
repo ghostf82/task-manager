@@ -8,10 +8,12 @@ export async function OdooTasksPanelWithCache({
   onlySection = null,
   embedded = false,
   collapseFutureCalendar = false,
+  workspaceMode = false,
 }: {
   onlySection?: "tasks" | "projects" | "calendar" | "documents" | null;
   embedded?: boolean;
   collapseFutureCalendar?: boolean;
+  workspaceMode?: boolean;
 } = {}) {
   const session = await requireSession();
   const supabase = await createClient();
@@ -25,6 +27,7 @@ export async function OdooTasksPanelWithCache({
       onlySection={onlySection}
       embedded={embedded}
       collapseFutureCalendar={collapseFutureCalendar}
+      workspaceMode={workspaceMode}
     />
   );
 }

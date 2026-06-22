@@ -37,6 +37,11 @@ import {
 } from "@/app/dashboard/ai-agent/actions";
 import { copyOdooMeetingAgendaInSlices } from "@/app/dashboard/ai-agent/odoo-calendar-agenda-copy-batches";
 import { Button } from "@/components/ui/button";
+import {
+  buildProjectIntelMap,
+  eventInCalendarRange,
+  type CalendarRange,
+} from "@/lib/command-center/odoo-workspace-intelligence";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -72,7 +77,14 @@ type CalendarRow = {
   agendaItems: Array<{ id: number; sequence: number; name: string; description: string; discussed: boolean }>;
 };
 
-type DocumentRow = { id: number; name: string; type: string; createdAt: string; creator: string };
+type DocumentRow = {
+  id: number;
+  name: string;
+  type: string;
+  mimetype: string;
+  createdAt: string;
+  creator: string;
+};
 
 export type OdooTasksPanelProps = {
   initialWorkspace?: {
@@ -89,6 +101,8 @@ export type OdooTasksPanelProps = {
   embedded?: boolean;
   /** Collapse calendar events far in the future. */
   collapseFutureCalendar?: boolean;
+  /** Premium Odoo workspace — compact chrome, operational-first. */
+  workspaceMode?: boolean;
 };
 
 function cleanName(v: string): string {
@@ -267,6 +281,7 @@ export function OdooTasksPanel({
   onlySection = null,
   embedded = false,
   collapseFutureCalendar = false,
+  workspaceMode = false,
 }: OdooTasksPanelProps) {
   const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
   const [bulkProgress, setBulkProgress] = useState<{ cur: number; total: number } | null>(null);
@@ -307,9 +322,17 @@ export function OdooTasksPanel({
   const [events, setEvents] = useState<CalendarRow[]>(
     () => (Array.isArray(initialWorkspace?.events) ? (initialWorkspace!.events as CalendarRow[]) : []),
   );
-  const [documents, setDocuments] = useState<DocumentRow[]>(
-    () => (Array.isArray(initialWorkspace?.documents) ? (initialWorkspace!.documents as DocumentRow[]) : []),
-  );
+  const [documents, setDocuments] = useState<DocumentRow[]>(() => {
+    if (!Array.isArray(initialWorkspace?.documents)) return [];
+    return (initialWorkspace!.documents as Partial<DocumentRow>[]).map((d) => ({
+      id: Number(d.id),
+      name: String(d.name ?? ""),
+      type: String(d.type ?? ""),
+      mimetype: String(d.mimetype ?? ""),
+      createdAt: String(d.createdAt ?? ""),
+      creator: String(d.creator ?? "—"),
+    }));
+  });
   const [projectName, setProjectName] = useState("");
   const [projectIdForUpdate, setProjectIdForUpdate] = useState("");
   const [projectNameForUpdate, setProjectNameForUpdate] = useState("");
@@ -345,6 +368,11 @@ export function OdooTasksPanel({
   const [agendaHydrate, setAgendaHydrate] = useState<"idle" | "month" | "day">("idle");
   const [futureCalendarOpen, setFutureCalendarOpen] = useState(false);
   const [deepCopySource, setDeepCopySource] = useState<CalendarRow | null>(null);
+  const [calendarRange, setCalendarRange] = useState<CalendarRange>("30d");
+  const [docSort, setDocSort] = useState<"name" | "date">("date");
+  const [showCreateBar, setShowCreateBar] = useState(false);
+
+  const compactChrome = embedded || workspaceMode;
 
   const NEAR_TERM_MS = 90 * 86400000;
 
@@ -354,6 +382,12 @@ export function OdooTasksPanel({
     calendar: !onlySection || onlySection === "calendar",
     documents: !onlySection || onlySection === "documents",
   });
+
+  const riskBadge = (risk: "none" | "watch" | "critical") => {
+    if (risk === "critical") return <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-medium text-rose-800">حرج</span>;
+    if (risk === "watch") return <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-900">مراقبة</span>;
+    return <span className="text-muted-foreground text-[10px]">—</span>;
+  };
 
   const showSection = {
     tasks: !onlySection || onlySection === "tasks",
@@ -741,8 +775,23 @@ export function OdooTasksPanel({
     passPeople(t.creator, t.responsible, ...t.assignees.map((a) => a.name))
   );
   const filteredProjects = projects.filter((p) => passPeople(p.creator, p.manager));
-  const filteredEvents = events.filter((e) => passPeople(e.creator, e.responsible));
-  const filteredDocuments = documents.filter((d) => passPeople(d.creator));
+
+  const projectIntelMap = useMemo(
+    () => buildProjectIntelMap(tasks, filteredProjects),
+    [tasks, filteredProjects]
+  );
+  const filteredEvents = events
+    .filter((e) => passPeople(e.creator, e.responsible))
+    .filter((e) => (compactChrome && showSection.calendar ? eventInCalendarRange(e.start, calendarRange) : true));
+  const filteredDocuments = useMemo(() => {
+    const base = documents.filter((d) => passPeople(d.creator));
+    return [...base].sort((a, b) => {
+      if (docSort === "name") return a.name.localeCompare(b.name, "ar");
+      const da = Date.parse(a.createdAt.replace(" ", "T"));
+      const db = Date.parse(b.createdAt.replace(" ", "T"));
+      return (Number.isFinite(db) ? db : 0) - (Number.isFinite(da) ? da : 0);
+    });
+  }, [documents, docSort, selectedPeople]);
 
   const sourceMonthDays = useMemo(() => {
     const days = new Set<string>();
@@ -1048,8 +1097,8 @@ export function OdooTasksPanel({
           : "border-primary/20 shadow-[var(--shadow-premium)] ring-1 ring-primary/15"
       )}
     >
-      <CardHeader className={embedded ? "pb-3" : undefined}>
-        {!embedded ? (
+      <CardHeader className={compactChrome ? "pb-2 pt-4" : undefined}>
+        {!compactChrome ? (
           <>
             <CardTitle>لوحة مهام Odoo (Browser Session)</CardTitle>
             <CardDescription>
@@ -1057,13 +1106,23 @@ export function OdooTasksPanel({
             </CardDescription>
           </>
         ) : (
-          <CardTitle className="text-base">سجلات Odoo</CardTitle>
+          <CardTitle className="text-base">
+            {onlySection === "projects"
+              ? "المشاريع"
+              : onlySection === "calendar"
+                ? "التقويم"
+                : onlySection === "documents"
+                  ? "المستندات"
+                  : "المهام"}
+          </CardTitle>
         )}
+        {!workspaceMode ? (
         <p
           className={`text-xs font-medium ${lastSyncStale ? "text-amber-800/90 dark:text-amber-300/90" : "text-muted-foreground"}`}
         >
           آخر مزامنة محفوظة: {lastSyncLabel}
         </p>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-4">
         {(bulkProgress || busy("clone-month") || busy("cal-month") || busy("cal-day")) && (
@@ -1094,60 +1153,112 @@ export function OdooTasksPanel({
             placeholder="بحث بالعنوان..."
             className="max-w-sm"
           />
-          <Button type="button" onClick={loadTasks} disabled={busy("load-tasks")}>
-            {busy("load-tasks") ? <Loader2Icon className="size-4 animate-spin" /> : null}
-            جلب المهام
-          </Button>
-          <Button type="button" onClick={loadAll} disabled={busy("load-all")}>
-            {busy("load-all") ? <Loader2Icon className="size-4 animate-spin" /> : null}
-            جلب الكل
-          </Button>
-          <Button type="button" variant="outline" onClick={loadProjects} disabled={busy("load-projects")}>
-            {busy("load-projects") ? <Loader2Icon className="size-4 animate-spin" /> : null}
-            المشاريع
-          </Button>
-          <Button type="button" variant="outline" onClick={loadCalendar} disabled={busy("load-calendar")}>
-            {busy("load-calendar") ? <Loader2Icon className="size-4 animate-spin" /> : null}
-            التقويم
-          </Button>
-          <Button type="button" variant="outline" onClick={loadDocuments} disabled={busy("load-documents")}>
-            {busy("load-documents") ? <Loader2Icon className="size-4 animate-spin" /> : null}
-            المستندات
-          </Button>
-          <Button type="button" variant="secondary" onClick={exportExcel} disabled={busy("export-excel")}>
-            {busy("export-excel") ? <Loader2Icon className="size-4 animate-spin" /> : null}
-            تصدير Excel
-          </Button>
-          <Button
-            type="button"
-            variant={needsRefresh ? "default" : "outline"}
-            onClick={loadAll}
-            disabled={busy("load-all")}
-          >
-            تحديث الآن
-          </Button>
-          <Button type="button" variant={mineOnly ? "default" : "outline"} onClick={() => setMineOnly((v) => !v)}>
-            {mineOnly ? "فلتر: ما يخصني" : "فلتر: الكل"}
-          </Button>
-          <label className="inline-flex items-center">
-            <input
-              type="file"
-              accept=".xlsx"
-              className="hidden"
-              onChange={(e) => importExcel(e.target.files?.[0] ?? null)}
-            />
-            <span className="inline-flex h-9 cursor-pointer items-center rounded-md border px-3 text-sm">
-              {busy("import-excel") ? <Loader2Icon className="me-1 size-4 animate-spin" /> : null}
-              استيراد Excel
-            </span>
-          </label>
+          {compactChrome ? (
+            <>
+              <Button type="button" onClick={loadAll} disabled={busy("load-all")}>
+                {busy("load-all") ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                تحديث
+              </Button>
+              <Button type="button" variant={mineOnly ? "default" : "outline"} onClick={() => setMineOnly((v) => !v)}>
+                {mineOnly ? "ما يخصني" : "الكل"}
+              </Button>
+              <Button type="button" variant="secondary" size="sm" onClick={exportExcel} disabled={busy("export-excel")}>
+                Excel
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateBar((v) => !v)}>
+                {showCreateBar ? "إخفاء الإنشاء" : "إنشاء"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button type="button" onClick={loadTasks} disabled={busy("load-tasks")}>
+                {busy("load-tasks") ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                جلب المهام
+              </Button>
+              <Button type="button" onClick={loadAll} disabled={busy("load-all")}>
+                {busy("load-all") ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                جلب الكل
+              </Button>
+              <Button type="button" variant="outline" onClick={loadProjects} disabled={busy("load-projects")}>
+                {busy("load-projects") ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                المشاريع
+              </Button>
+              <Button type="button" variant="outline" onClick={loadCalendar} disabled={busy("load-calendar")}>
+                {busy("load-calendar") ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                التقويم
+              </Button>
+              <Button type="button" variant="outline" onClick={loadDocuments} disabled={busy("load-documents")}>
+                {busy("load-documents") ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                المستندات
+              </Button>
+              <Button type="button" variant="secondary" onClick={exportExcel} disabled={busy("export-excel")}>
+                {busy("export-excel") ? <Loader2Icon className="size-4 animate-spin" /> : null}
+                تصدير Excel
+              </Button>
+              <Button
+                type="button"
+                variant={needsRefresh ? "default" : "outline"}
+                onClick={loadAll}
+                disabled={busy("load-all")}
+              >
+                تحديث الآن
+              </Button>
+              <Button type="button" variant={mineOnly ? "default" : "outline"} onClick={() => setMineOnly((v) => !v)}>
+                {mineOnly ? "فلتر: ما يخصني" : "فلتر: الكل"}
+              </Button>
+              <label className="inline-flex items-center">
+                <input
+                  type="file"
+                  accept=".xlsx"
+                  className="hidden"
+                  onChange={(e) => importExcel(e.target.files?.[0] ?? null)}
+                />
+                <span className="inline-flex h-9 cursor-pointer items-center rounded-md border px-3 text-sm">
+                  {busy("import-excel") ? <Loader2Icon className="me-1 size-4 animate-spin" /> : null}
+                  استيراد Excel
+                </span>
+              </label>
+            </>
+          )}
         </div>
-        {needsRefresh ? (
+        {needsRefresh && !compactChrome ? (
           <p className="text-xs text-amber-600">
             توجد تغييرات جديدة. اضغط &quot;تحديث الآن&quot; عند الانتهاء من جميع الإجراءات.
           </p>
         ) : null}
 
+        {compactChrome && showCreateBar ? (
+          <div className="rounded-md border bg-muted/20 p-3">
+            {(!onlySection || onlySection === "tasks") && (
+              <div className="flex flex-wrap gap-2">
+                <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="مهمة جديدة" className="max-w-xs" />
+                <Button type="button" size="sm" onClick={createTask} disabled={busy("create-task")}>إنشاء مهمة</Button>
+              </div>
+            )}
+            {onlySection === "projects" && (
+              <div className="flex flex-wrap gap-2">
+                <Input value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="مشروع جديد" className="max-w-xs" />
+                <Button type="button" size="sm" onClick={createProject} disabled={busy("create-project")}>إنشاء مشروع</Button>
+              </div>
+            )}
+            {onlySection === "calendar" && (
+              <div className="flex flex-wrap gap-2">
+                <Input value={eventName} onChange={(e) => setEventName(e.target.value)} placeholder="حدث" className="max-w-xs" />
+                <Input value={eventStart} onChange={(e) => setEventStart(e.target.value)} placeholder="البداية" className="max-w-[11rem]" />
+                <Button type="button" size="sm" onClick={createCalendarEvent} disabled={busy("create-calendar")}>إنشاء حدث</Button>
+              </div>
+            )}
+            {onlySection === "documents" && (
+              <div className="flex flex-wrap gap-2">
+                <Input value={docName} onChange={(e) => setDocName(e.target.value)} placeholder="مستند جديد" className="max-w-xs" />
+                <Button type="button" size="sm" onClick={createDocument} disabled={busy("create-document")}>إنشاء مستند</Button>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {!compactChrome ? (
+        <>
         <div className="rounded-md border p-3">
           <Label className="mb-2 block">تصفية العرض بالأشخاص (من البيانات الحالية)</Label>
           <div className="mb-2 flex flex-wrap gap-2">
@@ -1257,6 +1368,8 @@ export function OdooTasksPanel({
             </Button>
           </div>
         </div>
+        </>
+        ) : null}
 
         {showSection.tasks ? (
         <div className="overflow-x-auto">
@@ -1377,6 +1490,13 @@ export function OdooTasksPanel({
                     <th className="py-2 pe-3 font-medium">ID</th>
                     <th className="py-2 pe-3 font-medium">الاسم</th>
                     <th className="py-2 pe-3 font-medium">المسؤول</th>
+                    {workspaceMode ? (
+                      <>
+                        <th className="py-2 pe-3 font-medium">مهام</th>
+                        <th className="py-2 pe-3 font-medium">متأخر</th>
+                        <th className="py-2 pe-3 font-medium">مؤشر</th>
+                      </>
+                    ) : null}
                     <th className="py-2 pe-3 font-medium">الحالة</th>
                     <th className="py-2 pe-3 font-medium">الرؤية</th>
                     <th className="py-2 pe-3 font-medium">المنشئ</th>
@@ -1400,12 +1520,30 @@ export function OdooTasksPanel({
                           {label} ({rows.length})
                         </td>
                       </tr>,
-                      ...rows.map((p) => (
+                      ...rows.map((p) => {
+                        const intel = projectIntelMap.get(p.id);
+                        const noOwner = !cleanName(p.manager);
+                        return (
                         <Fragment key={`proj-${p.id}`}>
                           <tr className="border-b align-top">
                             <td className="py-2 pe-3">{p.id}</td>
-                            <td className="py-2 pe-3 font-medium">{p.name}</td>
+                            <td className="py-2 pe-3 font-medium">
+                              {p.name}
+                              {noOwner ? (
+                                <span className="text-amber-700 ms-1 text-[10px]">· بلا مسؤول</span>
+                              ) : null}
+                              {intel?.hasNoTasks ? (
+                                <span className="text-muted-foreground ms-1 text-[10px]">· بلا مهام</span>
+                              ) : null}
+                            </td>
                             <td className="py-2 pe-3">{p.manager}</td>
+                            {workspaceMode ? (
+                              <>
+                                <td className="py-2 pe-3 tabular-nums">{intel?.taskCount ?? 0}</td>
+                                <td className="py-2 pe-3 tabular-nums text-rose-700">{intel?.overdueTasks ?? 0}</td>
+                                <td className="py-2 pe-3">{riskBadge(intel?.risk ?? "none")}</td>
+                              </>
+                            ) : null}
                             <td className="py-2 pe-3">{p.active ? "نشط" : "مؤرشف"}</td>
                             <td className="py-2 pe-3 text-xs">{p.visibility || "—"}</td>
                             <td className="py-2 pe-3">{p.creator}</td>
@@ -1433,15 +1571,35 @@ export function OdooTasksPanel({
                           </tr>
                           {expandedProjectId === p.id ? (
                             <tr className="border-b bg-muted/20">
-                              <td colSpan={7} className="p-3 text-xs">
+                              <td colSpan={workspaceMode ? 10 : 7} className="space-y-2 p-3 text-xs">
                                 <p><span className="font-medium">الحالة:</span> {p.active ? "نشط" : "مؤرشف"}</p>
                                 <p><span className="font-medium">الرؤية:</span> {p.visibility || "—"}</p>
                                 <p><span className="font-medium">تاريخ الإنشاء:</span> {p.createdAt || "—"}</p>
+                                {intel ? (
+                                  <p>
+                                    <span className="font-medium">ملخص المهام:</span>{" "}
+                                    {intel.openTasks} مفتوحة · {intel.overdueTasks} متأخرة · {intel.highPriorityTasks} أولوية عالية
+                                  </p>
+                                ) : null}
+                                <div>
+                                  <p className="mb-1 font-medium">مهام المشروع</p>
+                                  <ul className="max-h-40 space-y-1 overflow-y-auto">
+                                    {tasks.filter((t) => t.projectId === p.id && t.active).slice(0, 12).map((t) => (
+                                      <li key={t.id} className="rounded border border-border/50 bg-background/80 px-2 py-1">
+                                        {t.name} — {t.stage} — {t.deadline}
+                                      </li>
+                                    ))}
+                                    {!tasks.some((t) => t.projectId === p.id) ? (
+                                      <li className="text-muted-foreground">لا مهام مرتبطة في اللقطة الحالية.</li>
+                                    ) : null}
+                                  </ul>
+                                </div>
                               </td>
                             </tr>
                           ) : null}
                         </Fragment>
-                      )),
+                        );
+                      }),
                     ])
                   )}
                 </tbody>
@@ -1454,7 +1612,22 @@ export function OdooTasksPanel({
           <div className="w-full">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <Label className="text-base font-medium">التقويم ({filteredEvents.length})</Label>
-              <Button
+              <div className="flex flex-wrap items-center gap-1">
+                {workspaceMode
+                  ? (["today", "week", "30d", "all"] as CalendarRange[]).map((r) => (
+                      <Button
+                        key={r}
+                        type="button"
+                        size="sm"
+                        variant={calendarRange === r ? "default" : "outline"}
+                        className="h-7 text-xs"
+                        onClick={() => setCalendarRange(r)}
+                      >
+                        {r === "today" ? "اليوم" : r === "week" ? "الأسبوع" : r === "30d" ? "30 يوم" : "الكل"}
+                      </Button>
+                    ))
+                  : null}
+                <Button
                 type="button"
                 variant="ghost"
                 size="sm"
@@ -1465,6 +1638,7 @@ export function OdooTasksPanel({
                 <ChevronDown className={cn("size-4 transition-transform", !sectionOpen.calendar && "-rotate-90")} />
                 {sectionOpen.calendar ? "تقليص" : "توسيع"}
               </Button>
+              </div>
             </div>
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[960px] text-sm">
@@ -1621,6 +1795,17 @@ export function OdooTasksPanel({
           <div className="w-full">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <Label className="text-base font-medium">المستندات ({filteredDocuments.length})</Label>
+              <div className="flex flex-wrap items-center gap-1">
+                {workspaceMode ? (
+                  <>
+                    <Button type="button" size="sm" variant={docSort === "date" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setDocSort("date")}>
+                      الأحدث
+                    </Button>
+                    <Button type="button" size="sm" variant={docSort === "name" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setDocSort("name")}>
+                      الاسم
+                    </Button>
+                  </>
+                ) : null}
               <Button
                 type="button"
                 variant="ghost"
@@ -1632,6 +1817,7 @@ export function OdooTasksPanel({
                 <ChevronDown className={cn("size-4 transition-transform", !sectionOpen.documents && "-rotate-90")} />
                 {sectionOpen.documents ? "تقليص" : "توسيع"}
               </Button>
+              </div>
             </div>
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[800px] text-sm">
@@ -1640,6 +1826,7 @@ export function OdooTasksPanel({
                     <th className="py-2 pe-3 font-medium">ID</th>
                     <th className="py-2 pe-3 font-medium">الاسم</th>
                     <th className="py-2 pe-3 font-medium">النوع</th>
+                    <th className="py-2 pe-3 font-medium">MIME</th>
                     <th className="py-2 pe-3 font-medium">المنشئ</th>
                     <th className="py-2 pe-3 font-medium">تاريخ الإنشاء</th>
                     <th className="py-2 font-medium">إجراءات</th>
@@ -1658,7 +1845,7 @@ export function OdooTasksPanel({
                   ) : (
                     documentsByType.flatMap(([typeKey, rows]) => [
                       <tr key={`dg-${typeKey}`} className="border-b bg-muted/40">
-                        <td colSpan={6} className="py-2 ps-2 text-xs font-semibold text-primary">
+                        <td colSpan={7} className="py-2 ps-2 text-xs font-semibold text-primary">
                           النوع: {typeKey} ({rows.length})
                         </td>
                       </tr>,
@@ -1668,6 +1855,7 @@ export function OdooTasksPanel({
                             <td className="py-2 pe-3">{d.id}</td>
                             <td className="py-2 pe-3 font-medium">{d.name}</td>
                             <td className="py-2 pe-3">{d.type || "—"}</td>
+                            <td className="py-2 pe-3 text-[11px] [direction:ltr]">{d.mimetype || "—"}</td>
                             <td className="py-2 pe-3">{d.creator}</td>
                             <td className="py-2 pe-3 text-xs [direction:ltr]">{d.createdAt || "—"}</td>
                             <td className="py-2">
@@ -1694,8 +1882,10 @@ export function OdooTasksPanel({
                           </tr>
                           {expandedDocId === d.id ? (
                             <tr className="border-b bg-muted/20">
-                              <td colSpan={6} className="p-3 text-xs">
+                              <td colSpan={7} className="p-3 text-xs">
                                 <p><span className="font-medium">نوع المستند:</span> {d.type || "—"}</p>
+                                <p><span className="font-medium">MIME:</span> {d.mimetype || "—"}</p>
+                                <p><span className="font-medium">المنشئ:</span> {d.creator}</p>
                                 <p><span className="font-medium">تاريخ الإنشاء:</span> {d.createdAt || "—"}</p>
                               </td>
                             </tr>

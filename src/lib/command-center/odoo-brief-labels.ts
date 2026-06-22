@@ -88,6 +88,7 @@ export type OdooBriefLabels = {
   summaryOverdue: string;
   summaryHighPriority: string;
   summaryUnassigned: string;
+  summaryCompliance: string;
   summaryLastSync: string;
   priorityFeedTitle: string;
   priorityFeedDesc: string;
@@ -216,6 +217,7 @@ export function buildOdooBriefLabels(t: (key: string) => string): OdooBriefLabel
     summaryOverdue: t("commandCenter.odoo.summaryOverdue"),
     summaryHighPriority: t("commandCenter.odoo.summaryHighPriority"),
     summaryUnassigned: t("commandCenter.odoo.summaryUnassigned"),
+    summaryCompliance: t("commandCenter.odoo.summaryCompliance"),
     summaryLastSync: t("commandCenter.odoo.summaryLastSync"),
     priorityFeedTitle: t("commandCenter.odoo.priorityFeedTitle"),
     priorityFeedDesc: t("commandCenter.odoo.priorityFeedDesc"),

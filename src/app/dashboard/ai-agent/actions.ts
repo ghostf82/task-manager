@@ -1340,7 +1340,7 @@ export async function listOdooDocumentsAction(input?: {
   text?: string;
   limit?: number;
   mineOnly?: boolean;
-}): Promise<{ ok: true; documents: Array<{ id: number; name: string; type: string; createdAt: string; creator: string }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; documents: Array<{ id: number; name: string; type: string; mimetype: string; createdAt: string; creator: string }> } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
@@ -1361,6 +1361,7 @@ export async function listOdooDocumentsAction(input?: {
     id: d.id,
     name: d.name,
     type: String(d.type ?? ""),
+    mimetype: typeof d.mimetype === "string" ? d.mimetype : "",
     createdAt: String(d.create_date ?? ""),
     creator: Array.isArray(d.create_uid) ? String(d.create_uid[1]) : "—",
   }));
@@ -1378,7 +1379,7 @@ export async function listOdooWorkspaceAllAction(input?: {
       tasks: OdooTaskUiRow[];
       projects: Array<{ id: number; name: string; active: boolean; creator: string; manager: string; visibility: string; createdAt: string }>;
       events: OdooCalendarEventRow[];
-      documents: Array<{ id: number; name: string; type: string; createdAt: string; creator: string }>;
+      documents: Array<{ id: number; name: string; type: string; mimetype: string; createdAt: string; creator: string }>;
     }
   | { ok: false; error: string }
 > {

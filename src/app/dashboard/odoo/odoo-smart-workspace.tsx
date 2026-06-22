@@ -1,32 +1,33 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangleIcon,
   CalendarIcon,
   CheckCircle2Icon,
+  ChevronDownIcon,
   ClipboardListIcon,
   FileStackIcon,
   FolderKanbanIcon,
-  LayoutGridIcon,
   RefreshCwIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 
+import { listOdooWorkspaceAllAction } from "@/app/dashboard/ai-agent/actions";
 import { OdooTasksPanelDynamic } from "@/app/dashboard/ai-agent/odoo-tasks-panel-dynamic";
 import { CommandQuickLink } from "@/components/command-center/command-center-shell";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { OdooBriefLabels } from "@/lib/command-center/odoo-brief-labels";
-import { formatInsightText } from "@/lib/command-center/odoo-brief-labels";
 import type { AttentionItem, OdooOperationalBrief } from "@/lib/command-center/odoo-operational-brief";
 import type { OdooWorkspacePayload } from "@/lib/command-center/load-odoo-workspace-cache";
 
-type WorkspaceTab = "overview" | "tasks" | "projects" | "calendar" | "documents" | "reports";
+type WorkspaceTab = "tasks" | "projects" | "calendar" | "documents" | "reports";
 
-const TAB_SECTION: Record<Exclude<WorkspaceTab, "overview" | "reports">, "tasks" | "projects" | "calendar" | "documents"> = {
+const TAB_SECTION: Record<Exclude<WorkspaceTab, "reports">, "tasks" | "projects" | "calendar" | "documents"> = {
   tasks: "tasks",
   projects: "projects",
   calendar: "calendar",
@@ -74,14 +75,16 @@ export function OdooSmartWorkspace({
     tabParam === "documents" ||
     tabParam === "reports"
       ? tabParam
-      : "overview";
+      : "tasks";
 
   const [tab, setTab] = useState<WorkspaceTab>(initialTab);
+  const [focusOpen, setFocusOpen] = useState(true);
+  const [syncing, startSync] = useTransition();
 
   const setTabAndUrl = useCallback(
     (next: WorkspaceTab) => {
       setTab(next);
-      const url = next === "overview" ? "/dashboard/odoo" : `/dashboard/odoo?tab=${next}`;
+      const url = next === "tasks" ? "/dashboard/odoo" : `/dashboard/odoo?tab=${next}`;
       router.replace(url, { scroll: false });
     },
     [router]
@@ -92,7 +95,6 @@ export function OdooSmartWorkspace({
   const tabs = useMemo(
     () =>
       [
-        { id: "overview" as const, label: labels.tabOverview, icon: LayoutGridIcon },
         { id: "tasks" as const, label: labels.tabTasks, icon: ClipboardListIcon },
         { id: "projects" as const, label: labels.tabProjects, icon: FolderKanbanIcon },
         { id: "calendar" as const, label: labels.tabCalendar, icon: CalendarIcon },
@@ -103,212 +105,205 @@ export function OdooSmartWorkspace({
   );
 
   const c = brief.counts;
-  const dueSoon = c.due7Days;
-  const needsAttention = brief.attentionToday + brief.attentionCritical;
+  const focusItems = brief.attentionQueue.slice(0, 5);
+  const complianceAttention = c.complianceOverdue + c.complianceWarning;
+
+  function runSync() {
+    startSync(async () => {
+      const toastId = toast.loading(labels.syncWorkspace);
+      const res = await listOdooWorkspaceAllAction({});
+      toast.dismiss(toastId);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(labels.live);
+      router.refresh();
+    });
+  }
 
   return (
-    <div className="mx-auto max-w-[1320px] space-y-6 pb-14">
-      <header className="relative overflow-hidden rounded-2xl border border-gold/15 bg-linear-to-br from-primary/6 via-white/95 to-sky-500/5 p-5 ring-1 ring-gold/10 sm:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-primary/80 text-xs font-semibold tracking-[0.18em] uppercase">{labels.eyebrow}</p>
-            <h1 className="font-heading mt-1 text-2xl font-bold tracking-tight">{labels.workspaceTitle}</h1>
-            <p className="text-muted-foreground mt-1 max-w-xl text-sm">{labels.workspaceSubtitle}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={cn(buttonVariants({ variant: "default", size: "sm" }), "gap-1.5")}
-              onClick={() => setTabAndUrl("tasks")}
-            >
-              <RefreshCwIcon className="size-3.5" />
-              {labels.syncWorkspace}
-            </button>
-            {brief.baseUrl ? (
-              <a
-                href={brief.baseUrl}
-                target="_blank"
-                rel="noreferrer"
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-              >
-                {labels.openOdoo}
-              </a>
-            ) : null}
-            <CommandQuickLink href="/dashboard/settings/integrations" label={labels.settings} />
-          </div>
+    <div className="mx-auto max-w-[1400px] space-y-3 pb-14">
+      {/* Layer 0 — minimal chrome */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="font-heading text-xl font-bold tracking-tight sm:text-2xl">{labels.workspaceTitle}</h1>
+          <p className="text-muted-foreground text-xs sm:text-sm">{labels.workspaceSubtitle}</p>
         </div>
-
-        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-          <SummaryChip label={labels.summaryAttention} value={needsAttention} tone="rose" />
-          <SummaryChip label={labels.summaryDueSoon} value={dueSoon} tone="amber" />
-          <SummaryChip label={labels.summaryOverdue} value={c.overdueTasks} tone="rose" />
-          <SummaryChip label={labels.summaryHighPriority} value={c.highPriorityTasks} tone="violet" />
-          <SummaryChip label={labels.summaryUnassigned} value={c.unassignedTasks} tone="sky" />
-          <div className="rounded-xl border border-border/60 bg-white/80 px-3 py-2.5">
-            <p className="text-muted-foreground text-[10px] font-medium uppercase">{labels.summaryLastSync}</p>
-            <p className="mt-0.5 text-xs font-semibold">{formatDt(brief.lastSyncAt, locale)}</p>
-            {brief.syncStale ? (
-              <p className="text-amber-700 mt-0.5 flex items-center gap-1 text-[10px]">
-                <AlertTriangleIcon className="size-3" />
-                {labels.syncStaleHint}
-              </p>
-            ) : (
-              <p className="text-emerald-700 mt-0.5 flex items-center gap-1 text-[10px]">
-                <CheckCircle2Icon className="size-3" />
-                {labels.live}
-              </p>
-            )}
-          </div>
-        </div>
-      </header>
-
-      <div className="flex flex-wrap gap-1.5 border-b border-border/60 pb-1">
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTabAndUrl(t.id)}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition",
-                tab === t.id
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-              )}
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={cn(buttonVariants({ variant: "default", size: "sm" }), "gap-1.5")}
+            disabled={syncing}
+            onClick={() => runSync()}
+          >
+            <RefreshCwIcon className={cn("size-3.5", syncing && "animate-spin")} />
+            {labels.syncWorkspace}
+          </button>
+          {brief.baseUrl ? (
+            <a
+              href={brief.baseUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
             >
-              <Icon className="size-3.5" />
-              {t.label}
-            </button>
-          );
-        })}
+              {labels.openOdoo}
+            </a>
+          ) : null}
+          <CommandQuickLink href="/dashboard/settings/integrations" label={labels.settings} />
+        </div>
       </div>
 
-      {tab === "overview" ? (
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <Card className="shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{labels.priorityFeedTitle}</CardTitle>
-              <CardDescription>{labels.priorityFeedDesc}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {!brief.attentionQueue.length ? (
-                <p className="text-muted-foreground py-8 text-center text-sm">{labels.priorityFeedEmpty}</p>
-              ) : (
-                brief.attentionQueue.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={cn(
-                      "w-full rounded-xl border p-3 text-start text-sm transition hover:ring-1 hover:ring-primary/20",
-                      severityClass(item.severity)
-                    )}
-                    onClick={() => {
-                      if (item.kind === "calendar_event") setTabAndUrl("calendar");
-                      else if (item.kind === "compliance_doc") setTabAndUrl("documents");
-                      else setTabAndUrl("tasks");
-                    }}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="font-medium">{item.title}</p>
-                      <Badge variant="outline" className="shrink-0 text-[10px]">
-                        {item.severity}
-                      </Badge>
-                    </div>
-                    {item.subtitle ? (
-                      <p className="text-muted-foreground mt-0.5 text-xs">{item.subtitle}</p>
-                    ) : null}
-                    {item.dueLabel ? (
-                      <p className="text-muted-foreground mt-1 text-[11px]">
-                        {item.daysOffset !== undefined && item.daysOffset < 0
-                          ? labels.overdueLabel
-                          : labels.daysRemaining}
-                        : {item.dueLabel}
-                      </p>
-                    ) : null}
-                  </button>
-                ))
-              )}
-            </CardContent>
-          </Card>
+      {/* Layer 1 — executive strip (~20% intelligence) */}
+      <div className="flex flex-wrap items-stretch gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 py-2">
+        <StripMetric label={labels.summaryOverdue} value={c.overdueTasks} tone="rose" />
+        <StripMetric label={labels.summaryDueSoon} value={c.due7Days} tone="amber" />
+        <StripMetric label={labels.summaryHighPriority} value={c.highPriorityTasks} tone="violet" />
+        <StripMetric label={labels.summaryCompliance} value={complianceAttention} tone="amber" />
+        <div className="flex min-w-[140px] flex-1 items-center gap-2 rounded-lg bg-background/80 px-2.5 py-1.5">
+          {brief.syncStale ? (
+            <AlertTriangleIcon className="size-3.5 shrink-0 text-amber-600" />
+          ) : (
+            <CheckCircle2Icon className="size-3.5 shrink-0 text-emerald-600" />
+          )}
+          <div className="min-w-0">
+            <p className="text-muted-foreground text-[10px]">{labels.summaryLastSync}</p>
+            <p className="truncate text-xs font-medium">{formatDt(brief.lastSyncAt, locale)}</p>
+          </div>
+        </div>
+      </div>
 
-          <aside className="space-y-3">
-            {brief.insights.slice(0, 5).map((ins) => {
-              const { title } = formatInsightText(labels, ins.titleKey, ins.titleParams, ins.bodyKey, ins.bodyParams);
-              return (
-                <div
-                  key={ins.id}
-                  className="rounded-xl border border-violet-500/15 bg-violet-500/5 p-3 text-xs leading-relaxed"
+      {/* Layer 2 — smart focus (compact, guides into workspace) */}
+      {focusItems.length ? (
+        <div className="rounded-xl border border-border/60 bg-background">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-start"
+            onClick={() => setFocusOpen((o) => !o)}
+          >
+            <span className="text-sm font-medium">{labels.priorityFeedTitle}</span>
+            <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              {focusItems.length}
+              <ChevronDownIcon className={cn("size-4 transition-transform", !focusOpen && "-rotate-90")} />
+            </span>
+          </button>
+          {focusOpen ? (
+            <div className="grid gap-1.5 border-t border-border/50 px-3 pb-3 pt-2 sm:grid-cols-2 lg:grid-cols-3">
+              {focusItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={cn(
+                    "rounded-lg border p-2 text-start text-xs transition hover:ring-1 hover:ring-primary/20",
+                    severityClass(item.severity)
+                  )}
+                  onClick={() => {
+                    if (item.kind === "calendar_event") setTabAndUrl("calendar");
+                    else if (item.kind === "compliance_doc") setTabAndUrl("documents");
+                    else setTabAndUrl("tasks");
+                  }}
                 >
-                  {title}
-                </div>
-              );
-            })}
-          </aside>
+                  <div className="flex items-start justify-between gap-1">
+                    <p className="line-clamp-2 font-medium">{item.title}</p>
+                    <Badge variant="outline" className="shrink-0 text-[9px]">
+                      {item.severity}
+                    </Badge>
+                  </div>
+                  {item.dueLabel ? (
+                    <p className="text-muted-foreground mt-0.5 text-[10px]">
+                      {item.daysOffset !== undefined && item.daysOffset < 0
+                        ? labels.overdueLabel
+                        : labels.daysRemaining}
+                      : {item.dueLabel}
+                    </p>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {tab === "reports" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{labels.reportsTitle}</CardTitle>
-            <CardDescription>{labels.reportsDesc}</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-2 sm:grid-cols-2">
-            {[
-              { href: "/api/reports/odoo-operational", label: labels.reportOperationalPdf },
-              { href: "/api/reports/documents", label: labels.reportComplianceExcel },
-              { href: "/api/reports/tasks?format=pdf", label: labels.reportTasksPdf },
-              { href: "/api/reports/tasks", label: labels.reportTasksExcel },
-            ].map((r) => (
-              <a
-                key={r.href}
-                href={r.href}
+      {/* Layer 3 — primary workspace (~80%) */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-1 border-b border-border/60 pb-1">
+          {tabs.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTabAndUrl(t.id)}
                 className={cn(
-                  buttonVariants({ variant: "outline" }),
-                  "h-auto min-h-10 justify-start whitespace-normal py-2.5 text-start"
+                  "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition",
+                  tab === t.id
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                 )}
               >
-                {r.label}
-              </a>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
+                <Icon className="size-3.5" />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
 
-      {tab !== "overview" && tab !== "reports" ? (
-        <OdooTasksPanelDynamic
-          initialWorkspace={initialWorkspace}
-          initialLastSyncAt={initialLastSyncAt}
-          odooBaseUrl={odooBaseUrl}
-          onlySection={onlySection}
-          embedded
-          collapseFutureCalendar
-        />
-      ) : null}
+        {tab === "reports" ? (
+          <Card className="shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">{labels.reportsTitle}</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 sm:grid-cols-2">
+              {[
+                { href: "/api/reports/odoo-operational", label: labels.reportOperationalPdf },
+                { href: "/api/reports/documents", label: labels.reportComplianceExcel },
+                { href: "/api/reports/tasks?format=pdf", label: labels.reportTasksPdf },
+                { href: "/api/reports/tasks", label: labels.reportTasksExcel },
+              ].map((r) => (
+                <a
+                  key={r.href}
+                  href={r.href}
+                  className={cn(
+                    buttonVariants({ variant: "outline" }),
+                    "h-auto min-h-10 justify-start whitespace-normal py-2.5 text-start"
+                  )}
+                >
+                  {r.label}
+                </a>
+              ))}
+            </CardContent>
+          </Card>
+        ) : (
+          <OdooTasksPanelDynamic
+            key={`${tab}-${initialLastSyncAt ?? "none"}`}
+            initialWorkspace={initialWorkspace}
+            initialLastSyncAt={initialLastSyncAt}
+            odooBaseUrl={odooBaseUrl}
+            onlySection={onlySection}
+            embedded
+            collapseFutureCalendar
+            workspaceMode
+          />
+        )}
+      </div>
     </div>
   );
 }
 
-function SummaryChip({
+function StripMetric({
   label,
   value,
   tone,
 }: {
   label: string;
   value: number;
-  tone: "rose" | "amber" | "violet" | "sky";
+  tone: "rose" | "amber" | "violet";
 }) {
-  const ring = {
-    rose: "ring-rose-500/20",
-    amber: "ring-amber-500/20",
-    violet: "ring-violet-500/20",
-    sky: "ring-sky-500/20",
-  };
+  const ring = { rose: "text-rose-700", amber: "text-amber-800", violet: "text-violet-800" };
   return (
-    <div className={cn("rounded-xl border border-border/60 bg-white/80 px-3 py-2.5 ring-1", ring[tone])}>
-      <p className="text-muted-foreground text-[10px] font-medium">{label}</p>
-      <p className="mt-0.5 text-xl font-bold tabular-nums">{value}</p>
+    <div className="flex min-w-[88px] flex-col rounded-lg bg-background/80 px-2.5 py-1.5">
+      <p className="text-muted-foreground text-[10px]">{label}</p>
+      <p className={cn("text-lg font-bold tabular-nums leading-tight", ring[tone])}>{value}</p>
     </div>
   );
 }
