@@ -12,6 +12,7 @@ import {
   reuseNotificationAsReminderAction,
 } from "@/app/dashboard/notifications/actions";
 import { useDashboardI18n } from "@/contexts/dashboard-i18n";
+import { useOdooAlertSoundWatcher } from "@/hooks/use-odoo-alert-sound";
 import { notificationHref } from "@/lib/notifications/resolve-href";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -94,6 +95,8 @@ export function NotificationsMenu({
   }, [initialItems]);
 
   const unread = useMemo(() => items.filter((i) => !i.read_at), [items]);
+
+  useOdooAlertSoundWatcher(items);
 
   async function markRead(id: string) {
     startTransition(async () => {

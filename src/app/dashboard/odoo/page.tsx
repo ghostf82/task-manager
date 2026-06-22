@@ -5,6 +5,7 @@ import { OdooSmartWorkspaceShell } from "@/app/dashboard/odoo/odoo-smart-workspa
 import { buildOdooBriefLabels } from "@/lib/command-center/odoo-brief-labels";
 import { loadOdooWorkspaceCache } from "@/lib/command-center/load-odoo-workspace-cache";
 import { loadOdooOperationalBrief } from "@/lib/command-center/odoo-operational-brief";
+import { syncOdooWorkspaceAlerts } from "@/lib/odoo-alerts/sync-odoo-workspace-alerts";
 import { requireSession } from "@/lib/dashboard-auth";
 import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
 import { getTranslator } from "@/lib/i18n/get-translator";
@@ -45,6 +46,8 @@ export default async function OdooWorkspacePage() {
   if (!brief.connected) {
     return <ExecutiveBriefShellDisconnected labels={labels} />;
   }
+
+  await syncOdooWorkspaceAlerts(supabase, session.id, brief);
 
   return (
     <OdooSmartWorkspaceShell

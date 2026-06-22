@@ -2,6 +2,9 @@
 
 import dynamic from "next/dynamic";
 
+import type { OdooFolderRow } from "@/app/dashboard/odoo/odoo-documents-explorer";
+import type { OdooWorkspaceFilter } from "@/lib/command-center/odoo-workspace-filters";
+
 const OdooTasksPanel = dynamic(
   () => import("./odoo-tasks-panel").then((m) => ({ default: m.OdooTasksPanel })),
   {
@@ -19,6 +22,7 @@ type InitialWorkspace = {
   projects: unknown;
   events: unknown;
   documents: unknown;
+  folders?: unknown;
 } | null;
 
 export function OdooTasksPanelDynamic({
@@ -29,6 +33,9 @@ export function OdooTasksPanelDynamic({
   embedded = false,
   collapseFutureCalendar = false,
   workspaceMode = false,
+  workspaceFilter = null,
+  initialFolders,
+  openFutureArchive = false,
 }: {
   initialWorkspace: InitialWorkspace;
   initialLastSyncAt: string | null;
@@ -37,6 +44,9 @@ export function OdooTasksPanelDynamic({
   embedded?: boolean;
   collapseFutureCalendar?: boolean;
   workspaceMode?: boolean;
+  workspaceFilter?: OdooWorkspaceFilter;
+  initialFolders?: OdooFolderRow[];
+  openFutureArchive?: boolean;
 }) {
   return (
     <OdooTasksPanel
@@ -47,6 +57,9 @@ export function OdooTasksPanelDynamic({
       embedded={embedded}
       collapseFutureCalendar={collapseFutureCalendar}
       workspaceMode={workspaceMode}
+      workspaceFilter={workspaceFilter}
+      initialFolders={initialFolders}
+      openFutureArchive={openFutureArchive}
     />
   );
 }

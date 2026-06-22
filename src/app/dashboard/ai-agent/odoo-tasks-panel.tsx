@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { ChevronDown, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -42,6 +42,12 @@ import {
   eventInCalendarRange,
   type CalendarRange,
 } from "@/lib/command-center/odoo-workspace-intelligence";
+import {
+  applyProjectWorkspaceFilter,
+  applyTaskWorkspaceFilter,
+  type OdooWorkspaceFilter,
+} from "@/lib/command-center/odoo-workspace-filters";
+import { OdooDocumentsExplorer, type OdooFolderRow } from "@/app/dashboard/odoo/odoo-documents-explorer";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -55,6 +61,18 @@ type ProjectRow = {
   manager: string;
   visibility: string;
   createdAt: string;
+  partner?: string;
+  descriptionPlain?: string;
+  dateStart?: string;
+  dateEnd?: string;
+  tags?: string[];
+  taskCount?: number;
+  openTaskCount?: number;
+  overdueTaskCount?: number;
+  linkedEventCount?: number;
+  linkedDocumentCount?: number;
+  hasNoTasks?: boolean;
+  isStalled?: boolean;
 };
 
 type CalendarRow = {
@@ -103,6 +121,9 @@ export type OdooTasksPanelProps = {
   collapseFutureCalendar?: boolean;
   /** Premium Odoo workspace — compact chrome, operational-first. */
   workspaceMode?: boolean;
+  workspaceFilter?: OdooWorkspaceFilter;
+  initialFolders?: OdooFolderRow[];
+  openFutureArchive?: boolean;
 };
 
 function cleanName(v: string): string {
@@ -282,6 +303,9 @@ export function OdooTasksPanel({
   embedded = false,
   collapseFutureCalendar = false,
   workspaceMode = false,
+  workspaceFilter = null,
+  initialFolders,
+  openFutureArchive = false,
 }: OdooTasksPanelProps) {
   const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
   const [bulkProgress, setBulkProgress] = useState<{ cur: number; total: number } | null>(null);
@@ -366,13 +390,31 @@ export function OdooTasksPanel({
   const [dayEvents, setDayEvents] = useState<CalendarRow[]>([]);
   /** Staged agenda fetch after bulk month/day list (avoids one huge Odoo payload → Netlify 504). */
   const [agendaHydrate, setAgendaHydrate] = useState<"idle" | "month" | "day">("idle");
-  const [futureCalendarOpen, setFutureCalendarOpen] = useState(false);
+  const [futureCalendarOpen, setFutureCalendarOpen] = useState(openFutureArchive);
+  const [projectView, setProjectView] = useState<"list" | "cards">("cards");
   const [deepCopySource, setDeepCopySource] = useState<CalendarRow | null>(null);
   const [calendarRange, setCalendarRange] = useState<CalendarRange>("30d");
   const [docSort, setDocSort] = useState<"name" | "date">("date");
   const [showCreateBar, setShowCreateBar] = useState(false);
 
   const compactChrome = embedded || workspaceMode;
+
+  const showSection = {
+    tasks: !onlySection || onlySection === "tasks",
+    projects: !onlySection || onlySection === "projects",
+    calendar: !onlySection || onlySection === "calendar",
+    documents: !onlySection || onlySection === "documents",
+  };
+
+  useEffect(() => {
+    if (openFutureArchive) setFutureCalendarOpen(true);
+  }, [openFutureArchive]);
+
+  useEffect(() => {
+    if (workspaceMode && showSection.calendar) {
+      setCalendarRange("30d");
+    }
+  }, [workspaceMode, showSection.calendar]);
 
   const NEAR_TERM_MS = 90 * 86400000;
 
@@ -387,13 +429,6 @@ export function OdooTasksPanel({
     if (risk === "critical") return <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-medium text-rose-800">حرج</span>;
     if (risk === "watch") return <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-900">مراقبة</span>;
     return <span className="text-muted-foreground text-[10px]">—</span>;
-  };
-
-  const showSection = {
-    tasks: !onlySection || onlySection === "tasks",
-    projects: !onlySection || onlySection === "projects",
-    calendar: !onlySection || onlySection === "calendar",
-    documents: !onlySection || onlySection === "documents",
   };
 
   async function loadTaskMeta() {
@@ -771,13 +806,39 @@ export function OdooTasksPanel({
     return normalized.some((n) => selectedPeople.includes(n));
   };
 
-  const filteredTasks = tasks.filter((t) =>
-    passPeople(t.creator, t.responsible, ...t.assignees.map((a) => a.name))
-  );
-  const filteredProjects = projects.filter((p) => passPeople(p.creator, p.manager));
+  const filteredTasks = useMemo(() => {
+    const base = tasks.filter((t) =>
+      passPeople(t.creator, t.responsible, ...t.assignees.map((a) => a.name))
+    );
+    if (!workspaceFilter || workspaceFilter === "projects_no_tasks" || workspaceFilter === "stalled_projects" || workspaceFilter === "future_archive" || workspaceFilter === "compliance") {
+      return base;
+    }
+    return applyTaskWorkspaceFilter(base, workspaceFilter);
+  }, [tasks, selectedPeople, workspaceFilter]);
+
+  const filteredProjects = useMemo((): ProjectRow[] => {
+    const base = projects.filter((p) => passPeople(p.creator, p.manager));
+    const withIntel = base.map((p) => {
+      const intel = buildProjectIntelMap(tasks, [{ id: p.id, manager: p.manager }]).get(p.id);
+      return {
+        ...p,
+        taskCount: intel?.taskCount ?? p.taskCount ?? 0,
+        openTaskCount: intel?.openTasks ?? p.openTaskCount ?? 0,
+        overdueTaskCount: intel?.overdueTasks ?? p.overdueTaskCount ?? 0,
+        hasNoTasks: intel?.hasNoTasks,
+        isStalled: intel?.isStalled,
+      };
+    });
+    if (!workspaceFilter) return withIntel;
+    return applyProjectWorkspaceFilter(withIntel, workspaceFilter) as ProjectRow[];
+  }, [projects, tasks, selectedPeople, workspaceFilter]);
 
   const projectIntelMap = useMemo(
-    () => buildProjectIntelMap(tasks, filteredProjects),
+    () =>
+      buildProjectIntelMap(
+        tasks,
+        filteredProjects.map((p) => ({ id: p.id, manager: p.manager ?? "—" }))
+      ),
     [tasks, filteredProjects]
   );
   const filteredEvents = events
@@ -1471,6 +1532,17 @@ export function OdooTasksPanel({
           <div className="w-full">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <Label className="text-base font-medium">المشاريع ({filteredProjects.length})</Label>
+              <div className="flex flex-wrap items-center gap-1">
+                {workspaceMode ? (
+                  <>
+                    <Button type="button" size="sm" variant={projectView === "cards" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setProjectView("cards")}>
+                      بطاقات
+                    </Button>
+                    <Button type="button" size="sm" variant={projectView === "list" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setProjectView("list")}>
+                      قائمة
+                    </Button>
+                  </>
+                ) : null}
               <Button
                 type="button"
                 variant="ghost"
@@ -1482,7 +1554,41 @@ export function OdooTasksPanel({
                 <ChevronDown className={cn("size-4 transition-transform", !sectionOpen.projects && "-rotate-90")} />
                 {sectionOpen.projects ? "تقليص" : "توسيع"}
               </Button>
+              </div>
             </div>
+            {workspaceMode && projectView === "cards" ? (
+              <div className={cn("grid gap-3 sm:grid-cols-2 lg:grid-cols-3", !sectionOpen.projects && "hidden")}>
+                {!filteredProjects.length ? (
+                  <p className="text-muted-foreground col-span-full py-6 text-center text-sm">لا توجد بيانات.</p>
+                ) : (
+                  filteredProjects.map((p) => {
+                    const intel = projectIntelMap.get(p.id);
+                    return (
+                      <div key={p.id} className="rounded-xl border border-border/60 bg-card p-3 shadow-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-medium leading-snug">{p.name}</p>
+                          {intel ? riskBadge(intel.risk) : null}
+                        </div>
+                        <p className="text-muted-foreground mt-1 text-xs">{p.manager || "—"} · {p.partner || "—"}</p>
+                        <div className="mt-2 flex flex-wrap gap-2 text-[10px] tabular-nums">
+                          <span className="rounded bg-muted px-1.5 py-0.5">{intel?.taskCount ?? p.taskCount ?? 0} مهام</span>
+                          <span className="rounded bg-muted px-1.5 py-0.5">{intel?.overdueTasks ?? p.overdueTaskCount ?? 0} متأخر</span>
+                          {(p.linkedEventCount ?? 0) > 0 ? (
+                            <span className="rounded bg-muted px-1.5 py-0.5">{p.linkedEventCount} أحداث</span>
+                          ) : null}
+                        </div>
+                        {p.descriptionPlain ? (
+                          <p className="text-muted-foreground mt-2 line-clamp-2 text-[11px]">{p.descriptionPlain}</p>
+                        ) : null}
+                        <Button type="button" size="sm" variant="outline" className="mt-2 h-7 text-xs" onClick={() => setExpandedProjectId((id) => (id === p.id ? null : p.id))}>
+                          {expandedProjectId === p.id ? "إخفاء" : "تفاصيل"}
+                        </Button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            ) : (
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[900px] text-sm">
                 <thead>
@@ -1605,6 +1711,7 @@ export function OdooTasksPanel({
                 </tbody>
               </table>
             </div>
+            )}
           </div>
           ) : null}
 
@@ -1792,6 +1899,13 @@ export function OdooTasksPanel({
           ) : null}
 
           {showSection.documents ? (
+          workspaceMode ? (
+            <OdooDocumentsExplorer
+              initialFolders={initialFolders}
+              locale="ar"
+              complianceFilter={workspaceFilter === "compliance"}
+            />
+          ) : (
           <div className="w-full">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <Label className="text-base font-medium">المستندات ({filteredDocuments.length})</Label>
@@ -1898,6 +2012,7 @@ export function OdooTasksPanel({
               </table>
             </div>
           </div>
+          )
           ) : null}
         </div>
         ) : null}

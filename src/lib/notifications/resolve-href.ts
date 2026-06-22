@@ -23,5 +23,14 @@ export function notificationHref(
   if (type === "task_follow_up") {
     return "/dashboard/tasks";
   }
+  if (type.startsWith("odoo_")) {
+    const tab = typeof p.tab === "string" ? p.tab : "tasks";
+    const filter = typeof p.filter === "string" ? p.filter : "";
+    const qs = new URLSearchParams();
+    if (tab && tab !== "dashboard") qs.set("tab", tab);
+    if (filter) qs.set("filter", filter);
+    const suffix = qs.toString();
+    return suffix ? `/dashboard/odoo?${suffix}` : "/dashboard/odoo";
+  }
   return null;
 }
