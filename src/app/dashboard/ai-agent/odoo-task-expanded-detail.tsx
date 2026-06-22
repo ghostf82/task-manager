@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import type { OdooTaskStageOption, OdooTaskUiRow, OdooUserOption } from "@/lib/integrations/odoo-task-ui-types";
+import { odooWebRecordFormUrl } from "@/lib/integrations/odoo-document-links";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -49,9 +50,7 @@ export function OdooTaskExpandedDetail({
   }, [stages, task.projectId]);
 
   const odooLink =
-    odooBaseUrl && task.id
-      ? `${odooBaseUrl.replace(/\/$/, "")}/web#id=${task.id}&model=project.task&view_type=form`
-      : null;
+    odooBaseUrl && task.id ? odooWebRecordFormUrl(odooBaseUrl, "project.task", task.id) : null;
 
   function moveStage() {
     const stageId = Number(stagePick);

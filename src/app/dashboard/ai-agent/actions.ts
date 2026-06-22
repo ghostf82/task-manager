@@ -1397,11 +1397,14 @@ export async function listOdooDocumentsAction(input?: {
     mineOnly: Boolean(input?.mineOnly ?? false),
   });
   if (res.error) return { ok: false, error: res.error };
-  await appendAgentActivity(supabase, {
-    userId: session.id,
-    eventType: "odoo_sync_documents",
-    message: `تمت مزامنة ${res.documents.length} مستند من Odoo (explorer page).`,
-  });
+  const isFolderBrowse = input?.folderId != null && Number.isFinite(Number(input.folderId));
+  if (!isFolderBrowse) {
+    await appendAgentActivity(supabase, {
+      userId: session.id,
+      eventType: "odoo_sync_documents",
+      message: `تمت مزامنة ${res.documents.length} مستند من Odoo (explorer page).`,
+    });
+  }
   const documents = res.documents.map((d) => ({
     id: d.id,
     name: d.name,
@@ -1419,8 +1422,9 @@ export async function listOdooDocumentsAction(input?: {
   }));
   if (input?.folderId == null && (input?.offset ?? 0) === 0) {
     await upsertOdooBrowserCache(supabase, session.id, "documents", { documents });
+    revalidatePath("/dashboard/ai-agent");
+    revalidatePath("/dashboard/odoo");
   }
-  revalidatePath("/dashboard/ai-agent");
   return { ok: true, documents };
 }
 
@@ -1579,32 +1583,40 @@ export async function listOdooDocumentsInFolderWithContextAction(input: {
     }
   | { ok: false; error: string }
 > {
-  const session = await requireSession();
-  const supabase = await createClient();
-  const limit = input.limit ?? 40;
-  const offset = input.offset ?? 0;
+  try {
+    const session = await requireSession();
+    const supabase = await createClient();
+    const limit = input.limit ?? 40;
+    const offset = input.offset ?? 0;
 
-  const docsRes = await listOdooDocumentsAction({
-    folderId: input.folderId,
-    offset,
-    limit,
-    text: input.text,
-  });
-  if (!docsRes.ok) return docsRes;
+    const docsRes = await listOdooDocumentsAction({
+      folderId: input.folderId,
+      offset,
+      limit,
+      text: input.text,
+    });
+    if (!docsRes.ok) return docsRes;
 
-  const workspace = await loadCachedOdooWorkspace(supabase, session.id);
-  const relDocs = docsRes.documents.map(mapDocumentToRelationshipInput);
-  const { context } = buildFolderWorkspaceFromWorkspace(workspace, {
-    folderId: input.folderId,
-    folderName: input.folderName ?? `مجلد #${input.folderId}`,
-    folderDescription: input.folderDescription,
-    odooDocumentCount: input.odooDocumentCount,
-    documents: relDocs,
-    loadedOffset: offset,
-    pageSize: limit,
-  });
+    const workspace = await loadCachedOdooWorkspace(supabase, session.id);
+    const relDocs = docsRes.documents.map(mapDocumentToRelationshipInput);
+    const { context } = buildFolderWorkspaceFromWorkspace(workspace, {
+      folderId: input.folderId,
+      folderName: input.folderName ?? `مجلد #${input.folderId}`,
+      folderDescription: input.folderDescription,
+      odooDocumentCount: input.odooDocumentCount,
+      documents: relDocs,
+      loadedOffset: offset,
+      pageSize: limit,
+    });
 
-  return { ok: true, documents: docsRes.documents, workspace: context };
+    return { ok: true, documents: docsRes.documents, workspace: context };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      ok: false,
+      error: msg || "تعذّر تحميل مستندات المجلد. أعد المحاولة أو افتح المجلد في Odoo.",
+    };
+  }
 }
 
 export async function getOdooDataCoverageAction(): Promise<
