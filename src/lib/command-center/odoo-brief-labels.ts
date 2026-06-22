@@ -75,6 +75,25 @@ export type OdooBriefLabels = {
   insightOverdue: string;
   insightDue7: string;
   insightSyncStale: string;
+  workspaceTitle: string;
+  workspaceSubtitle: string;
+  tabOverview: string;
+  tabTasks: string;
+  tabProjects: string;
+  tabCalendar: string;
+  tabDocuments: string;
+  tabReports: string;
+  summaryAttention: string;
+  summaryDueSoon: string;
+  summaryOverdue: string;
+  summaryHighPriority: string;
+  summaryUnassigned: string;
+  summaryLastSync: string;
+  priorityFeedTitle: string;
+  priorityFeedDesc: string;
+  priorityFeedEmpty: string;
+  futureCalendarTitle: string;
+  futureCalendarHint: string;
 };
 
 function insight(
@@ -184,6 +203,25 @@ export function buildOdooBriefLabels(t: (key: string) => string): OdooBriefLabel
     insightOverdue: insight(t, "insightOverdue", { count: 0 }),
     insightDue7: insight(t, "insightDue7", { count: 0 }),
     insightSyncStale: insight(t, "insightSyncStale"),
+    workspaceTitle: t("commandCenter.odoo.workspaceTitle"),
+    workspaceSubtitle: t("commandCenter.odoo.workspaceSubtitle"),
+    tabOverview: t("commandCenter.odoo.tabOverview"),
+    tabTasks: t("commandCenter.odoo.tabTasks"),
+    tabProjects: t("commandCenter.odoo.tabProjects"),
+    tabCalendar: t("commandCenter.odoo.tabCalendar"),
+    tabDocuments: t("commandCenter.odoo.tabDocuments"),
+    tabReports: t("commandCenter.odoo.tabReports"),
+    summaryAttention: t("commandCenter.odoo.summaryAttention"),
+    summaryDueSoon: t("commandCenter.odoo.summaryDueSoon"),
+    summaryOverdue: t("commandCenter.odoo.summaryOverdue"),
+    summaryHighPriority: t("commandCenter.odoo.summaryHighPriority"),
+    summaryUnassigned: t("commandCenter.odoo.summaryUnassigned"),
+    summaryLastSync: t("commandCenter.odoo.summaryLastSync"),
+    priorityFeedTitle: t("commandCenter.odoo.priorityFeedTitle"),
+    priorityFeedDesc: t("commandCenter.odoo.priorityFeedDesc"),
+    priorityFeedEmpty: t("commandCenter.odoo.priorityFeedEmpty"),
+    futureCalendarTitle: t("commandCenter.odoo.futureCalendarTitle"),
+    futureCalendarHint: t("commandCenter.odoo.futureCalendarHint"),
   };
 }
 

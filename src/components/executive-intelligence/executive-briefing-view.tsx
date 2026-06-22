@@ -91,13 +91,13 @@ export function ExecutiveBriefingView({
               ))}
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link href="/dashboard/my-day" className={cn(buttonVariants({ variant: "default", size: "sm" }))}>
+              <Link href="/dashboard/odoo" className={cn(buttonVariants({ variant: "default", size: "sm" }))}>
                 {labels.openMyDay}
               </Link>
-              <Link href="/dashboard/timeline" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+              <Link href="/dashboard/odoo?tab=calendar" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
                 {labels.openTimeline}
               </Link>
-              <Link href="/dashboard/war-room" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+              <Link href="/dashboard/odoo" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
                 {labels.viewAllWarRooms}
               </Link>
             </div>
@@ -147,7 +147,7 @@ export function ExecutiveBriefingView({
               <CardTitle className="text-base">{labels.myDayTitle}</CardTitle>
               <CardDescription>{labels.myDayDesc}</CardDescription>
             </div>
-            <Link href="/dashboard/my-day" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
+            <Link href="/dashboard/odoo?tab=tasks" className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}>
               {labels.openMyDay}
             </Link>
           </CardHeader>
@@ -171,7 +171,7 @@ export function ExecutiveBriefingView({
             </CardTitle>
             <CardDescription>{labels.warRoomDesc}</CardDescription>
           </div>
-          <Link href="/dashboard/war-room" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+          <Link href="/dashboard/odoo" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
             {labels.viewAllWarRooms}
           </Link>
         </CardHeader>
@@ -179,7 +179,7 @@ export function ExecutiveBriefingView({
           {brief.warRooms.slice(0, 6).map((room) => (
             <Link
               key={room.tenantId}
-              href={`/dashboard/war-room/${room.slug}`}
+              href="/dashboard/odoo"
               className="rounded-2xl border border-border/60 p-4 transition hover:border-primary/30 hover:bg-muted/30"
             >
               <div className="flex items-center justify-between gap-2">

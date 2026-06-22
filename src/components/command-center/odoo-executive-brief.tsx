@@ -120,7 +120,7 @@ export function ExecutiveBriefHero({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <CommandQuickLink href="/dashboard/odoo/workspace" label={labels.syncWorkspace} variant="default" />
+            <CommandQuickLink href="/dashboard/odoo?tab=tasks" label={labels.syncWorkspace} variant="default" />
             <CommandQuickLink href="/dashboard/ai-agent" label={labels.aiBrief} />
             <CommandQuickLink href="/dashboard/settings/integrations" label={labels.settings} />
             {brief.baseUrl ? (

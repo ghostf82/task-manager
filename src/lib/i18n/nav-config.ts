@@ -1,9 +1,6 @@
 /** Stable nav definition; labels resolved via i18n keys at runtime. */
 export const DASHBOARD_NAV_LINKS = [
   { href: "/dashboard", labelKey: "nav.briefing", iconKey: "Sun", superOnly: false },
-  { href: "/dashboard/my-day", labelKey: "nav.myDay", iconKey: "Target", superOnly: false },
-  { href: "/dashboard/war-room", labelKey: "nav.warRoom", iconKey: "Building2", superOnly: false },
-  { href: "/dashboard/timeline", labelKey: "nav.timeline", iconKey: "CalendarDays", superOnly: false },
   {
     href: "/dashboard/odoo",
     labelKey: "nav.odooCommand",

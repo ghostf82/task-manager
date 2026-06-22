@@ -26,11 +26,15 @@ export function OdooTasksPanelDynamic({
   initialLastSyncAt,
   odooBaseUrl = null,
   onlySection = null,
+  embedded = false,
+  collapseFutureCalendar = false,
 }: {
   initialWorkspace: InitialWorkspace;
   initialLastSyncAt: string | null;
   odooBaseUrl?: string | null;
   onlySection?: "tasks" | "projects" | "calendar" | "documents" | null;
+  embedded?: boolean;
+  collapseFutureCalendar?: boolean;
 }) {
   return (
     <OdooTasksPanel
@@ -38,6 +42,8 @@ export function OdooTasksPanelDynamic({
       initialLastSyncAt={initialLastSyncAt}
       odooBaseUrl={odooBaseUrl}
       onlySection={onlySection}
+      embedded={embedded}
+      collapseFutureCalendar={collapseFutureCalendar}
     />
   );
 }

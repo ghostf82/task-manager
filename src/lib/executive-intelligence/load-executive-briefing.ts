@@ -382,7 +382,7 @@ export async function loadExecutiveMorningBrief(
       titleKey: "executive.insight.exposedCompany",
       titleParams: { tenant: exposed.name, risks: exposed.complianceRisks + exposed.overdueTasks },
       actionKey: "executive.insight.actionWarRoom",
-      actionHref: `/dashboard/war-room/${exposed.slug}`,
+      actionHref: `/dashboard/odoo`,
     });
   }
   if ((pendingProposals?.length ?? 0) > 0) {

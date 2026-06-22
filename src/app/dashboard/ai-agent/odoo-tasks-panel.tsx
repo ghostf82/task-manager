@@ -85,6 +85,10 @@ export type OdooTasksPanelProps = {
   odooBaseUrl?: string | null;
   /** When set, only render this workspace section (deep drill-down). */
   onlySection?: "tasks" | "projects" | "calendar" | "documents" | null;
+  /** Embedded inside Odoo smart workspace — compact chrome. */
+  embedded?: boolean;
+  /** Collapse calendar events far in the future. */
+  collapseFutureCalendar?: boolean;
 };
 
 function cleanName(v: string): string {
@@ -261,6 +265,8 @@ export function OdooTasksPanel({
   initialLastSyncAt = null,
   odooBaseUrl = null,
   onlySection = null,
+  embedded = false,
+  collapseFutureCalendar = false,
 }: OdooTasksPanelProps) {
   const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
   const [bulkProgress, setBulkProgress] = useState<{ cur: number; total: number } | null>(null);
@@ -337,7 +343,10 @@ export function OdooTasksPanel({
   const [dayEvents, setDayEvents] = useState<CalendarRow[]>([]);
   /** Staged agenda fetch after bulk month/day list (avoids one huge Odoo payload → Netlify 504). */
   const [agendaHydrate, setAgendaHydrate] = useState<"idle" | "month" | "day">("idle");
+  const [futureCalendarOpen, setFutureCalendarOpen] = useState(false);
   const [deepCopySource, setDeepCopySource] = useState<CalendarRow | null>(null);
+
+  const NEAR_TERM_MS = 90 * 86400000;
 
   const [sectionOpen, setSectionOpen] = useState({
     tasks: !onlySection || onlySection === "tasks",
@@ -973,8 +982,34 @@ export function OdooTasksPanel({
       if (!m.has(k)) m.set(k, []);
       m.get(k)!.push(e);
     }
-    return [...m.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [filteredEvents]);
+
+  const { nearTermEventsByMonth, futureEventsByYear } = useMemo(() => {
+    if (!collapseFutureCalendar) {
+      return { nearTermEventsByMonth: eventsByMonth, futureEventsByYear: [] as [string, CalendarRow[]][] };
+    }
+    const now = Date.now();
+    const near = new Map<string, CalendarRow[]>();
+    const future = new Map<string, CalendarRow[]>();
+    for (const e of filteredEvents) {
+      const startMs = Date.parse(String(e.start).replace(" ", "T"));
+      const isFar =
+        Number.isFinite(startMs) && startMs - now > NEAR_TERM_MS;
+      const bucketKey = isFar
+        ? String(e.start || "").slice(0, 4) || "—"
+        : (e.start || "").slice(0, 7) || "—";
+      const target = isFar ? future : near;
+      if (!target.has(bucketKey)) target.set(bucketKey, []);
+      target.get(bucketKey)!.push(e);
+    }
+    return {
+      nearTermEventsByMonth: [...near.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+      futureEventsByYear: [...future.entries()].sort((a, b) => a[0].localeCompare(b[0])),
+    };
+  }, [collapseFutureCalendar, filteredEvents, eventsByMonth, NEAR_TERM_MS]);
+
+  const calendarMonthGroups = collapseFutureCalendar ? nearTermEventsByMonth : eventsByMonth;
 
   const documentsByType = useMemo(() => {
     const m = new Map<string, DocumentRow[]>();
@@ -1005,12 +1040,25 @@ export function OdooTasksPanel({
     : "";
 
   return (
-    <Card className="border-primary/20 w-full max-w-none shadow-[var(--shadow-premium)] ring-1 ring-primary/15">
-      <CardHeader>
-        <CardTitle>لوحة مهام Odoo (Browser Session)</CardTitle>
-        <CardDescription>
-          قراءة/بحث/تحديث/إنشاء مهام Odoo بدون Database Name.
-        </CardDescription>
+    <Card
+      className={cn(
+        "w-full max-w-none",
+        embedded
+          ? "border-border/60 shadow-sm"
+          : "border-primary/20 shadow-[var(--shadow-premium)] ring-1 ring-primary/15"
+      )}
+    >
+      <CardHeader className={embedded ? "pb-3" : undefined}>
+        {!embedded ? (
+          <>
+            <CardTitle>لوحة مهام Odoo (Browser Session)</CardTitle>
+            <CardDescription>
+              قراءة/بحث/تحديث/إنشاء مهام Odoo بدون Database Name.
+            </CardDescription>
+          </>
+        ) : (
+          <CardTitle className="text-base">سجلات Odoo</CardTitle>
+        )}
         <p
           className={`text-xs font-medium ${lastSyncStale ? "text-amber-800/90 dark:text-amber-300/90" : "text-muted-foreground"}`}
         >
@@ -1441,85 +1489,127 @@ export function OdooTasksPanel({
                       </td>
                     </tr>
                   ) : (
-                    eventsByMonth.flatMap(([ym, rows]) => [
-                      <tr key={`eg-${ym}`} className="border-b bg-muted/40">
-                        <td colSpan={6} className="py-2 ps-2 text-xs font-semibold text-primary">
-                          الشهر: {ym} ({rows.length})
-                        </td>
-                      </tr>,
-                      ...rows.map((e) => (
-                        <Fragment key={`evt-${e.id}`}>
-                          <tr className="border-b align-top">
-                            <td className="py-2 pe-3">{e.id}</td>
-                            <td className="py-2 pe-3 font-medium">{e.name}</td>
-                            <td className="py-2 pe-3">{e.responsible}</td>
-                            <td className="py-2 pe-3 text-xs [direction:ltr]">{e.start} → {e.stop}</td>
-                            <td className="py-2 pe-3">{e.active ? "نشط" : "مؤرشف"}</td>
-                            <td className="py-2">
-                              <div className="flex flex-wrap gap-1">
-                                <Button type="button" size="sm" variant="outline" onClick={() => setExpandedEventId((id) => (id === e.id ? null : e.id))}>
-                                  {expandedEventId === e.id ? "إخفاء" : "استعراض"}
-                                </Button>
-                                <Button type="button" size="sm" variant="outline" onClick={() => {
-                                  const next = prompt("اسم الحدث الجديد", e.name) ?? e.name;
-                                  runOp(`inline-event-${e.id}`, async () => {
-                                    const res = await updateOdooCalendarEventAction({ eventId: e.id, name: next });
-                                    if (!res.ok) {
-                                      toast.error(res.error);
-                                      return;
-                                    }
-                                    toast.success(res.message);
-                                    setNeedsRefresh(true);
-                                  });
-                                }}>تعديل</Button>
-                                <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("calendar.event", e.id)}>أرشفة</Button>
-                                <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("calendar.event", e.id)}>حذف</Button>
-                              </div>
-                            </td>
-                          </tr>
-                          {expandedEventId === e.id ? (
-                            <tr className="border-b bg-muted/20">
-                              <td colSpan={6} className="space-y-2 p-3 text-xs">
-                                {e.resModel ? (
-                                  <p>
-                                    <span className="font-medium">مرتبط بسجل Odoo:</span> {e.resModel}
-                                    {e.resId != null ? ` #${e.resId}` : ""}
-                                  </p>
-                                ) : null}
-                                <p><span className="font-medium">الموقع:</span> {e.location || "—"}</p>
-                                <p className="whitespace-pre-wrap"><span className="font-medium">الوصف:</span> {e.description || "لا توجد ملاحظات."}</p>
-                                {e.agendaItems?.length ? (
-                                  <div>
-                                    <p className="font-medium">جدول الأجندة:</p>
-                                    <ul className="list-disc ps-4">
-                                      {e.agendaItems.map((it) => (
-                                        <li key={it.id}>{it.name || "—"}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                ) : null}
-                                {e.agendaLines?.length ? (
-                                  <div>
-                                    <p className="font-medium">أنشطة بريد:</p>
-                                    <ul className="list-disc ps-4">
-                                      {e.agendaLines.map((a) => (
-                                        <li key={a.id}>{a.summary || "—"}</li>
-                                      ))}
-                                    </ul>
-                                  </div>
-                                ) : null}
-                                <p><span className="font-medium">اقتراح:</span></p>
-                                <ul className="list-disc ps-4">
-                                  {suggestEventAutomation(e).map((tip) => (
-                                    <li key={tip}>{tip}</li>
-                                  ))}
-                                </ul>
+                    <>
+                      {calendarMonthGroups.flatMap(([ym, rows]) => [
+                        <tr key={`eg-${ym}`} className="border-b bg-muted/40">
+                          <td colSpan={6} className="py-2 ps-2 text-xs font-semibold text-primary">
+                            الشهر: {ym} ({rows.length})
+                          </td>
+                        </tr>,
+                        ...rows.map((e) => (
+                          <Fragment key={`evt-${e.id}`}>
+                            <tr className="border-b align-top">
+                              <td className="py-2 pe-3">{e.id}</td>
+                              <td className="py-2 pe-3 font-medium">{e.name}</td>
+                              <td className="py-2 pe-3">{e.responsible}</td>
+                              <td className="py-2 pe-3 text-xs [direction:ltr]">{e.start} → {e.stop}</td>
+                              <td className="py-2 pe-3">{e.active ? "نشط" : "مؤرشف"}</td>
+                              <td className="py-2">
+                                <div className="flex flex-wrap gap-1">
+                                  <Button type="button" size="sm" variant="outline" onClick={() => setExpandedEventId((id) => (id === e.id ? null : e.id))}>
+                                    {expandedEventId === e.id ? "إخفاء" : "استعراض"}
+                                  </Button>
+                                  <Button type="button" size="sm" variant="outline" onClick={() => {
+                                    const next = prompt("اسم الحدث الجديد", e.name) ?? e.name;
+                                    runOp(`inline-event-${e.id}`, async () => {
+                                      const res = await updateOdooCalendarEventAction({ eventId: e.id, name: next });
+                                      if (!res.ok) {
+                                        toast.error(res.error);
+                                        return;
+                                      }
+                                      toast.success(res.message);
+                                      setNeedsRefresh(true);
+                                    });
+                                  }}>تعديل</Button>
+                                  <Button type="button" size="sm" variant="outline" onClick={() => archiveEntity("calendar.event", e.id)}>أرشفة</Button>
+                                  <Button type="button" size="sm" variant="destructive" onClick={() => deleteEntity("calendar.event", e.id)}>حذف</Button>
+                                </div>
                               </td>
                             </tr>
-                          ) : null}
-                        </Fragment>
-                      )),
-                    ])
+                            {expandedEventId === e.id ? (
+                              <tr className="border-b bg-muted/20">
+                                <td colSpan={6} className="space-y-2 p-3 text-xs">
+                                  {e.resModel ? (
+                                    <p>
+                                      <span className="font-medium">مرتبط بسجل Odoo:</span> {e.resModel}
+                                      {e.resId != null ? ` #${e.resId}` : ""}
+                                    </p>
+                                  ) : null}
+                                  <p><span className="font-medium">الموقع:</span> {e.location || "—"}</p>
+                                  <p className="whitespace-pre-wrap"><span className="font-medium">الوصف:</span> {e.description || "لا توجد ملاحظات."}</p>
+                                  {e.agendaItems?.length ? (
+                                    <div>
+                                      <p className="font-medium">جدول الأجندة:</p>
+                                      <ul className="list-disc ps-4">
+                                        {e.agendaItems.map((it) => (
+                                          <li key={it.id}>{it.name || "—"}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ) : null}
+                                  {e.agendaLines?.length ? (
+                                    <div>
+                                      <p className="font-medium">أنشطة بريد:</p>
+                                      <ul className="list-disc ps-4">
+                                        {e.agendaLines.map((a) => (
+                                          <li key={a.id}>{a.summary || "—"}</li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  ) : null}
+                                  <p><span className="font-medium">اقتراح:</span></p>
+                                  <ul className="list-disc ps-4">
+                                    {suggestEventAutomation(e).map((tip) => (
+                                      <li key={tip}>{tip}</li>
+                                    ))}
+                                  </ul>
+                                </td>
+                              </tr>
+                            ) : null}
+                          </Fragment>
+                        )),
+                      ])}
+                      {collapseFutureCalendar && futureEventsByYear.length ? (
+                        <>
+                          <tr className="border-b bg-amber-500/10">
+                            <td colSpan={6} className="py-2 ps-2">
+                              <button
+                                type="button"
+                                className="flex w-full items-center justify-between gap-2 text-start text-xs font-semibold text-amber-900"
+                                onClick={() => setFutureCalendarOpen((o) => !o)}
+                              >
+                                <span>أحداث مجدولة في المستقبل (بعد 90 يوماً) — {futureEventsByYear.reduce((n, [, r]) => n + r.length, 0)} حدث</span>
+                                <ChevronDown className={cn("size-4 shrink-0 transition-transform", !futureCalendarOpen && "-rotate-90")} />
+                              </button>
+                              <p className="text-muted-foreground mt-0.5 text-[10px] font-normal">وسّع فقط عند الحاجة — لا تُعرض ضمن الأحداث القريبة.</p>
+                            </td>
+                          </tr>
+                          {futureCalendarOpen
+                            ? futureEventsByYear.flatMap(([year, rows]) => [
+                                <tr key={`feg-${year}`} className="border-b bg-muted/30">
+                                  <td colSpan={6} className="py-1.5 ps-3 text-[11px] font-medium text-muted-foreground">
+                                    سنة {year} ({rows.length})
+                                  </td>
+                                </tr>,
+                                ...rows.map((e) => (
+                                  <tr key={`fevt-${e.id}`} className="border-b align-top text-muted-foreground">
+                                    <td className="py-2 pe-3">{e.id}</td>
+                                    <td className="py-2 pe-3">{e.name}</td>
+                                    <td className="py-2 pe-3">{e.responsible}</td>
+                                    <td className="py-2 pe-3 text-xs [direction:ltr]">{e.start} → {e.stop}</td>
+                                    <td className="py-2 pe-3">{e.active ? "نشط" : "مؤرشف"}</td>
+                                    <td className="py-2">
+                                      <Button type="button" size="sm" variant="outline" onClick={() => setExpandedEventId((id) => (id === e.id ? null : e.id))}>
+                                        {expandedEventId === e.id ? "إخفاء" : "استعراض"}
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                )),
+                              ])
+                            : null}
+                        </>
+                      ) : null}
+                    </>
                   )}
                 </tbody>
               </table>

@@ -1,17 +1,20 @@
-import { OdooCommandCenterView } from "@/app/dashboard/odoo/odoo-command-center-view";
+import Link from "next/link";
+
+import { ExecutiveBriefShellDisconnected } from "@/components/command-center/odoo-executive-brief";
+import { OdooSmartWorkspaceShell } from "@/app/dashboard/odoo/odoo-smart-workspace-shell";
 import { buildOdooBriefLabels } from "@/lib/command-center/odoo-brief-labels";
+import { loadOdooWorkspaceCache } from "@/lib/command-center/load-odoo-workspace-cache";
 import { loadOdooOperationalBrief } from "@/lib/command-center/odoo-operational-brief";
 import { requireSession } from "@/lib/dashboard-auth";
 import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
 import { getTranslator } from "@/lib/i18n/get-translator";
 import { createClient } from "@/lib/supabase/server";
-import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export const maxDuration = 120;
 
-export default async function OdooCommandCenterPage() {
+export default async function OdooWorkspacePage() {
   const session = await requireSession();
   const { t, locale } = await getTranslator();
   const supabase = await createClient();
@@ -33,8 +36,25 @@ export default async function OdooCommandCenterPage() {
     );
   }
 
-  const brief = await loadOdooOperationalBrief(supabase, session.id, session.isSuperAdmin);
+  const [brief, cache] = await Promise.all([
+    loadOdooOperationalBrief(supabase, session.id, session.isSuperAdmin),
+    loadOdooWorkspaceCache(supabase, session.id),
+  ]);
   const labels = buildOdooBriefLabels(t);
 
-  return <OdooCommandCenterView brief={brief} labels={labels} locale={locale} />;
+  if (!brief.connected) {
+    return <ExecutiveBriefShellDisconnected labels={labels} />;
+  }
+
+  return (
+    <OdooSmartWorkspaceShell
+      brief={brief}
+      labels={labels}
+      locale={locale}
+      initialWorkspace={cache.initialWorkspace}
+      initialLastSyncAt={cache.lastSyncAt}
+      odooBaseUrl={cache.odooBaseUrl}
+      loadingLabel={t("common.loading")}
+    />
+  );
 }

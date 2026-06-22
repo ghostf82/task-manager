@@ -21,7 +21,7 @@ import type { ComplianceMonitorItem, OdooOperationalBrief } from "@/lib/command-
 type Zone = "brief" | "compliance" | "tasks" | "projects" | "calendar" | "documents" | "reports";
 
 function zoneHref(zone: Exclude<Zone, "brief" | "reports" | "compliance">) {
-  return `/dashboard/odoo/workspace?zone=${zone}`;
+  return `/dashboard/odoo?tab=${zone}`;
 }
 
 export function OdooWorkCenters({
@@ -184,7 +184,7 @@ function ReportsZone({ labels }: { labels: OdooBriefLabels }) {
     { href: "/api/reports/documents", label: labels.reportComplianceExcel },
     { href: "/api/reports/tasks?format=pdf", label: labels.reportTasksPdf },
     { href: "/api/reports/tasks", label: labels.reportTasksExcel },
-    { href: "/dashboard/odoo/workspace?zone=tasks", label: labels.reportOdooExcel },
+    { href: "/dashboard/odoo?tab=tasks", label: labels.reportOdooExcel },
   ];
 
   return (
