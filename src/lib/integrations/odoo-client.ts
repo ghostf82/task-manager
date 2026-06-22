@@ -67,6 +67,22 @@ export type OdooDocumentFolderLite = {
   document_count?: number;
 };
 
+import {
+  ODOO_VIRTUAL_ALL_ATTACHMENTS_FOLDER_ID,
+  type OdooDocumentsExplorerMode,
+} from "@/lib/integrations/odoo-documents-constants";
+
+/** Flat attachment explorer — no documents.folder model on server. */
+export { ODOO_VIRTUAL_ALL_ATTACHMENTS_FOLDER_ID, type OdooDocumentsExplorerMode } from "@/lib/integrations/odoo-documents-constants";
+
+export type OdooDocumentFoldersResult = {
+  folders: OdooDocumentFolderLite[];
+  mode: OdooDocumentsExplorerMode;
+  error?: string;
+  userMessage?: string;
+  technicalDetail?: string;
+};
+
 export type OdooCalendarAgendaLineLite = {
   id: number;
   summary: string;
@@ -1629,6 +1645,12 @@ async function webCallKw(params: {
     `odoo_call_kw_${params.model}_${params.method}`
   );
   const raw = await res.text();
+  if (!res.ok) {
+    throw new OdooGatewayError(
+      "OdooUnknown",
+      `[call_kw] ${res.status}: ${res.statusText || "Not Found"}`
+    );
+  }
   const json = parseJsonOrThrow(raw, `odoo_call_kw_${params.model}_${params.method}`);
   if (json.error && typeof json.error === "object") {
     const e = json.error as Record<string, unknown>;
@@ -2003,6 +2025,12 @@ function humanizeOdooError(raw: string): string {
   }
   if (msg.includes("timeout")) {
     return `تعذّر الاتصال بـ Odoo خلال المهلة. ${ODOO_SETTINGS_HINT}`;
+  }
+  if (
+    msg.includes("404") &&
+    (msg.includes("documents") || msg.includes("folder") || msg.includes("attachment"))
+  ) {
+    return "تطبيق مستندات Odoo غير متاح أو غير مفعّل على هذا الخادم. جرّب فتح المستندات من Odoo مباشرة أو استخدم وضع المرفقات.";
   }
   return `تعذر الاتصال بـ Odoo: ${raw}`;
 }
@@ -2881,6 +2909,159 @@ export async function copyOdooCalendarEventViaWebLogin(params: {
   }
 }
 
+function isOdooModelMissingError(error: unknown): boolean {
+  const msg = asGatewayError(error).message.toLowerCase();
+  return (
+    msg.includes("404") ||
+    msg.includes("not found") ||
+    msg.includes("unknown model") ||
+    msg.includes("does not exist") ||
+    msg.includes("doesn't exist") ||
+    msg.includes("no such model") ||
+    (msg.includes("access denied") && msg.includes("model"))
+  );
+}
+
+function mapDocumentRows(rows: unknown[]): OdooWebDocumentLite[] {
+  return rows
+    .filter((x) => x && typeof x === "object")
+    .map((r) => r as OdooWebDocumentLite)
+    .map((r) => ({
+      id: Number(r.id),
+      name: String(r.name ?? ""),
+      type: typeof r.type === "string" ? r.type : "",
+      mimetype: typeof r.mimetype === "string" ? r.mimetype : (false as const),
+      create_date: typeof r.create_date === "string" ? r.create_date : "",
+      create_uid:
+        Array.isArray(r.create_uid) && typeof r.create_uid[0] === "number" && typeof r.create_uid[1] === "string"
+          ? ([Number(r.create_uid[0]), String(r.create_uid[1])] as [number, string])
+          : (false as const),
+      folder_id: Array.isArray(r.folder_id)
+        ? ([Number(r.folder_id[0]), String(r.folder_id[1])] as [number, string])
+        : typeof r.folder_id === "number"
+          ? r.folder_id
+          : (false as const),
+      owner_id:
+        Array.isArray(r.owner_id) && typeof r.owner_id[0] === "number" && typeof r.owner_id[1] === "string"
+          ? ([Number(r.owner_id[0]), String(r.owner_id[1])] as [number, string])
+          : (false as const),
+      file_size: typeof r.file_size === "number" ? r.file_size : (false as const),
+      res_model: typeof r.res_model === "string" ? r.res_model : (false as const),
+      res_id: typeof r.res_id === "number" ? r.res_id : (false as const),
+      tag_ids: Array.isArray(r.tag_ids) ? r.tag_ids.map(Number) : [],
+    }));
+}
+
+async function searchReadDocumentsDocument(
+  bundle: OdooCredentialBundle,
+  domain: unknown[],
+  kwargs: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  return callKwWithSessionRetry(bundle, async (session) =>
+    webCallKw({
+      baseUrl: session.baseUrl,
+      cookieHeader: session.cookieHeader,
+      model: "documents.document",
+      method: "search_read",
+      args: [domain],
+      kwargs,
+    })
+  );
+}
+
+async function searchReadIrAttachments(
+  bundle: OdooCredentialBundle,
+  domain: unknown[],
+  kwargs: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  return callKwWithSessionRetry(bundle, async (session) =>
+    webCallKw({
+      baseUrl: session.baseUrl,
+      cookieHeader: session.cookieHeader,
+      model: "ir.attachment",
+      method: "search_read",
+      args: [domain],
+      kwargs,
+    })
+  );
+}
+
+async function buildVirtualFoldersFromDocuments(
+  bundle: OdooCredentialBundle,
+  limit = 800
+): Promise<OdooDocumentFolderLite[]> {
+  const json = await searchReadDocumentsDocument(bundle, [], {
+    fields: ["id", "folder_id"],
+    order: "id desc",
+    limit,
+  });
+  const rows = Array.isArray(json.result) ? json.result : [];
+  const counts = new Map<number, { name: string; count: number }>();
+  let unfiled = 0;
+  for (const raw of rows) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as Record<string, unknown>;
+    const pair = readOdooMany2onePair(r.folder_id);
+    if (pair.id == null) {
+      unfiled += 1;
+      continue;
+    }
+    const prev = counts.get(pair.id);
+    counts.set(pair.id, {
+      name: pair.name || `مجلد #${pair.id}`,
+      count: (prev?.count ?? 0) + 1,
+    });
+  }
+  const folders: OdooDocumentFolderLite[] = [...counts.entries()]
+    .sort((a, b) => a[1].name.localeCompare(b[1].name, "ar"))
+    .map(([id, meta]) => ({
+      id,
+      name: meta.name,
+      parent_folder_id: false,
+      description: false,
+      document_count: meta.count,
+    }));
+  if (unfiled > 0) {
+    folders.unshift({
+      id: -1,
+      name: "بدون مجلد",
+      parent_folder_id: false,
+      description: "مستندات بلا مجلد في Odoo",
+      document_count: unfiled,
+    });
+  }
+  return folders;
+}
+
+async function attachmentsFallbackFolder(
+  bundle: OdooCredentialBundle
+): Promise<OdooDocumentFolderLite[]> {
+  let count = 0;
+  try {
+    const json = await callKwWithSessionRetry(bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: "ir.attachment",
+        method: "search_count",
+        args: [[]],
+      })
+    );
+    count = Number(json.result ?? 0);
+  } catch {
+    count = 0;
+  }
+  return [
+    {
+      id: ODOO_VIRTUAL_ALL_ATTACHMENTS_FOLDER_ID,
+      name: "جميع المرفقات",
+      parent_folder_id: false,
+      description: "وضع احتياطي — تطبيق المستندات غير متاح على هذا الخادم",
+      document_count: count,
+    },
+  ];
+}
+
 export async function listOdooDocumentsViaWebLogin(params: {
   bundle: OdooCredentialBundle;
   text?: string;
@@ -2888,25 +3069,32 @@ export async function listOdooDocumentsViaWebLogin(params: {
   offset?: number;
   folderId?: number | null;
   mineOnly?: boolean;
-}): Promise<{ documents: OdooWebDocumentLite[]; error?: string }> {
+}): Promise<{ documents: OdooWebDocumentLite[]; error?: string; mode?: OdooDocumentsExplorerMode }> {
   try {
     const domain: unknown[] = [];
     if (params.text?.trim()) domain.push(["name", "ilike", params.text.trim()]);
-    if (Number.isFinite(Number(params.folderId))) {
-      domain.push(["folder_id", "=", Number(params.folderId)]);
+    const folderId = Number(params.folderId);
+    const useFolderFilter =
+      Number.isFinite(folderId) &&
+      folderId !== ODOO_VIRTUAL_ALL_ATTACHMENTS_FOLDER_ID &&
+      folderId !== 0;
+    if (useFolderFilter) {
+      if (folderId === -1) {
+        domain.push(["folder_id", "=", false]);
+      } else {
+        domain.push(["folder_id", "=", folderId]);
+      }
     }
     const limit = Math.min(200, Math.max(1, Number(params.limit ?? 50)));
     const offset = Math.max(0, Number(params.offset ?? 0));
     let json: Record<string, unknown>;
+    let mode: OdooDocumentsExplorerMode = "documents_app";
     try {
       json = await callKwWithSessionRetry(params.bundle, async (session) =>
-        webCallKw({
-          baseUrl: session.baseUrl,
-          cookieHeader: session.cookieHeader,
-          model: "documents.document",
-          method: "search_read",
-          args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
-          kwargs: {
+        searchReadDocumentsDocument(
+          params.bundle,
+          params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain,
+          {
             fields: [
               "id",
               "name",
@@ -2924,56 +3112,30 @@ export async function listOdooDocumentsViaWebLogin(params: {
             order: "id desc",
             limit,
             offset,
-          },
-        })
+          }
+        )
       );
-    } catch {
-      // Fallback for tenants without documents app access.
+    } catch (docErr) {
+      if (!isOdooModelMissingError(docErr)) throw docErr;
+      mode = "attachments_only";
+      const attachDomain = domain.filter(
+        (clause) => !Array.isArray(clause) || clause[0] !== "folder_id"
+      );
       json = await callKwWithSessionRetry(params.bundle, async (session) =>
-        webCallKw({
-          baseUrl: session.baseUrl,
-          cookieHeader: session.cookieHeader,
-          model: "ir.attachment",
-          method: "search_read",
-          args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
-          kwargs: {
+        searchReadIrAttachments(
+          params.bundle,
+          params.mineOnly ? [["create_uid", "=", session.uid], ...attachDomain] : attachDomain,
+          {
             fields: ["id", "name", "type", "mimetype", "create_date", "create_uid", "file_size", "res_model", "res_id"],
             order: "id desc",
             limit,
             offset,
-          },
-        })
+          }
+        )
       );
     }
     const rows = Array.isArray(json.result) ? json.result : [];
-    const documents = rows
-      .filter((x) => x && typeof x === "object")
-      .map((r) => r as OdooWebDocumentLite)
-      .map((r) => ({
-        id: Number(r.id),
-        name: String(r.name ?? ""),
-        type: typeof r.type === "string" ? r.type : "",
-        mimetype: typeof r.mimetype === "string" ? r.mimetype : (false as const),
-        create_date: typeof r.create_date === "string" ? r.create_date : "",
-        create_uid:
-          Array.isArray(r.create_uid) && typeof r.create_uid[0] === "number" && typeof r.create_uid[1] === "string"
-            ? ([Number(r.create_uid[0]), String(r.create_uid[1])] as [number, string])
-            : (false as const),
-        folder_id: Array.isArray(r.folder_id)
-          ? ([Number(r.folder_id[0]), String(r.folder_id[1])] as [number, string])
-          : typeof r.folder_id === "number"
-            ? r.folder_id
-            : (false as const),
-        owner_id:
-          Array.isArray(r.owner_id) && typeof r.owner_id[0] === "number" && typeof r.owner_id[1] === "string"
-            ? ([Number(r.owner_id[0]), String(r.owner_id[1])] as [number, string])
-            : (false as const),
-        file_size: typeof r.file_size === "number" ? r.file_size : (false as const),
-        res_model: typeof r.res_model === "string" ? r.res_model : (false as const),
-        res_id: typeof r.res_id === "number" ? r.res_id : (false as const),
-        tag_ids: Array.isArray(r.tag_ids) ? r.tag_ids.map(Number) : [],
-      }));
-    return { documents };
+    return { documents: mapDocumentRows(rows), mode };
   } catch (e) {
     return { documents: [], error: humanizeGatewayError(e) };
   }
@@ -2982,7 +3144,8 @@ export async function listOdooDocumentsViaWebLogin(params: {
 export async function listOdooDocumentFoldersViaWebLogin(params: {
   bundle: OdooCredentialBundle;
   limit?: number;
-}): Promise<{ folders: OdooDocumentFolderLite[]; error?: string }> {
+}): Promise<OdooDocumentFoldersResult> {
+  const technical: string[] = [];
   try {
     const json = await callKwWithSessionRetry(params.bundle, async (session) =>
       webCallKw({
@@ -3013,9 +3176,53 @@ export async function listOdooDocumentFoldersViaWebLogin(params: {
         description: typeof r.description === "string" ? r.description : (false as const),
         document_count: typeof r.document_count === "number" ? r.document_count : 0,
       }));
-    return { folders };
-  } catch (e) {
-    return { folders: [], error: humanizeGatewayError(e) };
+    return { folders, mode: "documents_app" };
+  } catch (folderErr) {
+    const detail = asGatewayError(folderErr).message;
+    technical.push(`documents.folder: ${detail}`);
+    if (!isOdooModelMissingError(folderErr)) {
+      return {
+        folders: [],
+        mode: "attachments_only",
+        error: humanizeGatewayError(folderErr),
+        userMessage: "تعذّر تحميل مجلدات المستندات من Odoo.",
+        technicalDetail: technical.join("\n"),
+      };
+    }
+    try {
+      const virtual = await buildVirtualFoldersFromDocuments(params.bundle);
+      if (virtual.length) {
+        return {
+          folders: virtual,
+          mode: "virtual_folders",
+          userMessage:
+            "تطبيق مجلدات Odoo غير متاح — تم بناء شجرة مؤقتة من المستندات المجلوبة.",
+          technicalDetail: technical.join("\n"),
+        };
+      }
+    } catch (virtualErr) {
+      technical.push(`documents.document: ${asGatewayError(virtualErr).message}`);
+    }
+    try {
+      const fallback = await attachmentsFallbackFolder(params.bundle);
+      return {
+        folders: fallback,
+        mode: "attachments_only",
+        userMessage:
+          "تطبيق مستندات Odoo غير مفعّل على هذا الخادم. يُعرض وضع المرفقات (ir.attachment) كبديل.",
+        technicalDetail: technical.join("\n"),
+      };
+    } catch (attachErr) {
+      technical.push(`ir.attachment: ${asGatewayError(attachErr).message}`);
+      return {
+        folders: [],
+        mode: "attachments_only",
+        error: humanizeGatewayError(attachErr),
+        userMessage:
+          "تعذّر الوصول إلى مستندات Odoo. قد لا يكون تطبيق المستندات مثبتاً أو ليس لديك صلاحية.",
+        technicalDetail: technical.join("\n"),
+      };
+    }
   }
 }
 

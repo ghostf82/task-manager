@@ -1415,17 +1415,39 @@ export async function listOdooDocumentsAction(input?: {
 }
 
 export async function listOdooDocumentFoldersAction(): Promise<
-  | { ok: true; folders: OdooDocumentFolderRow[] }
-  | { ok: false; error: string }
+  | {
+      ok: true;
+      folders: OdooDocumentFolderRow[];
+      mode: import("@/lib/integrations/odoo-client").OdooDocumentsExplorerMode;
+      warning?: string;
+      technicalDetail?: string;
+    }
+  | { ok: false; error: string; technicalDetail?: string; mode?: import("@/lib/integrations/odoo-client").OdooDocumentsExplorerMode }
 > {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
   const res = await listOdooDocumentFoldersViaWebLogin({ bundle, limit: 500 });
-  if (res.error) return { ok: false, error: res.error };
   const folders = res.folders.map(mapOdooDocumentFolderLiteToRow);
-  return { ok: true, folders };
+  if (!folders.length) {
+    return {
+      ok: false,
+      error:
+        res.userMessage ??
+        res.error ??
+        "تعذّر تحميل مجلدات المستندات. قد لا يكون تطبيق المستندات مثبتاً على Odoo.",
+      technicalDetail: res.technicalDetail,
+      mode: res.mode,
+    };
+  }
+  return {
+    ok: true,
+    folders,
+    mode: res.mode,
+    warning: res.userMessage,
+    technicalDetail: res.technicalDetail,
+  };
 }
 
 export async function listOdooDocumentsInFolderAction(input: {

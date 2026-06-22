@@ -48,6 +48,7 @@ import {
   type OdooWorkspaceFilter,
 } from "@/lib/command-center/odoo-workspace-filters";
 import { OdooDocumentsExplorer, type OdooFolderRow } from "@/app/dashboard/odoo/odoo-documents-explorer";
+import type { OdooDocumentsExplorerMode } from "@/lib/integrations/odoo-documents-constants";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -110,6 +111,8 @@ export type OdooTasksPanelProps = {
     projects: unknown;
     events: unknown;
     documents: unknown;
+    folders?: unknown;
+    meta?: unknown;
   } | null;
   initialLastSyncAt?: string | null;
   odooBaseUrl?: string | null;
@@ -357,6 +360,11 @@ export function OdooTasksPanel({
       creator: String(d.creator ?? "—"),
     }));
   });
+  const workspaceDocumentsMeta = useMemo(() => {
+    const m = initialWorkspace?.meta;
+    if (!m || typeof m !== "object") return null;
+    return m as { documentsMode?: OdooDocumentsExplorerMode; documentsWarning?: string | null };
+  }, [initialWorkspace]);
   const [projectName, setProjectName] = useState("");
   const [projectIdForUpdate, setProjectIdForUpdate] = useState("");
   const [projectNameForUpdate, setProjectNameForUpdate] = useState("");
@@ -1904,6 +1912,9 @@ export function OdooTasksPanel({
               initialFolders={initialFolders}
               locale="ar"
               complianceFilter={workspaceFilter === "compliance"}
+              odooBaseUrl={odooBaseUrl}
+              initialMode={workspaceDocumentsMeta?.documentsMode}
+              initialWarning={workspaceDocumentsMeta?.documentsWarning ?? undefined}
             />
           ) : (
           <div className="w-full">

@@ -29,6 +29,7 @@ import {
   buildOdooFilterHref,
   type OdooWorkspaceFilter,
 } from "@/lib/command-center/odoo-workspace-filters";
+import { SizedChartHost } from "@/components/ui/sized-chart-host";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -250,32 +251,36 @@ export function OdooInteractiveDashboard({
             </CardTitle>
             <CardDescription className="text-xs">{labels.insightsDesc}</CardDescription>
           </CardHeader>
-          <CardContent className="h-[200px]">
+          <CardContent className="h-[200px] w-full min-h-[200px] min-w-0">
             {taskChart.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={taskChart}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={45}
-                    outerRadius={70}
-                    paddingAngle={2}
-                    onClick={(_, i) => {
-                      const item = taskChart[i];
-                      if (item?.filter) onNavigate("tasks", item.filter);
-                    }}
-                    style={{ cursor: "pointer" }}
-                  >
-                    {taskChart.map((entry) => (
-                      <Cell key={entry.name} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+              <SizedChartHost className="h-full w-full min-h-[180px] min-w-0">
+                {({ width, height }) => (
+                  <ResponsiveContainer width={width} height={height}>
+                    <PieChart>
+                      <Pie
+                        data={taskChart}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={45}
+                        outerRadius={70}
+                        paddingAngle={2}
+                        onClick={(_, i) => {
+                          const item = taskChart[i];
+                          if (item?.filter) onNavigate("tasks", item.filter);
+                        }}
+                        style={{ cursor: "pointer" }}
+                      >
+                        {taskChart.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </SizedChartHost>
             ) : (
               <p className="text-muted-foreground flex h-full items-center justify-center text-sm">
                 {labels.queueEmpty}
@@ -292,24 +297,28 @@ export function OdooInteractiveDashboard({
               {labels.workloadTitle}
             </CardTitle>
           </CardHeader>
-          <CardContent className="h-[200px]">
+          <CardContent className="h-[200px] w-full min-h-[200px] min-w-0">
             {workloadChart.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={workloadChart} layout="vertical" margin={{ left: 8, right: 8 }}>
-                  <XAxis type="number" hide />
-                  <YAxis type="category" dataKey="name" width={72} tick={{ fontSize: 10 }} />
-                  <Tooltip
-                    formatter={(v, name) => [v, name === "overdue" ? labels.summaryOverdue : labels.zoneTasks]}
-                    labelFormatter={(_, payload) =>
-                      payload?.[0] && typeof payload[0] === "object" && "payload" in payload[0]
-                        ? String((payload[0] as { payload?: { fullName?: string } }).payload?.fullName ?? "")
-                        : ""
-                    }
-                  />
-                  <Bar dataKey="tasks" fill="#6366f1" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="overdue" fill="#e11d48" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <SizedChartHost className="h-full w-full min-h-[180px] min-w-0">
+                {({ width, height }) => (
+                  <ResponsiveContainer width={width} height={height}>
+                    <BarChart data={workloadChart} layout="vertical" margin={{ left: 8, right: 8 }}>
+                      <XAxis type="number" hide />
+                      <YAxis type="category" dataKey="name" width={72} tick={{ fontSize: 10 }} />
+                      <Tooltip
+                        formatter={(v, name) => [v, name === "overdue" ? labels.summaryOverdue : labels.zoneTasks]}
+                        labelFormatter={(_, payload) =>
+                          payload?.[0] && typeof payload[0] === "object" && "payload" in payload[0]
+                            ? String((payload[0] as { payload?: { fullName?: string } }).payload?.fullName ?? "")
+                            : ""
+                        }
+                      />
+                      <Bar dataKey="tasks" fill="#6366f1" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="overdue" fill="#e11d48" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </SizedChartHost>
             ) : (
               <p className="text-muted-foreground flex h-full items-center justify-center text-sm">
                 {labels.queueEmpty}

@@ -1,12 +1,12 @@
 import "server-only";
 
-import type { OdooCredentialBundle } from "@/lib/integrations/odoo-client";
+import type { OdooCredentialBundle, OdooDocumentFolderLite } from "@/lib/integrations/odoo-client";
+import type { OdooDocumentsExplorerMode } from "@/lib/integrations/odoo-documents-constants";
 import {
   listOdooCalendarEventsViaWebLogin,
   listOdooDocumentFoldersViaWebLogin,
   listOdooProjectsViaWebLogin,
   searchOdooTasksViaWebLogin,
-  type OdooDocumentFolderLite,
 } from "@/lib/integrations/odoo-client";
 import { operationalCalendarWindow } from "@/lib/integrations/odoo-calendar-windows";
 import { buildOdooDataCoverageReport } from "@/lib/integrations/odoo-coverage";
@@ -99,7 +99,9 @@ export type OdooWorkspaceSyncPayload = {
     coverage: Awaited<ReturnType<typeof buildOdooDataCoverageReport>>;
     calendarWindow: ReturnType<typeof operationalCalendarWindow>;
     syncMode: "phase0";
-    documentsMode: "explorer_folders_only";
+    documentsMode: OdooDocumentsExplorerMode;
+    documentsWarning?: string | null;
+    documentsTechnicalDetail?: string | null;
   };
 };
 
@@ -178,7 +180,8 @@ export async function syncOdooWorkspacePhase0(
   if (tasksRes.error) return { ok: false, error: tasksRes.error };
   if (projectsRes.error) return { ok: false, error: projectsRes.error };
   if (eventsRes.error) return { ok: false, error: eventsRes.error };
-  if (foldersRes.error) return { ok: false, error: foldersRes.error };
+
+  const folderRows = foldersRes.folders.map(mapOdooDocumentFolderLiteToRow);
 
   const tasks = await enrichOdooWebTasksToUiRows(bundle, tasksRes.tasks);
   const projectsBase = projectsRes.projects.map(mapRawProjectToEnriched);
@@ -204,12 +207,14 @@ export async function syncOdooWorkspacePhase0(
       projects,
       events,
       documents: [],
-      folders: foldersRes.folders.map(mapOdooDocumentFolderLiteToRow),
+      folders: folderRows,
       meta: {
         coverage,
         calendarWindow: win,
         syncMode: "phase0",
-        documentsMode: "explorer_folders_only",
+        documentsMode: foldersRes.mode,
+        documentsWarning: foldersRes.userMessage ?? foldersRes.error ?? null,
+        documentsTechnicalDetail: foldersRes.technicalDetail ?? null,
       },
     },
   };
