@@ -48,6 +48,7 @@ import {
   type OdooWorkspaceFilter,
 } from "@/lib/command-center/odoo-workspace-filters";
 import { OdooDocumentsExplorer, type OdooFolderRow } from "@/app/dashboard/odoo/odoo-documents-explorer";
+import { formatProjectLinkedCount } from "@/lib/integrations/odoo-project-enrich";
 import type { OdooDocumentsExplorerMode } from "@/lib/integrations/odoo-documents-constants";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,8 +71,10 @@ type ProjectRow = {
   taskCount?: number;
   openTaskCount?: number;
   overdueTaskCount?: number;
-  linkedEventCount?: number;
-  linkedDocumentCount?: number;
+  linkedEventCount?: number | null;
+  linkedEventConfidence?: import("@/lib/command-center/odoo-relationship-types").OdooRelationshipConfidence;
+  linkedDocumentCount?: number | null;
+  linkedDocumentConfidence?: import("@/lib/command-center/odoo-relationship-types").OdooRelationshipConfidence;
   hasNoTasks?: boolean;
   isStalled?: boolean;
 };
@@ -1583,9 +1586,12 @@ export function OdooTasksPanel({
                         <div className="mt-2 flex flex-wrap gap-2 text-[10px] tabular-nums">
                           <span className="rounded bg-muted px-1.5 py-0.5">{intel?.taskCount ?? p.taskCount ?? 0} مهام</span>
                           <span className="rounded bg-muted px-1.5 py-0.5">{intel?.overdueTasks ?? p.overdueTaskCount ?? 0} متأخر</span>
-                          {(p.linkedEventCount ?? 0) > 0 ? (
-                            <span className="rounded bg-muted px-1.5 py-0.5">{p.linkedEventCount} أحداث</span>
-                          ) : null}
+                          <span className="rounded bg-muted px-1.5 py-0.5" title="من نافذة التقويم المزامنة">
+                            {formatProjectLinkedCount(p.linkedEventCount ?? null, p.linkedEventConfidence ?? "partial", "ar")} أحداث
+                          </span>
+                          <span className="rounded bg-muted px-1.5 py-0.5" title="يُحدَّث عند تصفح مجلد المستندات">
+                            {formatProjectLinkedCount(p.linkedDocumentCount ?? null, p.linkedDocumentConfidence ?? "needs_browse", "ar")} مستندات
+                          </span>
                         </div>
                         {p.descriptionPlain ? (
                           <p className="text-muted-foreground mt-2 line-clamp-2 text-[11px]">{p.descriptionPlain}</p>

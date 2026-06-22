@@ -85,7 +85,9 @@ export function mapRawProjectToEnriched(p: RawProject): OdooProjectEnrichedRow {
     highPriorityTaskCount: 0,
     unassignedTaskCount: 0,
     linkedEventCount: 0,
-    linkedDocumentCount: 0,
+    linkedEventConfidence: "partial",
+    linkedDocumentCount: null,
+    linkedDocumentConfidence: "needs_browse",
   };
 }
 
@@ -189,7 +191,7 @@ export async function syncOdooWorkspacePhase0(
     resModel: typeof e.res_model === "string" ? e.res_model : "",
     resId: typeof e.res_id === "number" ? e.res_id : null,
   }));
-  const projects = enrichProjectsWithLinks(projectsBase, tasks, eventsForLinks, []);
+  const projects = enrichProjectsWithLinks(projectsBase, tasks, eventsForLinks, [], "none");
   const events = mapCalendarEventsToPanelRows(eventsRes.events);
 
   const coverage = await buildOdooDataCoverageReport(bundle, {

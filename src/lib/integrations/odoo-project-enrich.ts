@@ -1,4 +1,5 @@
 import type { OdooTaskUiRow } from "@/lib/integrations/odoo-task-ui-types";
+import type { OdooRelationshipConfidence } from "@/lib/command-center/odoo-relationship-types";
 
 export type OdooProjectEnrichedRow = {
   id: number;
@@ -18,14 +19,15 @@ export type OdooProjectEnrichedRow = {
   dateEnd: string;
   tags: string[];
   tagIds: number[];
-  /** From Odoo when available; otherwise derived from synced tasks. */
   taskCount: number;
   openTaskCount: number;
   overdueTaskCount: number;
   highPriorityTaskCount: number;
   unassignedTaskCount: number;
-  linkedEventCount: number;
-  linkedDocumentCount: number;
+  linkedEventCount: number | null;
+  linkedEventConfidence: OdooRelationshipConfidence;
+  linkedDocumentCount: number | null;
+  linkedDocumentConfidence: OdooRelationshipConfidence;
 };
 
 function parseDeadlineMs(deadline: string): number | null {
@@ -46,11 +48,14 @@ function isUnassigned(task: OdooTaskUiRow): boolean {
   return !r || r === "—";
 }
 
+export type EnrichProjectsDocumentsScope = "none" | "partial";
+
 export function enrichProjectsWithLinks(
   projects: OdooProjectEnrichedRow[],
   tasks: OdooTaskUiRow[],
   events: Array<{ resModel?: string; resId?: number | null }>,
-  documents: Array<{ resModel?: string; resId?: number | null; folderId?: number | null }>
+  documents: Array<{ resModel?: string; resId?: number | null; folderId?: number | null }>,
+  documentsScope: EnrichProjectsDocumentsScope = documents.length ? "partial" : "none"
 ): OdooProjectEnrichedRow[] {
   const now = Date.now();
   const byProject = new Map<number, OdooProjectEnrichedRow>();
@@ -64,7 +69,9 @@ export function enrichProjectsWithLinks(
       highPriorityTaskCount: 0,
       unassignedTaskCount: 0,
       linkedEventCount: 0,
-      linkedDocumentCount: 0,
+      linkedEventConfidence: "partial",
+      linkedDocumentCount: documentsScope === "none" ? null : 0,
+      linkedDocumentConfidence: documentsScope === "none" ? "needs_browse" : "partial",
     });
   }
 
@@ -83,15 +90,38 @@ export function enrichProjectsWithLinks(
   for (const e of events) {
     if (e.resModel !== "project.project" || !e.resId) continue;
     const row = byProject.get(e.resId);
-    if (row) row.linkedEventCount += 1;
+    if (row) row.linkedEventCount = (row.linkedEventCount ?? 0) + 1;
   }
 
-  for (const d of documents) {
-    if (d.resModel === "project.project" && d.resId) {
-      const row = byProject.get(d.resId);
-      if (row) row.linkedDocumentCount += 1;
+  if (documentsScope !== "none") {
+    for (const d of documents) {
+      if (d.resModel === "project.project" && d.resId) {
+        const row = byProject.get(d.resId);
+        if (row) row.linkedDocumentCount = (row.linkedDocumentCount ?? 0) + 1;
+      }
     }
   }
 
   return projects.map((p) => byProject.get(p.id) ?? p);
+}
+
+export function formatProjectLinkedCount(
+  count: number | null,
+  confidence: OdooRelationshipConfidence,
+  locale: string
+): string {
+  const ar = locale !== "en";
+  if (confidence === "needs_browse") {
+    return ar ? "لم يُحمَّل" : "Not loaded";
+  }
+  if (confidence === "unknown") {
+    return ar ? "غير معروف" : "Unknown";
+  }
+  if (count == null) {
+    return ar ? "—" : "—";
+  }
+  if (confidence === "partial") {
+    return ar ? `${count}+` : `${count}+`;
+  }
+  return String(count);
 }

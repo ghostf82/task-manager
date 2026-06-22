@@ -56,6 +56,16 @@ import {
   listOdooDocumentFoldersViaWebLogin,
 } from "@/lib/integrations/odoo-client";
 import type { OdooProjectEnrichedRow } from "@/lib/integrations/odoo-project-enrich";
+import type { OdooWorkspacePayload } from "@/lib/command-center/load-odoo-workspace-cache";
+import type {
+  OdooFolderWorkspaceContext,
+  OdooRelationshipDocumentInput,
+  OdooRelationshipIndex,
+} from "@/lib/command-center/odoo-relationship-types";
+import {
+  buildFolderWorkspaceFromWorkspace,
+  buildRelationshipIndexFromWorkspace,
+} from "@/lib/integrations/odoo-relationship-server";
 import {
   loadOdooCoverageReport,
   mapOdooDocumentFolderLiteToRow,
@@ -1462,6 +1472,139 @@ export async function listOdooDocumentsInFolderAction(input: {
     limit: input.limit ?? 50,
     text: input.text,
   });
+}
+
+function mapDocumentToRelationshipInput(d: {
+  id: number;
+  name: string;
+  folderId: number | null;
+  resModel: string;
+  resId: number | null;
+  owner: string;
+  creator: string;
+  mimetype: string;
+  fileSize: number | null;
+  createdAt: string;
+}): OdooRelationshipDocumentInput {
+  return {
+    id: d.id,
+    name: d.name,
+    folderId: d.folderId,
+    resModel: d.resModel,
+    resId: d.resId,
+    owner: d.owner,
+    creator: d.creator,
+    mimetype: d.mimetype,
+    fileSize: d.fileSize,
+    createdAt: d.createdAt,
+  };
+}
+
+async function loadCachedOdooWorkspace(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<OdooWorkspacePayload | null> {
+  const { data: rows } = await supabase
+    .from("odoo_browser_cache")
+    .select("kind,payload")
+    .eq("user_id", userId);
+  const workspaceRow = rows?.find((r) => r.kind === "workspace");
+  if (workspaceRow?.payload && typeof workspaceRow.payload === "object") {
+    const p = workspaceRow.payload as OdooWorkspacePayload;
+    if (Array.isArray(p.tasks) && Array.isArray(p.projects) && Array.isArray(p.events)) {
+      return p;
+    }
+  }
+  return null;
+}
+
+export async function getOdooRelationshipIndexAction(): Promise<
+  { ok: true; index: OdooRelationshipIndex } | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const workspace = await loadCachedOdooWorkspace(supabase, session.id);
+  if (!workspace) {
+    return { ok: false, error: "لا توجد بيانات مساحة عمل محفوظة — زامِن مساحة العمل أولاً." };
+  }
+  return { ok: true, index: buildRelationshipIndexFromWorkspace(workspace) };
+}
+
+export async function getOdooFolderWorkspaceContextAction(input: {
+  folderId: number;
+  folderName: string;
+  folderDescription?: string;
+  odooDocumentCount?: number;
+  documents: OdooRelationshipDocumentInput[];
+  loadedOffset: number;
+  pageSize: number;
+}): Promise<
+  | { ok: true; context: OdooFolderWorkspaceContext; index: OdooRelationshipIndex }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const workspace = await loadCachedOdooWorkspace(supabase, session.id);
+  const { index, context } = buildFolderWorkspaceFromWorkspace(workspace, input);
+  return { ok: true, context, index };
+}
+
+export async function listOdooDocumentsInFolderWithContextAction(input: {
+  folderId: number;
+  folderName?: string;
+  folderDescription?: string;
+  odooDocumentCount?: number;
+  offset?: number;
+  limit?: number;
+  text?: string;
+}): Promise<
+  | {
+      ok: true;
+      documents: Array<{
+        id: number;
+        name: string;
+        type: string;
+        mimetype: string;
+        createdAt: string;
+        creator: string;
+        folderId: number | null;
+        folderName: string;
+        owner: string;
+        ownerId: number | null;
+        fileSize: number | null;
+        resModel: string;
+        resId: number | null;
+      }>;
+      workspace: OdooFolderWorkspaceContext;
+    }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const limit = input.limit ?? 40;
+  const offset = input.offset ?? 0;
+
+  const docsRes = await listOdooDocumentsAction({
+    folderId: input.folderId,
+    offset,
+    limit,
+    text: input.text,
+  });
+  if (!docsRes.ok) return docsRes;
+
+  const workspace = await loadCachedOdooWorkspace(supabase, session.id);
+  const relDocs = docsRes.documents.map(mapDocumentToRelationshipInput);
+  const { context } = buildFolderWorkspaceFromWorkspace(workspace, {
+    folderId: input.folderId,
+    folderName: input.folderName ?? `مجلد #${input.folderId}`,
+    folderDescription: input.folderDescription,
+    odooDocumentCount: input.odooDocumentCount,
+    documents: relDocs,
+    loadedOffset: offset,
+    pageSize: limit,
+  });
+
+  return { ok: true, documents: docsRes.documents, workspace: context };
 }
 
 export async function getOdooDataCoverageAction(): Promise<

@@ -19,8 +19,10 @@ import {
 import {
   listOdooDocumentFoldersAction,
   listOdooDocumentsAction,
-  listOdooDocumentsInFolderAction,
+  listOdooDocumentsInFolderWithContextAction,
 } from "@/app/dashboard/ai-agent/actions";
+import { OdooDocumentDetailPanel } from "@/app/dashboard/odoo/odoo-document-detail-panel";
+import { OdooFolderWorkspacePanel } from "@/app/dashboard/odoo/odoo-folder-workspace-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,6 +31,8 @@ import {
   odooDocumentsAppUrl,
 } from "@/lib/integrations/odoo-document-links";
 import type { OdooDocumentsExplorerMode } from "@/lib/integrations/odoo-documents-constants";
+import type { OdooFolderWorkspaceContext } from "@/lib/command-center/odoo-relationship-types";
+import { inferDocumentRiskStatus } from "@/lib/command-center/odoo-folder-workspace";
 import { replaceOdooWorkspaceUrl } from "@/lib/integrations/odoo-workspace-url";
 import { cn } from "@/lib/utils";
 
@@ -185,6 +189,8 @@ export function OdooDocumentsExplorer({
   const [sort, setSort] = useState<DocSort>("date");
   const [mimeFilter, setMimeFilter] = useState<string>("all");
   const [flatFallback, setFlatFallback] = useState(false);
+  const [workspaceContext, setWorkspaceContext] = useState<OdooFolderWorkspaceContext | null>(null);
+  const [selectedDoc, setSelectedDoc] = useState<OdooExplorerDocument | null>(null);
   const [docsLoading, startDocsLoading] = useTransition();
   const [foldersLoading, startFoldersLoading] = useTransition();
   const autoSelectedRef = useRef(false);
@@ -195,14 +201,22 @@ export function OdooDocumentsExplorer({
   }, []);
 
   const loadDocumentsForFolder = useCallback(
-    (folderId: number, nextOffset: number, searchText?: string) => {
+    (folderId: number, nextOffset: number, searchText?: string, folderMeta?: OdooFolderRow) => {
       const gen = ++loadGenRef.current;
+      const folder = folderMeta ?? folders.find((f) => f.id === folderId);
       startDocsLoading(async () => {
         setFlatFallback(false);
         setDocError(null);
-        if (nextOffset === 0) setDocuments([]);
-        const res = await listOdooDocumentsInFolderAction({
+        setWorkspaceContext(null);
+        if (nextOffset === 0) {
+          setDocuments([]);
+          setSelectedDoc(null);
+        }
+        const res = await listOdooDocumentsInFolderWithContextAction({
           folderId,
+          folderName: folder?.name,
+          folderDescription: folder?.description,
+          odooDocumentCount: folder?.documentCount,
           offset: nextOffset,
           limit: PAGE_SIZE,
           text: searchText?.trim() || undefined,
@@ -215,26 +229,31 @@ export function OdooDocumentsExplorer({
         }
         const mapped = res.documents.map(mapDocRow);
         setDocuments(mapped);
+        setWorkspaceContext(res.workspace);
         setOffset(nextOffset);
         setTotalInFolder(
           mapped.length < PAGE_SIZE ? nextOffset + mapped.length : nextOffset + PAGE_SIZE + 1
         );
+        if (mapped.length === 1) setSelectedDoc(mapped[0]);
       });
     },
-    []
+    [folders]
   );
 
   const selectFolder = useCallback(
     (folderId: number) => {
+      const folder = folders.find((f) => f.id === folderId);
       setFlatFallback(false);
       setDocError(null);
       setDocuments([]);
+      setWorkspaceContext(null);
+      setSelectedDoc(null);
       setMimeFilter("all");
       setSelectedFolderId(folderId);
       syncFolderUrl(folderId);
-      loadDocumentsForFolder(folderId, 0, search);
+      loadDocumentsForFolder(folderId, 0, search, folder);
     },
-    [loadDocumentsForFolder, search, syncFolderUrl]
+    [loadDocumentsForFolder, search, syncFolderUrl, folders]
   );
 
   const loadRecentFlat = useCallback(() => {
@@ -394,7 +413,7 @@ export function OdooDocumentsExplorer({
   function runSearch() {
     setSearch(searchDraft);
     if (flatFallback) loadRecentFlat();
-    else if (selectedFolderId != null) loadDocumentsForFolder(selectedFolderId, 0, searchDraft);
+    else if (selectedFolderId != null) loadDocumentsForFolder(selectedFolderId, 0, searchDraft, selectedFolder);
   }
 
   return (
@@ -446,7 +465,7 @@ export function OdooDocumentsExplorer({
         </div>
       ) : null}
 
-      <div className="grid min-h-[min(72vh,640px)] w-full gap-0 overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm lg:grid-cols-[minmax(240px,300px)_1fr]">
+      <div className="grid min-h-[min(72vh,680px)] w-full gap-0 overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm lg:grid-cols-[minmax(240px,280px)_1fr]">
         {/* Folder sidebar */}
         <aside className="flex flex-col border-b border-border/60 bg-muted/15 lg:border-b-0 lg:border-e">
           <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2.5">
@@ -485,9 +504,9 @@ export function OdooDocumentsExplorer({
           </div>
         </aside>
 
-        {/* Main file area */}
-        <section className="flex min-h-[360px] min-w-0 flex-col">
-          <div className="flex flex-wrap items-center gap-2 border-b border-border/50 px-3 py-2.5">
+        {/* Main workspace + files */}
+        <section className="grid min-h-[360px] min-w-0 grid-rows-[auto_auto_1fr] lg:grid-cols-[1fr_minmax(220px,260px)] lg:grid-rows-[auto_1fr]">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border/50 px-3 py-2.5 lg:col-span-2">
             <div className="relative min-w-[200px] flex-1">
               <SearchIcon className="text-muted-foreground absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2" />
               <Input
@@ -527,35 +546,17 @@ export function OdooDocumentsExplorer({
             ) : null}
           </div>
 
-          <div className="border-b border-border/40 bg-muted/10 px-3 py-2">
-            {flatFallback ? (
+          {!flatFallback && selectedFolderId != null ? (
+            <div className="border-b border-border/40 px-3 py-3 lg:col-span-2">
+              <OdooFolderWorkspacePanel context={workspaceContext} locale={locale} loading={docsLoading && !workspaceContext} />
+            </div>
+          ) : flatFallback ? (
+            <div className="border-b border-border/40 bg-muted/10 px-3 py-2 lg:col-span-2">
               <p className="text-muted-foreground text-xs font-medium">{t("Recent documents (flat list)", "أحدث المستندات (قائمة مسطحة)")}</p>
-            ) : selectedFolder ? (
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                <span className="font-semibold text-foreground">{selectedFolder.name}</span>
-                <span className="text-muted-foreground">·</span>
-                <span className="text-muted-foreground tabular-nums">
-                  {selectedFolder.documentCount} {t("documents", "مستند")}
-                </span>
-                {docsLoading ? (
-                  <>
-                    <span className="text-muted-foreground">·</span>
-                    <span className="inline-flex items-center gap-1 text-primary">
-                      <Loader2Icon className="size-3 animate-spin" />
-                      {t("Loading…", "جاري التحميل…")}
-                    </span>
-                  </>
-                ) : null}
-                {complianceFilter ? (
-                  <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-900">{t("Compliance filter", "تصفية امتثال")}</span>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-xs">{t("Select a folder from the list to browse its files.", "اختر مجلداً من القائمة لعرض ملفاته.")}</p>
-            )}
-          </div>
+            </div>
+          ) : null}
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="min-h-0 overflow-y-auto lg:col-start-1 lg:row-start-3 lg:row-end-4">
             {mainView === "pick_folder" ? (
               <div className="flex h-full min-h-[280px] flex-col items-center justify-center gap-3 px-6 text-center">
                 <FolderOpenIcon className="text-muted-foreground/50 size-12" />
@@ -583,7 +584,8 @@ export function OdooDocumentsExplorer({
                     size="sm"
                     onClick={() => {
                       if (flatFallback) loadRecentFlat();
-                      else if (selectedFolderId != null) loadDocumentsForFolder(selectedFolderId, offset, search);
+                      else if (selectedFolderId != null)
+                        loadDocumentsForFolder(selectedFolderId, offset, search, selectedFolder);
                     }}
                   >
                     <RefreshCwIcon className="size-3.5" />
@@ -629,19 +631,48 @@ export function OdooDocumentsExplorer({
                 {sortedDocs.map((d) => {
                   const base = odooBaseUrl?.replace(/\/$/, "") ?? "";
                   const canLink = Boolean(base);
+                  const risk = inferDocumentRiskStatus({
+                    id: d.id,
+                    name: d.name,
+                    mimetype: d.mimetype,
+                    createdAt: d.createdAt,
+                  });
+                  const active = selectedDoc?.id === d.id;
                   return (
                     <div
                       key={d.id}
-                      className="flex flex-col gap-2 px-3 py-3 transition hover:bg-muted/25 sm:flex-row sm:items-center sm:gap-4"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelectedDoc(d)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") setSelectedDoc(d);
+                      }}
+                      className={cn(
+                        "flex cursor-pointer flex-col gap-2 px-3 py-3 transition sm:flex-row sm:items-center sm:gap-4",
+                        active ? "bg-primary/8 ring-1 ring-inset ring-primary/25" : "hover:bg-muted/25"
+                      )}
                     >
                       <div className="flex min-w-0 flex-1 items-start gap-3">
                         <div className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg">
                           <FileIcon className="size-4" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium leading-snug" title={d.name}>
-                            {d.name}
-                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate font-medium leading-snug" title={d.name}>
+                              {d.name}
+                            </p>
+                            {risk.status !== "unknown" && risk.status !== "ok" ? (
+                              <span
+                                className={cn(
+                                  "rounded px-1.5 py-0.5 text-[9px] font-medium",
+                                  risk.status === "expired" && "bg-rose-500/15 text-rose-800",
+                                  risk.status === "expiring_soon" && "bg-amber-500/15 text-amber-900"
+                                )}
+                              >
+                                {ar ? risk.reasonAr : risk.reasonEn}
+                              </span>
+                            ) : null}
+                          </div>
                           <div className="text-muted-foreground mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px]">
                             <span className="[direction:ltr]">{d.mimetype || d.type || "—"}</span>
                             <span>{d.owner || d.creator}</span>
@@ -657,7 +688,7 @@ export function OdooDocumentsExplorer({
                         </div>
                       </div>
                       {canLink ? (
-                        <div className="flex shrink-0 flex-wrap gap-1.5 sm:flex-nowrap">
+                        <div className="flex shrink-0 flex-wrap gap-1.5 sm:flex-nowrap" onClick={(e) => e.stopPropagation()}>
                           <a
                             href={odooDocumentOpenUrl(base, d.id, d.resModel, d.resId)}
                             target="_blank"
@@ -685,15 +716,32 @@ export function OdooDocumentsExplorer({
             ) : null}
           </div>
 
+          <div className="hidden min-h-0 border-s border-border/50 lg:col-start-2 lg:row-start-3 lg:block lg:overflow-hidden">
+            <OdooDocumentDetailPanel
+              doc={selectedDoc}
+              locale={locale}
+              odooBaseUrl={odooBaseUrl}
+              onClose={() => setSelectedDoc(null)}
+            />
+          </div>
+
           {(selectedFolderId != null || flatFallback) && mainView !== "pick_folder" && mainView !== "error" ? (
-            <div className="flex items-center justify-between gap-2 border-t border-border/50 px-3 py-2">
+            <div className="flex items-center justify-between gap-2 border-t border-border/50 px-3 py-2 lg:col-start-1 lg:row-start-4">
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
                 className="h-8 gap-1 text-xs"
                 disabled={offset <= 0 || docsLoading || flatFallback}
-                onClick={() => selectedFolderId != null && loadDocumentsForFolder(selectedFolderId, Math.max(0, offset - PAGE_SIZE), search)}
+                onClick={() =>
+                  selectedFolderId != null &&
+                  loadDocumentsForFolder(
+                    selectedFolderId,
+                    Math.max(0, offset - PAGE_SIZE),
+                    search,
+                    selectedFolder
+                  )
+                }
               >
                 <ChevronRightIcon className="size-3.5" />
                 {t("Previous", "السابق")}
@@ -708,7 +756,10 @@ export function OdooDocumentsExplorer({
                 variant="outline"
                 className="h-8 gap-1 text-xs"
                 disabled={documents.length < PAGE_SIZE || docsLoading || flatFallback}
-                onClick={() => selectedFolderId != null && loadDocumentsForFolder(selectedFolderId, offset + PAGE_SIZE, search)}
+                onClick={() =>
+                  selectedFolderId != null &&
+                  loadDocumentsForFolder(selectedFolderId, offset + PAGE_SIZE, search, selectedFolder)
+                }
               >
                 {t("Next", "التالي")}
                 <ChevronLeftIcon className="size-3.5" />
