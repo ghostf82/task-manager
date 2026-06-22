@@ -1,6 +1,7 @@
 import { OdooCommandCenterView } from "@/app/dashboard/odoo/odoo-command-center-view";
+import { buildOdooBriefLabels } from "@/lib/command-center/odoo-brief-labels";
+import { loadOdooOperationalBrief } from "@/lib/command-center/odoo-operational-brief";
 import { requireSession } from "@/lib/dashboard-auth";
-import { loadOdooCommandMetrics } from "@/lib/command-center/odoo-metrics";
 import { getLicensedActiveToolSlugs } from "@/lib/ai-tools/user-licenses";
 import { getTranslator } from "@/lib/i18n/get-translator";
 import { createClient } from "@/lib/supabase/server";
@@ -32,7 +33,8 @@ export default async function OdooCommandCenterPage() {
     );
   }
 
-  const metrics = await loadOdooCommandMetrics(supabase, session.id);
+  const brief = await loadOdooOperationalBrief(supabase, session.id, session.isSuperAdmin);
+  const labels = buildOdooBriefLabels(t);
 
-  return <OdooCommandCenterView metrics={metrics} locale={locale} t={t} />;
+  return <OdooCommandCenterView brief={brief} labels={labels} locale={locale} />;
 }

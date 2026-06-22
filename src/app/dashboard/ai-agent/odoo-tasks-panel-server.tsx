@@ -22,7 +22,11 @@ function isWorkspacePayload(v: unknown): v is WorkspacePayload {
   );
 }
 
-export async function OdooTasksPanelWithCache() {
+export async function OdooTasksPanelWithCache({
+  onlySection = null,
+}: {
+  onlySection?: "tasks" | "projects" | "calendar" | "documents" | null;
+} = {}) {
   const session = await requireSession();
   const supabase = await createClient();
   const { data: rows } = await supabase
@@ -56,6 +60,7 @@ export async function OdooTasksPanelWithCache() {
       initialWorkspace={initialWorkspace}
       initialLastSyncAt={lastSyncAt}
       odooBaseUrl={odooBaseUrl}
+      onlySection={onlySection}
     />
   );
 }

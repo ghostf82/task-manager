@@ -83,6 +83,8 @@ export type OdooTasksPanelProps = {
   } | null;
   initialLastSyncAt?: string | null;
   odooBaseUrl?: string | null;
+  /** When set, only render this workspace section (deep drill-down). */
+  onlySection?: "tasks" | "projects" | "calendar" | "documents" | null;
 };
 
 function cleanName(v: string): string {
@@ -258,6 +260,7 @@ export function OdooTasksPanel({
   initialWorkspace = null,
   initialLastSyncAt = null,
   odooBaseUrl = null,
+  onlySection = null,
 }: OdooTasksPanelProps) {
   const [loadingKeys, setLoadingKeys] = useState<Set<string>>(new Set());
   const [bulkProgress, setBulkProgress] = useState<{ cur: number; total: number } | null>(null);
@@ -337,11 +340,18 @@ export function OdooTasksPanel({
   const [deepCopySource, setDeepCopySource] = useState<CalendarRow | null>(null);
 
   const [sectionOpen, setSectionOpen] = useState({
-    tasks: true,
-    projects: true,
-    calendar: true,
-    documents: true,
+    tasks: !onlySection || onlySection === "tasks",
+    projects: !onlySection || onlySection === "projects",
+    calendar: !onlySection || onlySection === "calendar",
+    documents: !onlySection || onlySection === "documents",
   });
+
+  const showSection = {
+    tasks: !onlySection || onlySection === "tasks",
+    projects: !onlySection || onlySection === "projects",
+    calendar: !onlySection || onlySection === "calendar",
+    documents: !onlySection || onlySection === "documents",
+  };
 
   async function loadTaskMeta() {
     const [stagesRes, usersRes] = await Promise.all([
@@ -1200,6 +1210,7 @@ export function OdooTasksPanel({
           </div>
         </div>
 
+        {showSection.tasks ? (
         <div className="overflow-x-auto">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <Label className="text-base font-medium">المهام ({filteredTasks.length})</Label>
@@ -1291,8 +1302,11 @@ export function OdooTasksPanel({
             </tbody>
           </table>
         </div>
+        ) : null}
 
+        {showSection.projects || showSection.calendar || showSection.documents ? (
         <div className="space-y-6">
+          {showSection.projects ? (
           <div className="w-full">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <Label className="text-base font-medium">المشاريع ({filteredProjects.length})</Label>
@@ -1386,7 +1400,9 @@ export function OdooTasksPanel({
               </table>
             </div>
           </div>
+          ) : null}
 
+          {showSection.calendar ? (
           <div className="w-full">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <Label className="text-base font-medium">التقويم ({filteredEvents.length})</Label>
@@ -1509,7 +1525,9 @@ export function OdooTasksPanel({
               </table>
             </div>
           </div>
+          ) : null}
 
+          {showSection.documents ? (
           <div className="w-full">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <Label className="text-base font-medium">المستندات ({filteredDocuments.length})</Label>
@@ -1600,8 +1618,12 @@ export function OdooTasksPanel({
               </table>
             </div>
           </div>
+          ) : null}
         </div>
+        ) : null}
 
+        {showSection.calendar ? (
+        <>
         <div className="premium-calendar-panel">
           <Label className="block font-semibold text-primary">مطابقة تفاصيل أي يوم (وليس شهرًا فقط)</Label>
           <p className="text-xs text-muted-foreground">
@@ -1772,6 +1794,8 @@ export function OdooTasksPanel({
             )}
           </div>
         </div>
+        </>
+        ) : null}
       </CardContent>
       <CalendarDeepCopyDialog
         open={deepCopySource !== null}

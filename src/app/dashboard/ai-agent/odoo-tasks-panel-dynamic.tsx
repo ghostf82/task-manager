@@ -25,16 +25,19 @@ export function OdooTasksPanelDynamic({
   initialWorkspace,
   initialLastSyncAt,
   odooBaseUrl = null,
+  onlySection = null,
 }: {
   initialWorkspace: InitialWorkspace;
   initialLastSyncAt: string | null;
   odooBaseUrl?: string | null;
+  onlySection?: "tasks" | "projects" | "calendar" | "documents" | null;
 }) {
   return (
     <OdooTasksPanel
       initialWorkspace={initialWorkspace}
       initialLastSyncAt={initialLastSyncAt}
       odooBaseUrl={odooBaseUrl}
+      onlySection={onlySection}
     />
   );
 }
