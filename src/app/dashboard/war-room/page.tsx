@@ -1,4 +1,4 @@
-import { ExecutiveBriefingView } from "@/components/executive-intelligence/executive-briefing-view";
+import { WarRoomListView } from "@/components/executive-intelligence/war-room-view";
 import { buildExecutiveLabels } from "@/lib/executive-intelligence/briefing-labels";
 import { loadExecutiveMorningBrief } from "@/lib/executive-intelligence/load-executive-briefing";
 import { requireSession } from "@/lib/dashboard-auth";
@@ -7,19 +7,12 @@ import { createClient } from "@/lib/supabase/server";
 
 export const maxDuration = 120;
 
-export default async function DashboardHomePage() {
+export default async function WarRoomListPage() {
   const session = await requireSession();
-  const { t, locale } = await getTranslator();
+  const { t } = await getTranslator();
   const supabase = await createClient();
-
-  const { data: profile } = await supabase
-    .from("users")
-    .select("is_super_admin")
-    .eq("id", session.id)
-    .single();
-
+  const { data: profile } = await supabase.from("users").select("is_super_admin").eq("id", session.id).single();
   const brief = await loadExecutiveMorningBrief(supabase, session.id, Boolean(profile?.is_super_admin));
   const labels = buildExecutiveLabels(t);
-
-  return <ExecutiveBriefingView brief={brief} labels={labels} tr={t} locale={locale} />;
+  return <WarRoomListView rooms={brief.warRooms} labels={labels} tr={t} />;
 }

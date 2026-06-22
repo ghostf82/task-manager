@@ -6,9 +6,9 @@ import { useState } from "react";
 import {
   BellRing,
   Building2,
+  CalendarDays,
   ClipboardList,
   FileText,
-  Home,
   LayoutGrid,
   Mail,
   Menu,
@@ -16,6 +16,8 @@ import {
   Shield,
   SlidersHorizontal,
   Sparkles,
+  Sun,
+  Target,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -32,7 +34,9 @@ import type { AppLocale } from "@/lib/i18n/locale-core";
 import { cn } from "@/lib/utils";
 
 const ICONS: Record<string, LucideIcon> = {
-  Home,
+  Sun,
+  Target,
+  CalendarDays,
   LayoutGrid,
   Mail,
   Building2,
@@ -82,7 +86,7 @@ function NavLinks({
           item.href === "/dashboard"
             ? pathname === "/dashboard"
             : pathname.startsWith(item.href);
-        const Icon = ICONS[item.iconKey] ?? Home;
+        const Icon = ICONS[item.iconKey] ?? Sun;
         return (
           <Link
             key={item.href}

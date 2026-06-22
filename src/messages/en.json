@@ -5,6 +5,10 @@
   },
   "nav": {
     "home": "Home",
+    "briefing": "Executive briefing",
+    "myDay": "My day",
+    "warRoom": "War rooms",
+    "timeline": "Timeline",
     "odooCommand": "Odoo Command",
     "emailCommand": "Email Intelligence",
     "tenants": "Companies",
@@ -16,6 +20,115 @@
     "chat": "Messaging",
     "aiAgent": "AI assistant",
     "integrations": "System connections"
+  },
+  "executive": {
+    "briefing": {
+      "eyebrow": "Morning briefing",
+      "title": "Executive Intelligence",
+      "desc": "Understand the state of your group in under 60 seconds — priorities, risks, and recommended interventions."
+    },
+    "health": {
+      "critical": "Critical attention",
+      "watch": "Monitor closely",
+      "stable": "Stable operations"
+    },
+    "brief": {
+      "headlineCritical": "{critical} critical signals across {companies} companies — {today} items need action today",
+      "headlineWatch": "{today} items need attention today across your portfolio",
+      "headlineStable": "Operations are stable across {companies} companies — continue monitoring renewals",
+      "narrativeCritical1": "Overdue corporate work and expired compliance are creating operational exposure. {overdue} tasks are past deadline and {compliance} licenses or registrations have expired.",
+      "narrativeCritical2": "{tenant} requires immediate executive intervention. {action} prioritized actions should be assigned or escalated today.",
+      "narrativeWatch": "{today} items are due today and {week} more need attention this week. Proactive follow-up will prevent escalation.",
+      "narrativeStable": "No critical group-wide risks detected. Maintain visibility on compliance renewals and workload balance.",
+      "prioritiesTitle": "Recommended priorities",
+      "risksTitle": "Emerging risks",
+      "interventionsTitle": "Executive interventions",
+      "insightsTitle": "Intelligence summary",
+      "openMyDay": "Open My Day",
+      "openTimeline": "Executive timeline",
+      "riskCompliance": "{count} compliance items expired or at risk",
+      "riskOverdue": "{count} corporate tasks are overdue",
+      "riskUnassigned": "{count} Odoo tasks have no owner"
+    },
+    "myDay": {
+      "title": "My Day",
+      "desc": "What requires your attention today — ranked by operational impact, not chronology.",
+      "whyCorpOverdue": "{tenant} task is {days} days overdue — execution risk is rising",
+      "whyCorpDue": "{tenant} task is due within {days} days",
+      "whyComplianceExpired": "{tenant} compliance document expired {days} days ago",
+      "whyComplianceDue": "{tenant} license or registration expires in {days} days",
+      "whyOdoo": "Odoo operational item in {project} needs follow-up",
+      "whyCalendar": "Calendar commitment today requires preparation",
+      "whyEmail": "Unread message waiting {hours} hours — stakeholder may be blocked",
+      "whyAi": "AI assistant proposed an action awaiting your approval",
+      "consequenceCorp": "Delay may affect {tenant} deliverables and stakeholder confidence",
+      "consequenceOdoo": "Operational backlog may grow and affect downstream deadlines",
+      "consequenceEmail": "Delayed response may stall decisions or vendor relationships",
+      "consequenceAi": "Pending approvals block automated execution",
+      "actionFollowOwner": "Escalate to {owner} for immediate update",
+      "actionAssign": "Assign an owner and set a firm deadline today",
+      "actionOdoo": "Review in Odoo Command Center and re-prioritize",
+      "actionEmail": "Respond or delegate via Email Intelligence",
+      "actionAi": "Approve or reject in AI assistant"
+    },
+    "compliance": {
+      "title": "Compliance intelligence",
+      "impactExpired": "{name} for {tenant} has expired — operations may be legally exposed",
+      "impactRenewal": "{name} for {tenant} enters renewal window — plan submission now",
+      "actionRenew": "Initiate renewal within {days} days"
+    },
+    "warRoom": {
+      "title": "War rooms",
+      "desc": "One operational view per company — tasks, compliance, risks, and interventions unified.",
+      "listTitle": "Company war rooms",
+      "open": "Enter war room",
+      "viewAll": "All war rooms",
+      "notFound": "War room not found or you do not have access.",
+      "riskCompliance": "{count} compliance exposures",
+      "riskOverdue": "{count} overdue tasks",
+      "interventionOverdue": "Assign executive sponsor — {count} overdue tasks need resolution",
+      "interventionCompliance": "Schedule renewal review — {count} compliance items at risk",
+      "aliasMarble": "Marble Division",
+      "aliasReadyMix": "Ready Mix Division",
+      "aliasMining": "Mining Division",
+      "aliasLogistics": "Logistics Division",
+      "aliasHolding": "Holding Company"
+    },
+    "timeline": {
+      "title": "Executive timeline",
+      "desc": "Unified view of tasks, compliance deadlines, and operational milestones for the next 30 days."
+    },
+    "insight": {
+      "workloadOdoo": "Highest Odoo workload: {name} carries {count} tasks ({overdue} overdue)",
+      "workloadCorp": "Corporate workload peak: {name} owns {count} open tasks",
+      "exposedCompany": "Most exposed company: {tenant} ({risks} active risks)",
+      "aiPending": "{count} AI recommendations await executive approval",
+      "actionReview": "Review now",
+      "actionBalance": "Rebalance workload",
+      "actionWarRoom": "Open war room",
+      "actionAi": "Open AI assistant"
+    },
+    "labels": {
+      "why": "Why it matters",
+      "consequence": "If ignored",
+      "action": "Recommended action",
+      "impact": "Business impact",
+      "owner": "Owner",
+      "noItems": "No items in the current snapshot.",
+      "backBriefing": "Back to briefing",
+      "generatedAt": "Generated",
+      "companiesMonitored": "Companies monitored",
+      "actionToday": "Action today",
+      "criticalRisks": "Critical risks",
+      "pendingApprovals": "Pending approvals"
+    },
+    "reports": {
+      "daily": "Executive daily brief (PDF)",
+      "weekly": "Weekly operations review",
+      "compliance": "Compliance register (Excel)",
+      "risk": "Risk exposure report (PDF)",
+      "performance": "Company performance summary"
+    }
   },
   "commandCenter": {
     "odoo": {

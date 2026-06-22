@@ -5,6 +5,10 @@
   },
   "nav": {
     "home": "الرئيسية",
+    "briefing": "الملخص التنفيذي",
+    "myDay": "يومي",
+    "warRoom": "غرف العمليات",
+    "timeline": "الجدول الزمني",
     "odooCommand": "مركز Odoo",
     "emailCommand": "مركز البريد",
     "tenants": "الشركات",
@@ -16,6 +20,115 @@
     "chat": "التواصل",
     "aiAgent": "المساعد الذكي",
     "integrations": "ربط الأنظمة"
+  },
+  "executive": {
+    "briefing": {
+      "eyebrow": "إحاطة الصباح",
+      "title": "الذكاء التنفيذي",
+      "desc": "افهم حالة مجموعتك في أقل من 60 ثانية — الأولويات، المخاطر، والتدخلات الموصى بها."
+    },
+    "health": {
+      "critical": "يتطلب اهتماماً حرجاً",
+      "watch": "مراقبة وثيقة",
+      "stable": "عمليات مستقرة"
+    },
+    "brief": {
+      "headlineCritical": "{critical} إشارة حرجة عبر {companies} شركة — {today} عنصر يحتاج إجراءً اليوم",
+      "headlineWatch": "{today} عنصر يحتاج اهتمامك اليوم عبر محفظتك",
+      "headlineStable": "العمليات مستقرة عبر {companies} شركة — استمر بمراقبة التجديدات",
+      "narrativeCritical1": "التأخر في المهام وانتهاء الامتثال يخلق تعرّضاً تشغيلياً. {overdue} مهمة متأخرة و{compliance} ترخيص أو سجل منتهٍ.",
+      "narrativeCritical2": "{tenant} تحتاج تدخلاً تنفيذياً فورياً. يجب إسناد أو تصعيد {action} إجراءاً ذا أولوية اليوم.",
+      "narrativeWatch": "{today} عنصر مستحق اليوم و{week} آخر يحتاج متابعة هذا الأسبوع. المتابعة الاستباقية تمنع التصعيد.",
+      "narrativeStable": "لا مخاطر حرجة على مستوى المجموعة. حافظ على الرؤية لتجديدات الامتثال وتوازن عبء العمل.",
+      "prioritiesTitle": "أولويات موصى بها",
+      "risksTitle": "مخاطر ناشئة",
+      "interventionsTitle": "تدخلات تنفيذية",
+      "insightsTitle": "ملخص الذكاء",
+      "openMyDay": "افتح يومي",
+      "openTimeline": "الجدول الزمني التنفيذي",
+      "riskCompliance": "{count} عنصر امتثال منتهٍ أو معرّض للخطر",
+      "riskOverdue": "{count} مهمة شركات متأخرة",
+      "riskUnassigned": "{count} مهمة Odoo بلا مالك"
+    },
+    "myDay": {
+      "title": "يومي",
+      "desc": "ما يتطلب اهتمامك اليوم — مرتب حسب الأثر التشغيلي، وليس الترتيب الزمني.",
+      "whyCorpOverdue": "مهمة {tenant} متأخرة {days} يوماً — خطر التنفيذ يتصاعد",
+      "whyCorpDue": "مهمة {tenant} مستحقة خلال {days} أيام",
+      "whyComplianceExpired": "مستند امتثال {tenant} منتهٍ منذ {days} يوماً",
+      "whyComplianceDue": "ترخيص أو سجل {tenant} ينتهي خلال {days} أيام",
+      "whyOdoo": "عنصر تشغيلي في Odoo ضمن {project} يحتاج متابعة",
+      "whyCalendar": "التزام تقويم اليوم يتطلب استعداداً",
+      "whyEmail": "رسالة غير مقروءة منذ {hours} ساعة — قد يكون صاحب المصلحة معطّلاً",
+      "whyAi": "المساعد الذكي اقترح إجراءاً بانتظار موافقتك",
+      "consequenceCorp": "التأخير قد يؤثر على مخرجات {tenant} وثقة أصحاب المصلحة",
+      "consequenceOdoo": "قد يتراكم التأخير التشغيلي ويؤثر على المواعيد اللاحقة",
+      "consequenceEmail": "تأخر الرد قد يعطّل القرارات أو علاقات الموردين",
+      "consequenceAi": "الموافقات المعلقة تمنع التنفيذ الآلي",
+      "actionFollowOwner": "صعّد إلى {owner} لتحديث فوري",
+      "actionAssign": "عيّن مالكاً وحدد موعداً نهائياً اليوم",
+      "actionOdoo": "راجع في مركز Odoo وأعد الأولويات",
+      "actionEmail": "رد أو فوّض عبر مركز البريد",
+      "actionAi": "وافق أو ارفض في المساعد الذكي"
+    },
+    "compliance": {
+      "title": "ذكاء الامتثال",
+      "impactExpired": "{name} لـ {tenant} منتهٍ — قد تتعرض العمليات قانونياً",
+      "impactRenewal": "{name} لـ {tenant} يدخل نافذة التجديد — خطط للتقديم الآن",
+      "actionRenew": "ابدأ التجديد خلال {days} أيام"
+    },
+    "warRoom": {
+      "title": "غرف العمليات",
+      "desc": "منظور تشغيلي واحد لكل شركة — مهام، امتثال، مخاطر، وتدخلات موحّدة.",
+      "listTitle": "غرف عمليات الشركات",
+      "open": "ادخل غرفة العمليات",
+      "viewAll": "كل غرف العمليات",
+      "notFound": "غرفة العمليات غير موجودة أو لا تملك صلاحية الوصول.",
+      "riskCompliance": "{count} تعرّض امتثال",
+      "riskOverdue": "{count} مهمة متأخرة",
+      "interventionOverdue": "عيّن راعياً تنفيذياً — {count} مهمة متأخرة تحتاج حلاً",
+      "interventionCompliance": "جدول مراجعة تجديد — {count} عنصر امتثال معرّض",
+      "aliasMarble": "قسم الرخام",
+      "aliasReadyMix": "قسم الجاهز",
+      "aliasMining": "قسم التعدين",
+      "aliasLogistics": "قسم اللوجستيات",
+      "aliasHolding": "الشركة القابضة"
+    },
+    "timeline": {
+      "title": "الجدول الزمني التنفيذي",
+      "desc": "عرض موحّد للمهام ومواعيد الامتثال والمعالم التشغيلية لـ 30 يوماً القادمة."
+    },
+    "insight": {
+      "workloadOdoo": "أعلى عبء Odoo: {name} يحمل {count} مهمة ({overdue} متأخرة)",
+      "workloadCorp": "ذروة عبء الشركات: {name} يملك {count} مهمة مفتوحة",
+      "exposedCompany": "الشركة الأكثر تعرّضاً: {tenant} ({risks} مخاطر نشطة)",
+      "aiPending": "{count} توصية ذكية بانتظار موافقة تنفيذية",
+      "actionReview": "راجع الآن",
+      "actionBalance": "أعد توازن عبء العمل",
+      "actionWarRoom": "افتح غرفة العمليات",
+      "actionAi": "افتح المساعد الذكي"
+    },
+    "labels": {
+      "why": "لماذا يهم",
+      "consequence": "إذا تُجاهل",
+      "action": "الإجراء الموصى به",
+      "impact": "الأثر على العمل",
+      "owner": "المالك",
+      "noItems": "لا عناصر في اللقطة الحالية.",
+      "backBriefing": "العودة للملخص",
+      "generatedAt": "تاريخ التوليد",
+      "companiesMonitored": "شركات مراقبة",
+      "actionToday": "إجراء اليوم",
+      "criticalRisks": "مخاطر حرجة",
+      "pendingApprovals": "موافقات معلقة"
+    },
+    "reports": {
+      "daily": "ملخص تنفيذي يومي (PDF)",
+      "weekly": "مراجعة العمليات الأسبوعية",
+      "compliance": "سجل الامتثال (Excel)",
+      "risk": "تقرير التعرّض للمخاطر (PDF)",
+      "performance": "ملخص أداء الشركات"
+    }
   },
   "commandCenter": {
     "odoo": {
