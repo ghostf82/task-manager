@@ -51,6 +51,18 @@ import {
 import { loadOdooBrowserSessionBundle, loadOdooConnectionState } from "@/lib/ai-agent/load-user-integrations";
 import { enrichOdooWebTasksToUiRows, type OdooTaskUiRow } from "@/lib/integrations/odoo-task-enrich";
 import { upsertOdooBrowserCache } from "@/lib/ai-agent/odoo-browser-cache";
+import { operationalCalendarWindow } from "@/lib/integrations/odoo-calendar-windows";
+import {
+  listOdooDocumentFoldersViaWebLogin,
+} from "@/lib/integrations/odoo-client";
+import type { OdooProjectEnrichedRow } from "@/lib/integrations/odoo-project-enrich";
+import {
+  loadOdooCoverageReport,
+  mapOdooDocumentFolderLiteToRow,
+  mapRawProjectToEnriched,
+  syncOdooWorkspacePhase0,
+  type OdooDocumentFolderRow,
+} from "@/lib/integrations/odoo-workspace-sync";
 
 export type ScanResult = {
   ok: boolean;
@@ -820,7 +832,7 @@ export async function listOdooProjectsAction(input?: {
   text?: string;
   limit?: number;
   mineOnly?: boolean;
-}): Promise<{ ok: true; projects: Array<{ id: number; name: string; active: boolean; creator: string; manager: string; visibility: string; createdAt: string }> } | { ok: false; error: string }> {
+}): Promise<{ ok: true; projects: OdooProjectEnrichedRow[] } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const mode = await loadOdooConnectionState(supabase, session.id);
@@ -841,15 +853,7 @@ export async function listOdooProjectsAction(input?: {
     eventType: "odoo_sync_projects",
     message: `تمت مزامنة ${res.projects.length} مشروع من Odoo.`,
   });
-  const projects = res.projects.map((p) => ({
-    id: p.id,
-    name: p.name,
-    active: Boolean(p.active ?? true),
-    creator: Array.isArray(p.create_uid) ? String(p.create_uid[1]) : "—",
-    manager: Array.isArray(p.user_id) ? String(p.user_id[1]) : "—",
-    visibility: typeof p.privacy_visibility === "string" ? p.privacy_visibility : "—",
-    createdAt: typeof p.create_date === "string" ? p.create_date : "",
-  }));
+  const projects = res.projects.map(mapRawProjectToEnriched);
   await upsertOdooBrowserCache(supabase, session.id, "projects", { projects });
   revalidatePath("/dashboard/ai-agent");
   return { ok: true, projects };
@@ -928,20 +932,27 @@ export async function listOdooCalendarEventsAction(input?: {
   startBefore?: string;
   /** Default true. Set false for month/day bulk lists to avoid Netlify timeouts. */
   includeAgendaDetails?: boolean;
+  /** Default `start asc` — near-term operational order. */
+  order?: "start asc" | "start desc";
   /** When false, do not overwrite the `events` browser cache (month/day slices). */
   writeBrowserCache?: boolean;
+  /** When true, constrain to operational window (today-7d … today+90d). Default true for bulk list. */
+  operationalWindowOnly?: boolean;
 }): Promise<{ ok: true; events: OdooCalendarEventRow[] } | { ok: false; error: string }> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
   if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const useOpWindow = input?.operationalWindowOnly !== false && !input?.startFrom && !input?.startBefore;
+  const win = useOpWindow ? operationalCalendarWindow() : null;
   const res = await listOdooCalendarEventsViaWebLogin({
     bundle,
     text: input?.text,
     limit: input?.limit ?? 120,
     mineOnly: Boolean(input?.mineOnly ?? false),
-    startFrom: input?.startFrom,
-    startBefore: input?.startBefore,
+    startFrom: input?.startFrom ?? win?.startFrom,
+    startBefore: input?.startBefore ?? win?.startBefore,
+    order: input?.order ?? "start asc",
     includeAgendaDetails: input?.includeAgendaDetails !== false,
   });
   if (res.error) return { ok: false, error: res.error };
@@ -1339,8 +1350,30 @@ export async function updateOdooCalendarEventAction(input: {
 export async function listOdooDocumentsAction(input?: {
   text?: string;
   limit?: number;
+  offset?: number;
+  folderId?: number | null;
   mineOnly?: boolean;
-}): Promise<{ ok: true; documents: Array<{ id: number; name: string; type: string; mimetype: string; createdAt: string; creator: string }> } | { ok: false; error: string }> {
+}): Promise<
+  | {
+      ok: true;
+      documents: Array<{
+        id: number;
+        name: string;
+        type: string;
+        mimetype: string;
+        createdAt: string;
+        creator: string;
+        folderId: number | null;
+        folderName: string;
+        owner: string;
+        ownerId: number | null;
+        fileSize: number | null;
+        resModel: string;
+        resId: number | null;
+      }>;
+    }
+  | { ok: false; error: string }
+> {
   const session = await requireSession();
   const supabase = await createClient();
   const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
@@ -1348,14 +1381,16 @@ export async function listOdooDocumentsAction(input?: {
   const res = await listOdooDocumentsViaWebLogin({
     bundle,
     text: input?.text,
-    limit: input?.limit ?? 80,
+    limit: input?.limit ?? 50,
+    offset: input?.offset ?? 0,
+    folderId: input?.folderId ?? null,
     mineOnly: Boolean(input?.mineOnly ?? false),
   });
   if (res.error) return { ok: false, error: res.error };
   await appendAgentActivity(supabase, {
     userId: session.id,
     eventType: "odoo_sync_documents",
-    message: `تمت مزامنة ${res.documents.length} مستند من Odoo.`,
+    message: `تمت مزامنة ${res.documents.length} مستند من Odoo (explorer page).`,
   });
   const documents = res.documents.map((d) => ({
     id: d.id,
@@ -1364,10 +1399,93 @@ export async function listOdooDocumentsAction(input?: {
     mimetype: typeof d.mimetype === "string" ? d.mimetype : "",
     createdAt: String(d.create_date ?? ""),
     creator: Array.isArray(d.create_uid) ? String(d.create_uid[1]) : "—",
+    folderId: Array.isArray(d.folder_id) ? Number(d.folder_id[0]) : typeof d.folder_id === "number" ? d.folder_id : null,
+    folderName: Array.isArray(d.folder_id) ? String(d.folder_id[1]) : "—",
+    owner: Array.isArray(d.owner_id) ? String(d.owner_id[1]) : "—",
+    ownerId: Array.isArray(d.owner_id) ? Number(d.owner_id[0]) : null,
+    fileSize: typeof d.file_size === "number" ? d.file_size : null,
+    resModel: typeof d.res_model === "string" ? d.res_model : "",
+    resId: typeof d.res_id === "number" ? d.res_id : null,
   }));
-  await upsertOdooBrowserCache(supabase, session.id, "documents", { documents });
+  if (input?.folderId == null && (input?.offset ?? 0) === 0) {
+    await upsertOdooBrowserCache(supabase, session.id, "documents", { documents });
+  }
   revalidatePath("/dashboard/ai-agent");
   return { ok: true, documents };
+}
+
+export async function listOdooDocumentFoldersAction(): Promise<
+  | { ok: true; folders: OdooDocumentFolderRow[] }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const res = await listOdooDocumentFoldersViaWebLogin({ bundle, limit: 500 });
+  if (res.error) return { ok: false, error: res.error };
+  const folders = res.folders.map(mapOdooDocumentFolderLiteToRow);
+  return { ok: true, folders };
+}
+
+export async function listOdooDocumentsInFolderAction(input: {
+  folderId: number;
+  offset?: number;
+  limit?: number;
+  text?: string;
+}) {
+  return listOdooDocumentsAction({
+    folderId: input.folderId,
+    offset: input.offset ?? 0,
+    limit: input.limit ?? 50,
+    text: input.text,
+  });
+}
+
+export async function getOdooDataCoverageAction(): Promise<
+  | { ok: true; coverage: Awaited<ReturnType<typeof loadOdooCoverageReport>> }
+  | { ok: false; error: string }
+> {
+  const session = await requireSession();
+  const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+  const { data: rows } = await supabase
+    .from("odoo_browser_cache")
+    .select("kind,payload")
+    .eq("user_id", session.id);
+  const workspace = rows?.find((r) => r.kind === "workspace")?.payload as Record<string, unknown> | undefined;
+  const snapshot = workspace ?? {
+    tasks: rows?.find((r) => r.kind === "tasks")?.payload,
+    projects: rows?.find((r) => r.kind === "projects")?.payload,
+    events: rows?.find((r) => r.kind === "events")?.payload,
+    documents: rows?.find((r) => r.kind === "documents")?.payload,
+  };
+  const tasks = Array.isArray((snapshot as { tasks?: unknown }).tasks)
+    ? (snapshot as { tasks: unknown[] }).tasks
+    : Array.isArray((snapshot as { tasks?: { tasks?: unknown[] } }).tasks?.tasks)
+      ? (snapshot as { tasks: { tasks: unknown[] } }).tasks.tasks
+      : [];
+  const projects = Array.isArray((snapshot as { projects?: unknown }).projects)
+    ? (snapshot as { projects: unknown[] }).projects
+    : Array.isArray((snapshot as { projects?: { projects?: unknown[] } }).projects?.projects)
+      ? (snapshot as { projects: { projects: unknown[] } }).projects.projects
+      : [];
+  const events = Array.isArray((snapshot as { events?: unknown }).events)
+    ? (snapshot as { events: unknown[] }).events
+    : Array.isArray((snapshot as { events?: { events?: unknown[] } }).events?.events)
+      ? (snapshot as { events: { events: unknown[] } }).events.events
+      : [];
+  const documents = Array.isArray((snapshot as { documents?: unknown }).documents)
+    ? (snapshot as { documents: unknown[] }).documents
+    : Array.isArray((snapshot as { documents?: { documents?: unknown[] } }).documents?.documents)
+      ? (snapshot as { documents: { documents: unknown[] } }).documents.documents
+      : [];
+  const folders = Array.isArray((snapshot as { folders?: unknown }).folders)
+    ? (snapshot as { folders: unknown[] }).folders
+    : [];
+  const coverage = await loadOdooCoverageReport(bundle, { tasks, projects, events, documents, folders });
+  return { ok: true, coverage };
 }
 
 export async function listOdooWorkspaceAllAction(input?: {
@@ -1377,37 +1495,43 @@ export async function listOdooWorkspaceAllAction(input?: {
   | {
       ok: true;
       tasks: OdooTaskUiRow[];
-      projects: Array<{ id: number; name: string; active: boolean; creator: string; manager: string; visibility: string; createdAt: string }>;
+      projects: OdooProjectEnrichedRow[];
       events: OdooCalendarEventRow[];
-      documents: Array<{ id: number; name: string; type: string; mimetype: string; createdAt: string; creator: string }>;
+      documents: [];
+      folders: OdooDocumentFolderRow[];
+      coverage: Awaited<ReturnType<typeof loadOdooCoverageReport>>;
     }
   | { ok: false; error: string }
 > {
-  const [tasks, projects, events, documents] = await Promise.all([
-    listOdooTasksAction({ text: input?.text, limit: 60, mineOnly: input?.mineOnly }),
-    listOdooProjectsAction({ text: input?.text, limit: 100, mineOnly: input?.mineOnly }),
-    listOdooCalendarEventsAction({ text: input?.text, limit: 100, mineOnly: input?.mineOnly }),
-    listOdooDocumentsAction({ text: input?.text, limit: 100, mineOnly: input?.mineOnly }),
-  ]);
-  if (!tasks.ok) return tasks;
-  if (!projects.ok) return projects;
-  if (!events.ok) return events;
-  if (!documents.ok) return documents;
   const session = await requireSession();
   const supabase = await createClient();
+  const bundle = await loadOdooBrowserSessionBundle(supabase, session.id);
+  if (!bundle) return { ok: false, error: "بيانات Odoo غير مكتملة." };
+
+  const synced = await syncOdooWorkspacePhase0(bundle, input);
+  if (!synced.ok) return synced;
+
+  const { tasks, projects, events, folders, meta } = synced.payload;
+
   await upsertOdooBrowserCache(supabase, session.id, "workspace", {
-    tasks: tasks.tasks,
-    projects: projects.projects,
-    events: events.events,
-    documents: documents.documents,
+    tasks,
+    projects,
+    events,
+    documents: [],
+    folders,
+    meta,
   });
   revalidatePath("/dashboard/ai-agent");
+  revalidatePath("/dashboard/odoo");
+
   return {
     ok: true,
-    tasks: tasks.tasks,
-    projects: projects.projects,
-    events: events.events,
-    documents: documents.documents,
+    tasks,
+    projects,
+    events: events as OdooCalendarEventRow[],
+    documents: [],
+    folders,
+    coverage: meta.coverage,
   };
 }
 

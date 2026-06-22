@@ -50,6 +50,21 @@ export type OdooWebProjectLite = {
   create_uid?: [number, string] | false;
   user_id?: [number, string] | false;
   privacy_visibility?: string;
+  partner_id?: [number, string] | false;
+  description?: string | false;
+  date_start?: string | false;
+  date?: string | false;
+  tag_ids?: number[];
+  task_count?: number;
+  open_task_count?: number;
+};
+
+export type OdooDocumentFolderLite = {
+  id: number;
+  name: string;
+  parent_folder_id?: [number, string] | false | number;
+  description?: string | false;
+  document_count?: number;
 };
 
 export type OdooCalendarAgendaLineLite = {
@@ -99,6 +114,12 @@ export type OdooWebDocumentLite = {
   mimetype?: string | false;
   create_date?: string;
   create_uid?: [number, string] | false;
+  folder_id?: [number, string] | false | number;
+  owner_id?: [number, string] | false;
+  file_size?: number | false;
+  res_model?: string | false;
+  res_id?: number | false;
+  tag_ids?: number[];
 };
 
 export type OdooGatewayErrorCode =
@@ -606,6 +627,15 @@ async function searchCountForDomain(
   );
   const n = json.result;
   return typeof n === "number" && Number.isFinite(n) ? n : Number(n) || 0;
+}
+
+/** Public wrapper for coverage diagnostics and explorer pagination. */
+export async function countOdooRecordsViaWebLogin(
+  bundle: OdooCredentialBundle,
+  model: string,
+  domain: unknown[] = []
+): Promise<number> {
+  return searchCountForDomain(bundle, model, domain);
 }
 
 const irModelIdCache = new Map<string, number>();
@@ -2459,7 +2489,22 @@ export async function listOdooProjectsViaWebLogin(params: {
           method: "search_read",
           args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
-            fields: ["id", "name", "active", "create_date", "create_uid", "user_id", "privacy_visibility"],
+            fields: [
+              "id",
+              "name",
+              "active",
+              "create_date",
+              "create_uid",
+              "user_id",
+              "privacy_visibility",
+              "partner_id",
+              "description",
+              "date_start",
+              "date",
+              "tag_ids",
+              "task_count",
+              "open_task_count",
+            ],
             order: "id desc",
             limit: Math.min(200, Math.max(1, Number(params.limit ?? 80))),
           },
@@ -2474,7 +2519,7 @@ export async function listOdooProjectsViaWebLogin(params: {
           method: "search_read",
           args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
-            fields: ["id", "name", "active", "create_date"],
+            fields: ["id", "name", "active", "create_date", "create_uid", "user_id", "privacy_visibility"],
             order: "id desc",
             limit: Math.min(200, Math.max(1, Number(params.limit ?? 80))),
           },
@@ -2482,24 +2527,48 @@ export async function listOdooProjectsViaWebLogin(params: {
       );
     }
     const rows = Array.isArray(json.result) ? json.result : [];
+    const tagIds = new Set<number>();
+    for (const r of rows) {
+      if (!r || typeof r !== "object") continue;
+      const raw = r as OdooWebProjectLite;
+      for (const tid of raw.tag_ids ?? []) {
+        if (Number.isFinite(tid) && tid > 0) tagIds.add(Number(tid));
+      }
+    }
+    const tagNames = tagIds.size ? await enrichOdooTagNames(params.bundle, [...tagIds]) : new Map<number, string>();
+
     const projects = rows
       .filter((x) => x && typeof x === "object")
       .map((r) => r as OdooWebProjectLite)
-      .map((r) => ({
-        id: Number(r.id),
-        name: String(r.name ?? ""),
-        active: Boolean(r.active ?? true),
-        create_date: typeof r.create_date === "string" ? r.create_date : "",
-        create_uid:
-          Array.isArray(r.create_uid) && typeof r.create_uid[0] === "number" && typeof r.create_uid[1] === "string"
-            ? ([Number(r.create_uid[0]), String(r.create_uid[1])] as [number, string])
-            : (false as const),
-        user_id:
-          Array.isArray(r.user_id) && typeof r.user_id[0] === "number" && typeof r.user_id[1] === "string"
-            ? ([Number(r.user_id[0]), String(r.user_id[1])] as [number, string])
-            : (false as const),
-        privacy_visibility: typeof r.privacy_visibility === "string" ? r.privacy_visibility : "",
-      }));
+      .map((r) => {
+        const tagIdList = Array.isArray(r.tag_ids) ? r.tag_ids.map(Number).filter((n) => n > 0) : [];
+        return {
+          id: Number(r.id),
+          name: String(r.name ?? ""),
+          active: Boolean(r.active ?? true),
+          create_date: typeof r.create_date === "string" ? r.create_date : "",
+          create_uid:
+            Array.isArray(r.create_uid) && typeof r.create_uid[0] === "number" && typeof r.create_uid[1] === "string"
+              ? ([Number(r.create_uid[0]), String(r.create_uid[1])] as [number, string])
+              : (false as const),
+          user_id:
+            Array.isArray(r.user_id) && typeof r.user_id[0] === "number" && typeof r.user_id[1] === "string"
+              ? ([Number(r.user_id[0]), String(r.user_id[1])] as [number, string])
+              : (false as const),
+          privacy_visibility: typeof r.privacy_visibility === "string" ? r.privacy_visibility : "",
+          partner_id:
+            Array.isArray(r.partner_id) && typeof r.partner_id[0] === "number" && typeof r.partner_id[1] === "string"
+              ? ([Number(r.partner_id[0]), String(r.partner_id[1])] as [number, string])
+              : (false as const),
+          description: typeof r.description === "string" ? r.description : (false as const),
+          date_start: typeof r.date_start === "string" ? r.date_start : (false as const),
+          date: typeof r.date === "string" ? r.date : (false as const),
+          tag_ids: tagIdList,
+          tag_labels: tagIdList.map((id) => tagNames.get(id) ?? `وسم #${id}`),
+          task_count: typeof r.task_count === "number" ? r.task_count : 0,
+          open_task_count: typeof r.open_task_count === "number" ? r.open_task_count : 0,
+        };
+      });
     return { projects };
   } catch (e) {
     return { projects: [], error: humanizeGatewayError(e) };
@@ -2562,6 +2631,7 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
   mineOnly?: boolean;
   startFrom?: string;
   startBefore?: string;
+  order?: "start asc" | "start desc";
   /**
    * When false, skips batched `mail.activity` + `calendar.event.agenda.item` reads (much faster for large windows).
    * Calendar clone still reloads agenda on the server from Odoo by source event id.
@@ -2607,7 +2677,7 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
               "res_model",
               "res_id",
             ],
-            order: "start desc",
+            order: params.order ?? (fromT || beforeT ? "start asc" : "start asc"),
             limit: Math.min(300, Math.max(1, Number(params.limit ?? 120))),
           },
         });
@@ -2623,7 +2693,7 @@ export async function listOdooCalendarEventsViaWebLogin(params: {
           args: [baseDomain],
           kwargs: {
             fields: ["id", "name", "start", "stop", "allday"],
-            order: "start desc",
+            order: params.order ?? (fromT || beforeT ? "start asc" : "start asc"),
             limit: Math.min(300, Math.max(1, Number(params.limit ?? 120))),
           },
         });
@@ -2815,11 +2885,18 @@ export async function listOdooDocumentsViaWebLogin(params: {
   bundle: OdooCredentialBundle;
   text?: string;
   limit?: number;
+  offset?: number;
+  folderId?: number | null;
   mineOnly?: boolean;
 }): Promise<{ documents: OdooWebDocumentLite[]; error?: string }> {
   try {
     const domain: unknown[] = [];
     if (params.text?.trim()) domain.push(["name", "ilike", params.text.trim()]);
+    if (Number.isFinite(Number(params.folderId))) {
+      domain.push(["folder_id", "=", Number(params.folderId)]);
+    }
+    const limit = Math.min(200, Math.max(1, Number(params.limit ?? 50)));
+    const offset = Math.max(0, Number(params.offset ?? 0));
     let json: Record<string, unknown>;
     try {
       json = await callKwWithSessionRetry(params.bundle, async (session) =>
@@ -2830,9 +2907,23 @@ export async function listOdooDocumentsViaWebLogin(params: {
           method: "search_read",
           args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
-            fields: ["id", "name", "type", "mimetype", "create_date", "create_uid"],
+            fields: [
+              "id",
+              "name",
+              "type",
+              "mimetype",
+              "create_date",
+              "create_uid",
+              "folder_id",
+              "owner_id",
+              "file_size",
+              "res_model",
+              "res_id",
+              "tag_ids",
+            ],
             order: "id desc",
-            limit: Math.min(200, Math.max(1, Number(params.limit ?? 80))),
+            limit,
+            offset,
           },
         })
       );
@@ -2846,9 +2937,10 @@ export async function listOdooDocumentsViaWebLogin(params: {
           method: "search_read",
           args: [params.mineOnly ? [["create_uid", "=", session.uid], ...domain] : domain],
           kwargs: {
-            fields: ["id", "name", "type", "mimetype", "create_date", "create_uid"],
+            fields: ["id", "name", "type", "mimetype", "create_date", "create_uid", "file_size", "res_model", "res_id"],
             order: "id desc",
-            limit: Math.min(200, Math.max(1, Number(params.limit ?? 80))),
+            limit,
+            offset,
           },
         })
       );
@@ -2867,10 +2959,63 @@ export async function listOdooDocumentsViaWebLogin(params: {
           Array.isArray(r.create_uid) && typeof r.create_uid[0] === "number" && typeof r.create_uid[1] === "string"
             ? ([Number(r.create_uid[0]), String(r.create_uid[1])] as [number, string])
             : (false as const),
+        folder_id: Array.isArray(r.folder_id)
+          ? ([Number(r.folder_id[0]), String(r.folder_id[1])] as [number, string])
+          : typeof r.folder_id === "number"
+            ? r.folder_id
+            : (false as const),
+        owner_id:
+          Array.isArray(r.owner_id) && typeof r.owner_id[0] === "number" && typeof r.owner_id[1] === "string"
+            ? ([Number(r.owner_id[0]), String(r.owner_id[1])] as [number, string])
+            : (false as const),
+        file_size: typeof r.file_size === "number" ? r.file_size : (false as const),
+        res_model: typeof r.res_model === "string" ? r.res_model : (false as const),
+        res_id: typeof r.res_id === "number" ? r.res_id : (false as const),
+        tag_ids: Array.isArray(r.tag_ids) ? r.tag_ids.map(Number) : [],
       }));
     return { documents };
   } catch (e) {
     return { documents: [], error: humanizeGatewayError(e) };
+  }
+}
+
+export async function listOdooDocumentFoldersViaWebLogin(params: {
+  bundle: OdooCredentialBundle;
+  limit?: number;
+}): Promise<{ folders: OdooDocumentFolderLite[]; error?: string }> {
+  try {
+    const json = await callKwWithSessionRetry(params.bundle, async (session) =>
+      webCallKw({
+        baseUrl: session.baseUrl,
+        cookieHeader: session.cookieHeader,
+        model: "documents.folder",
+        method: "search_read",
+        args: [[]],
+        kwargs: {
+          fields: ["id", "name", "parent_folder_id", "description", "document_count"],
+          order: "name asc",
+          limit: Math.min(500, Math.max(1, Number(params.limit ?? 500))),
+        },
+      })
+    );
+    const rows = Array.isArray(json.result) ? json.result : [];
+    const folders = rows
+      .filter((x) => x && typeof x === "object")
+      .map((r) => r as Record<string, unknown>)
+      .map((r) => ({
+        id: Number(r.id),
+        name: String(r.name ?? ""),
+        parent_folder_id: Array.isArray(r.parent_folder_id)
+          ? ([Number(r.parent_folder_id[0]), String(r.parent_folder_id[1])] as [number, string])
+          : typeof r.parent_folder_id === "number"
+            ? r.parent_folder_id
+            : (false as const),
+        description: typeof r.description === "string" ? r.description : (false as const),
+        document_count: typeof r.document_count === "number" ? r.document_count : 0,
+      }));
+    return { folders };
+  } catch (e) {
+    return { folders: [], error: humanizeGatewayError(e) };
   }
 }
 

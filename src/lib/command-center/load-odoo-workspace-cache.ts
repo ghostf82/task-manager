@@ -9,6 +9,8 @@ export type OdooWorkspacePayload = {
   projects: unknown;
   events: unknown;
   documents: unknown;
+  folders?: unknown;
+  meta?: unknown;
 };
 
 function isWorkspacePayload(v: unknown): v is OdooWorkspacePayload {
