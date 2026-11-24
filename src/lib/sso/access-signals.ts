@@ -93,6 +93,30 @@ function signalAfterSession(at: string, sessionStartedAt: string | null | undefi
   return signalMs > sessionMs;
 }
 
+/** Inclusive skip: consumed events at the seen cursor must not fire again. */
+export function signalAtOrBeforeCursor(
+  at: string,
+  cursor: string | null | undefined
+): boolean {
+  if (!cursor) return false;
+  const signalMs = Date.parse(at);
+  const cursorMs = Date.parse(cursor);
+  if (!Number.isFinite(signalMs) || !Number.isFinite(cursorMs)) return false;
+  return signalMs <= cursorMs;
+}
+
+export function laterSignalAt(
+  current: string | null,
+  candidate: string
+): string | null {
+  const candMs = Date.parse(candidate);
+  if (!Number.isFinite(candMs)) return current;
+  if (!current) return candidate;
+  const curMs = Date.parse(current);
+  if (!Number.isFinite(curMs) || candMs > curMs) return candidate;
+  return current;
+}
+
 function signalTargetsThisProgram(
   signal: AccessSignal,
   programSlug: string
@@ -105,27 +129,64 @@ function signalTargetsThisProgram(
 
 export function accessSignalsAffectingProgram(
   signals: AccessSignal[],
-  input: { programSlug?: string; sessionStartedAt?: string | null } = {}
-): { logout: boolean; revokeGrant: boolean } {
+  input: {
+    programSlug?: string;
+    sessionStartedAt?: string | null;
+    signalsSeenAt?: string | null;
+  } = {}
+): { logout: boolean; revokeGrant: boolean; cursorAt: string | null } {
   const programSlug = input.programSlug ?? PROGRAM_SLUG;
   let logout = false;
   let revokeGrant = false;
+  let cursorAt: string | null = null;
   for (const signal of signals) {
+    if (signalAtOrBeforeCursor(signal.at, input.signalsSeenAt)) continue;
     if (!signalAfterSession(signal.at, input.sessionStartedAt)) continue;
     if (!signalTargetsThisProgram(signal, programSlug)) continue;
     if (signal.kind === "logout" || signal.kind === "logout_all") {
       logout = true;
+      cursorAt = laterSignalAt(cursorAt, signal.at);
     }
     if (signal.kind === "disable_membership") {
       logout = true;
       revokeGrant = true;
+      cursorAt = laterSignalAt(cursorAt, signal.at);
     }
     if (signal.kind === "revoke_grant") {
       logout = true;
       revokeGrant = true;
+      cursorAt = laterSignalAt(cursorAt, signal.at);
     }
   }
-  return { logout, revokeGrant };
+  return { logout, revokeGrant, cursorAt };
+}
+
+export type PendingLaunchSignals =
+  | { action: "allow"; cursorAt: string | null }
+  | { action: "logout"; cursorAt: string }
+  | { action: "revoke"; cursorAt: string }
+  | { action: "deny"; reason: string };
+
+/** Launch-time consume: fail-closed on poll errors / revoke; logout is applied then launch may continue. */
+export function decidePendingLaunchSignals(
+  poll: AccessSignalsPoll,
+  input: { programSlug?: string; signalsSeenAt?: string | null } = {}
+): PendingLaunchSignals {
+  if (poll.status === "skipped") return { action: "allow", cursorAt: null };
+  if (poll.status === "unavailable") {
+    return { action: "deny", reason: poll.reason };
+  }
+  const fx = accessSignalsAffectingProgram(poll.signals, {
+    programSlug: input.programSlug,
+    signalsSeenAt: input.signalsSeenAt,
+  });
+  if (fx.revokeGrant && fx.cursorAt) {
+    return { action: "revoke", cursorAt: fx.cursorAt };
+  }
+  if (fx.logout && fx.cursorAt) {
+    return { action: "logout", cursorAt: fx.cursorAt };
+  }
+  return { action: "allow", cursorAt: null };
 }
 
 export function decideAccessSignals(

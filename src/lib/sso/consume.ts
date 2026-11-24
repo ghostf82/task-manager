@@ -1,5 +1,9 @@
 import { LOCAL_ACCOUNT_TAKEN_MESSAGE, type IdentityLink, type LaunchErrorCode } from "./contract";
-import type { AccessSignalsPoll } from "./access-signals";
+import {
+  decidePendingLaunchSignals,
+  laterSignalAt,
+  type AccessSignalsPoll,
+} from "./access-signals";
 import {
   applyPlatformGrant,
   applyPlatformRevoke,
@@ -43,6 +47,8 @@ export type SsoPorts = {
   signOutLocal(localUserId: string): Promise<void>;
   checkLiveGrant?(platformUserId: string): Promise<LiveGrantDecision>;
   pollAccessSignals?(platformUserId: string): Promise<AccessSignalsPoll>;
+  signalsSeenAt?(platformUserId: string): Promise<string | null>;
+  markSignalsSeen?(platformUserId: string, at: string): Promise<void>;
 };
 
 export type SsoPortsSource = SsoPorts | (() => SsoPorts);
@@ -91,6 +97,56 @@ async function abortIfConcurrentRevoke(
       await ports.signOutLocal(current.localUserId);
     }
     return fail("grant", "identity link is revoked");
+  }
+  return null;
+}
+
+async function markConsumedCursor(
+  ports: SsoPorts,
+  platformUserId: string,
+  at: string | null
+): Promise<void> {
+  if (!at || !ports.markSignalsSeen) return;
+  await ports.markSignalsSeen(platformUserId, at);
+}
+
+/**
+ * Consume portal fan-out before minting. Pending revoke fails the launch
+ * (no JIT). Cursor moves only to consumed event times, never wall-clock/iat.
+ */
+async function consumePendingBeforeMint(
+  ports: SsoPorts,
+  platformUserId: string,
+  existing: IdentityLink | null
+): Promise<LaunchErr | null> {
+  if (!ports.pollAccessSignals) return null;
+  const cursor = ports.signalsSeenAt
+    ? await ports.signalsSeenAt(platformUserId)
+    : null;
+  const poll = await ports.pollAccessSignals(platformUserId);
+  const pending = decidePendingLaunchSignals(poll, { signalsSeenAt: cursor });
+  if (pending.action === "deny") {
+    await signOutIfPresent(ports, existing?.localUserId);
+    return fail("failed", "platform access signals unavailable");
+  }
+  if (pending.action === "revoke") {
+    if (existing) {
+      await persistPlatformDisable(ports, existing, platformUserId);
+      await markConsumedCursor(
+        ports,
+        platformUserId,
+        laterSignalAt(cursor, pending.cursorAt)
+      );
+    }
+    return fail("grant", "platform grant is not active");
+  }
+  if (pending.action === "logout") {
+    await signOutIfPresent(ports, existing?.localUserId);
+    await markConsumedCursor(
+      ports,
+      platformUserId,
+      laterSignalAt(cursor, pending.cursorAt)
+    );
   }
   return null;
 }
@@ -158,6 +214,13 @@ export async function consumeLaunchToken(
       return fail("grant", "platform grant check failed");
     }
   }
+
+  const pending = await consumePendingBeforeMint(
+    ports,
+    claims.sub,
+    existingForDisable
+  );
+  if (pending) return pending;
 
   const links = await ports.listLinks();
   const existing =

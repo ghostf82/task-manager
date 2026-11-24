@@ -16,6 +16,8 @@ export type MemorySsoState = {
   /** Isolated test control. 404 is fail-closed, not "no signals". */
   accessSignalsHttpStatus: number | null;
   sessionStartedAt: Map<string, string>;
+  /** Inclusive consume cursor (ISO). Never wall-clock; only consumed event `at`. */
+  signalsSeenAt: Map<string, string>;
 };
 
 export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
@@ -32,6 +34,7 @@ export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
     accessSignals: initial?.accessSignals ? [...initial.accessSignals] : [],
     accessSignalsHttpStatus: initial?.accessSignalsHttpStatus ?? null,
     sessionStartedAt: new Map(initial?.sessionStartedAt ?? []),
+    signalsSeenAt: new Map(initial?.signalsSeenAt ?? []),
   };
 
   const ports: SsoPorts = {
@@ -91,6 +94,17 @@ export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
       const value = state.liveGrant.get(platformUserId);
       if (value === "unknown") return { status: "unknown" as const };
       return { status: "confirmed" as const, granted: value === true };
+    },
+    async signalsSeenAt(platformUserId) {
+      return state.signalsSeenAt.get(platformUserId) ?? null;
+    },
+    async markSignalsSeen(platformUserId, at) {
+      const prev = state.signalsSeenAt.get(platformUserId) ?? null;
+      const prevMs = prev ? Date.parse(prev) : Number.NaN;
+      const nextMs = Date.parse(at);
+      if (!Number.isFinite(nextMs)) return;
+      if (Number.isFinite(prevMs) && nextMs <= prevMs) return;
+      state.signalsSeenAt.set(platformUserId, at);
     },
     async pollAccessSignals(platformUserId) {
       if (state.accessSignalsHttpStatus != null) {

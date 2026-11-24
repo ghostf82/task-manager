@@ -19,7 +19,9 @@ export {
 export {
   ACCESS_SIGNALS_URL_ENV,
   decideAccessSignals,
+  decidePendingLaunchSignals,
   interpretAccessSignalsHttp,
+  signalAtOrBeforeCursor,
 } from "./access-signals";
 export { consumeLaunchToken, consumeRevokeToken } from "./consume";
 export {

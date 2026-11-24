@@ -50,8 +50,10 @@ import {
 } from "./isolated-flag";
 import {
   decideAccessSignals,
+  decidePendingLaunchSignals,
   fetchPortalAccessSignals,
   interpretAccessSignalsHttp,
+  signalAtOrBeforeCursor,
 } from "./access-signals";
 import {
   getIsolatedRuntime,
@@ -683,6 +685,111 @@ describe("consume launch + revoke", () => {
     expect(
       localPasswordLoginAllowed({ link: state.links[0]!, platformGrant: false })
     ).toBe(false);
+  });
+
+  it("consumes a pending revoke before launch and does not JIT or burn jti", async () => {
+    const { ports, state } = createMemoryPorts();
+    const pendingSub = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const jti = "pending-revoke-unlinked-jti";
+    const revokeAt = "2026-11-24T19:59:00.000Z";
+    state.accessSignals.push({
+      platform_user_id: pendingSub,
+      kind: "revoke_grant",
+      program_slug: "taskmanager",
+      at: revokeAt,
+    });
+    const usersBefore = state.users.size;
+    const { token } = await signToken({}, { sub: pendingSub, jti });
+    const result = await consumeLaunchToken(token, cfg, ports);
+    expect(result).toMatchObject({ ok: false, code: "grant" });
+    expect(state.jtis.has(jti)).toBe(false);
+    expect(state.users.size).toBe(usersBefore);
+    expect(state.sessions.size).toBe(0);
+    expect(state.links.find((row) => row.platformUserId === pendingSub)).toBeUndefined();
+    expect(state.signalsSeenAt.get(pendingSub)).toBeUndefined();
+  });
+
+  it("fails launch fail-closed on pending revoke for a linked user and keeps the historic local id", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token, sub } = await signToken({});
+    const launched = await consumeLaunchToken(token, cfg, ports);
+    expect(launched.ok).toBe(true);
+    if (!launched.ok) return;
+    const localUserId = launched.localUserId;
+    const revokeAt = "2026-11-24T20:05:00.000Z";
+    state.accessSignals.push({
+      platform_user_id: sub,
+      kind: "revoke_grant",
+      program_slug: "taskmanager",
+      at: revokeAt,
+    });
+    const jti = "pending-revoke-linked-jti";
+    const { token: again } = await signToken({}, { sub, jti });
+    const blocked = await consumeLaunchToken(again, cfg, ports);
+    expect(blocked).toMatchObject({ ok: false, code: "grant" });
+    expect(state.jtis.has(jti)).toBe(false);
+    expect(state.links[0]?.localUserId).toBe(localUserId);
+    expect(state.links[0]?.grantActive).toBe(false);
+    expect(state.sessions.has(localUserId)).toBe(false);
+    expect(state.signalsSeenAt.get(sub)).toBe(revokeAt);
+  });
+
+  it("applies pending logout before mint and only advances the cursor to the event", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token, sub } = await signToken({});
+    const launched = await consumeLaunchToken(token, cfg, ports);
+    expect(launched.ok).toBe(true);
+    if (!launched.ok) return;
+    const logoutAt = "2026-11-24T20:10:00.000Z";
+    state.accessSignals.push({
+      platform_user_id: sub,
+      kind: "logout_all",
+      at: logoutAt,
+      program_slug: null,
+    });
+    const { token: again } = await signToken({}, { sub });
+    const relaunch = await consumeLaunchToken(again, cfg, ports);
+    expect(relaunch.ok).toBe(true);
+    if (!relaunch.ok) return;
+    expect(relaunch.localUserId).toBe(launched.localUserId);
+    expect(state.sessions.has(launched.localUserId)).toBe(true);
+    expect(state.signedOut).toContain(launched.localUserId);
+    expect(state.signalsSeenAt.get(sub)).toBe(logoutAt);
+    expect(state.signalsSeenAt.get(sub)).not.toBe(state.sessionStartedAt.get(launched.localUserId));
+  });
+
+  it("fails launch fail-closed on access_signals 404 before mint", async () => {
+    const { ports, state } = createMemoryPorts();
+    state.accessSignalsHttpStatus = 404;
+    const jti = "launch-poll-404-jti";
+    const { token } = await signToken({}, { jti });
+    const result = await consumeLaunchToken(token, cfg, ports);
+    expect(result).toMatchObject({ ok: false, code: "failed" });
+    expect(state.jtis.has(jti)).toBe(false);
+    expect(state.users.size).toBe(0);
+    expect(state.sessions.size).toBe(0);
+  });
+
+  it("skips only consumed events at the seen cursor", () => {
+    const at = "2026-11-24T19:00:05.000Z";
+    expect(signalAtOrBeforeCursor(at, at)).toBe(true);
+    expect(signalAtOrBeforeCursor(at, "2026-11-24T19:01:00.000Z")).toBe(true);
+    expect(signalAtOrBeforeCursor("2026-11-24T19:01:00.000Z", at)).toBe(false);
+    const poll = {
+      status: "ok" as const,
+      signals: [
+        {
+          platform_user_id: "p",
+          kind: "revoke_grant",
+          program_slug: "taskmanager",
+          at,
+        },
+      ],
+    };
+    expect(decidePendingLaunchSignals(poll, { signalsSeenAt: at }).action).toBe(
+      "allow"
+    );
+    expect(decidePendingLaunchSignals(poll).action).toBe("revoke");
   });
 });
 
