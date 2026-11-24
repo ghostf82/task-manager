@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { isPlatformGrantBlocking } from "@/lib/sso/grant-gate";
 import {
+  clearIsolatedBrowserSession,
   isolatedLoopbackEnabled,
   isolatedSessionFromCookies,
 } from "@/lib/sso/isolated-loopback";
@@ -16,7 +17,10 @@ export type SessionUser = {
 export async function requireSession(): Promise<SessionUser> {
   if (isolatedLoopbackEnabled()) {
     const isolated = await isolatedSessionFromCookies();
-    if (!isolated) redirect("/login");
+    if (!isolated) {
+      await clearIsolatedBrowserSession();
+      redirect("/login");
+    }
     return isolated;
   }
 

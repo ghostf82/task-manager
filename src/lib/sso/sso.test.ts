@@ -38,7 +38,7 @@ import {
   isMissingRelation,
   isPlatformGrantBlockingFromLookup,
 } from "./lookup";
-import { isolatedAuthDecision } from "./isolated-flag";
+import { isolatedAuthDecision, peekIsolatedSidLive } from "./isolated-flag";
 import {
   getIsolatedRuntime,
   mintIsolatedCookie,
@@ -924,12 +924,37 @@ describe("isolated loopback session", () => {
     delete (globalThis as { __tmIsolatedLoopback?: unknown }).__tmIsolatedLoopback;
   });
 
-  it("honors tm_sso for /dashboard and ignores leftover GoTrue on /login", () => {
-    expect(isolatedAuthDecision({ pathname: "/dashboard", tmSso: "sid" })).toBe("next");
-    expect(isolatedAuthDecision({ pathname: "/login", tmSso: "sid" })).toBe("dashboard");
-    expect(isolatedAuthDecision({ pathname: "/dashboard", tmSso: undefined })).toBe("login");
-    expect(isolatedAuthDecision({ pathname: "/login", tmSso: undefined })).toBe("next");
-    expect(isolatedAuthDecision({ pathname: "/", tmSso: "" })).toBe("next");
+  it("honors live tm_sso and ignores leftover GoTrue on /login", () => {
+    expect(isolatedAuthDecision({ pathname: "/dashboard", tmSso: "sid", live: true })).toBe("next");
+    expect(isolatedAuthDecision({ pathname: "/login", tmSso: "sid", live: true })).toBe("dashboard");
+    expect(isolatedAuthDecision({ pathname: "/dashboard", tmSso: undefined, live: false })).toBe("login");
+    expect(isolatedAuthDecision({ pathname: "/login", tmSso: undefined, live: false })).toBe("next");
+    expect(isolatedAuthDecision({ pathname: "/", tmSso: "", live: false })).toBe("next");
+  });
+
+  it("does not bounce /login to /dashboard for stale or unknown SIDs", () => {
+    expect(isolatedAuthDecision({ pathname: "/login", tmSso: "stale", live: false })).toBe("next");
+    expect(isolatedAuthDecision({ pathname: "/dashboard", tmSso: "stale", live: false })).toBe("login");
+    expect(isolatedAuthDecision({ pathname: "/login", tmSso: "sid", live: "unknown" })).toBe("next");
+    expect(isolatedAuthDecision({ pathname: "/dashboard", tmSso: "sid", live: "unknown" })).toBe("next");
+    expect(peekIsolatedSidLive("leftover-after-restart")).toBe("unknown");
+  });
+
+  it("treats a SID missing from this isolate's maps as stale", () => {
+    const runtime = getIsolatedRuntime();
+    const localUserId = randomUUID();
+    runtime.state.users.set(localUserId, {
+      email: "sso.user@sso.taskmanager.local",
+      isSuperAdmin: false,
+      passwordCopied: false,
+    });
+    const sid = mintIsolatedCookie(localUserId);
+    expect(peekIsolatedSidLive(sid)).toBe(true);
+    expect(isolatedAuthDecision({ pathname: "/login", tmSso: sid, live: true })).toBe("dashboard");
+    revokeIsolatedSid(sid);
+    expect(peekIsolatedSidLive(sid)).toBe(false);
+    expect(isolatedAuthDecision({ pathname: "/login", tmSso: sid, live: false })).toBe("next");
+    expect(isolatedAuthDecision({ pathname: "/dashboard", tmSso: sid, live: false })).toBe("login");
   });
 
   it("clears tm_sso mapping and in-memory session on isolated sign-out", () => {

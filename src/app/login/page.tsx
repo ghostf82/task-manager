@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { loginAction } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getTranslator } from "@/lib/i18n/get-translator";
+import {
+  clearIsolatedBrowserSession,
+  isolatedLoopbackEnabled,
+  isolatedSessionFromCookies,
+} from "@/lib/sso/isolated-loopback";
 
 export default async function LoginPage({
   searchParams,
@@ -20,6 +26,11 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const sp = await searchParams;
+  if (isolatedLoopbackEnabled()) {
+    const isolated = await isolatedSessionFromCookies();
+    if (isolated) redirect("/dashboard");
+    await clearIsolatedBrowserSession();
+  }
   const { t } = await getTranslator();
 
   const errors: Record<string, string> = {
