@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
 import { isPlatformGrantBlocking } from "@/lib/sso/grant-gate";
+import {
+  isolatedLoopbackEnabled,
+  isolatedSessionFromCookies,
+} from "@/lib/sso/isolated-loopback";
 import { createClient } from "@/lib/supabase/server";
 
 export type SessionUser = {
@@ -10,6 +14,12 @@ export type SessionUser = {
 };
 
 export async function requireSession(): Promise<SessionUser> {
+  if (isolatedLoopbackEnabled()) {
+    const isolated = await isolatedSessionFromCookies();
+    if (!isolated) redirect("/login");
+    return isolated;
+  }
+
   const supabase = await createClient();
   const {
     data: { user },

@@ -1,8 +1,15 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isPlatformGrantBlocking } from "@/lib/sso/grant-gate";
+import {
+  ISOLATED_COOKIE,
+  isolatedLoopbackEnabled,
+  isolatedPasswordLogin,
+  mintIsolatedCookie,
+} from "@/lib/sso/isolated-loopback";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -16,6 +23,21 @@ export async function loginAction(formData: FormData) {
 
   if (!email || !password) {
     redirect(errParam("missing"));
+  }
+
+  if (isolatedLoopbackEnabled()) {
+    const result = isolatedPasswordLogin(email, password);
+    if (!result.ok) {
+      redirect(errParam(result.code === "sso_grant" ? "sso_grant" : "invalid"));
+    }
+    const jar = await cookies();
+    jar.set(ISOLATED_COOKIE, mintIsolatedCookie(result.localUserId), {
+      httpOnly: true,
+      path: "/",
+      sameSite: "lax",
+    });
+    revalidatePath("/", "layout");
+    redirect("/dashboard");
   }
 
   const supabase = await createClient();

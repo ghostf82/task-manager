@@ -1,6 +1,10 @@
 import type { NextRequest } from "next/server";
 
 import { handleHrLaunch } from "@/lib/sso/launch-handler";
+import {
+  handleIsolatedHrLaunch,
+  isolatedLoopbackEnabled,
+} from "@/lib/sso/isolated-loopback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,5 +15,8 @@ export const dynamic = "force-dynamic";
  * Success: 303 /dashboard (native executive briefing + AppSidebar, not an SSO proof page).
  */
 export async function POST(request: NextRequest) {
+  if (isolatedLoopbackEnabled()) {
+    return handleIsolatedHrLaunch(request);
+  }
   return handleHrLaunch(request);
 }

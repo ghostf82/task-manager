@@ -3,6 +3,10 @@ import { buildExecutiveLabels } from "@/lib/executive-intelligence/briefing-labe
 import { loadExecutiveMorningBrief } from "@/lib/executive-intelligence/load-executive-briefing";
 import { requireSession } from "@/lib/dashboard-auth";
 import { getTranslator } from "@/lib/i18n/get-translator";
+import {
+  emptyIsolatedBrief,
+  isolatedLoopbackEnabled,
+} from "@/lib/sso/isolated-loopback";
 import { createClient } from "@/lib/supabase/server";
 
 export const maxDuration = 120;
@@ -10,6 +14,16 @@ export const maxDuration = 120;
 export default async function DashboardHomePage() {
   const session = await requireSession();
   const { t, locale } = await getTranslator();
+  if (isolatedLoopbackEnabled()) {
+    return (
+      <ExecutiveBriefingView
+        brief={emptyIsolatedBrief()}
+        labels={buildExecutiveLabels(t)}
+        tr={t}
+        locale={locale}
+      />
+    );
+  }
   const supabase = await createClient();
 
   const { data: profile } = await supabase
