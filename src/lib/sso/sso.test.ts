@@ -6,6 +6,7 @@ import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 
 import {
+  LAUNCH_SUCCESS_PATH,
   LAUNCH_TOKEN_FIELD,
   PORTAL_ISSUER,
   PROGRAM_AUDIENCE,
@@ -26,7 +27,8 @@ import {
   localPasswordLoginAllowed,
   revokedPlatformTombstone,
 } from "./grant";
-import { launchRedirectStatus } from "./http";
+import { isNativeLaunchLanding, launchRedirectStatus } from "./http";
+import { handleHrLaunch } from "./launch-handler";
 import { resolveLinkForLaunch, suggestEmailMatch } from "./identity";
 import { decideJit, provisionedLink } from "./jit";
 import { LaunchJwtError, parseLaunchClaims, verifyLaunchJwt } from "./launch-jwt";
@@ -803,6 +805,33 @@ describe("POST launch redirect", () => {
   it("uses 303 for POST and 307 for GET", () => {
     expect(launchRedirectStatus("POST")).toBe(303);
     expect(launchRedirectStatus("GET")).toBe(307);
+  });
+
+  it("lands on native /dashboard, not an SSO proof page", async () => {
+    expect(LAUNCH_SUCCESS_PATH).toBe("/dashboard");
+    expect(isNativeLaunchLanding(LAUNCH_SUCCESS_PATH)).toBe(true);
+    expect(isNativeLaunchLanding("/sso/proof")).toBe(false);
+    expect(isNativeLaunchLanding("/login")).toBe(false);
+
+    const { ports } = createMemoryPorts();
+    const { token } = await signToken({ grant: true });
+    const request = new Request("http://127.0.0.1:3012/auth/hr-launch", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ [LAUNCH_TOKEN_FIELD]: token }).toString(),
+    });
+    const { NextRequest } = await import("next/server");
+    const res = await handleHrLaunch(new NextRequest(request), {
+      jwtConfig: cfg,
+      ports,
+    });
+    expect(res.status).toBe(303);
+    const loc = new URL(res.headers.get("location") ?? "", "http://127.0.0.1:3012");
+    expect(loc.pathname).toBe("/dashboard");
+    expect(isNativeLaunchLanding(loc.pathname)).toBe(true);
+    expect(loc.pathname).not.toMatch(/proof|iam-sso/i);
+    const html = await res.text();
+    expect(html).not.toMatch(/دخول موحّد من بوابة الموارد البشرية/);
   });
 });
 

@@ -18,6 +18,8 @@ export const PORTAL_ISSUER = "hr-portal" as const;
 export const PROGRAM_AUDIENCE = `hr-program:${PROGRAM_SLUG}` as const;
 export const LAUNCH_PATH = "/auth/hr-launch" as const;
 export const LAUNCH_TOKEN_FIELD = "launch_token" as const;
+/** Native App Router home (executive briefing + dashboard shell). Not an SSO proof page. */
+export const LAUNCH_SUCCESS_PATH = "/dashboard" as const;
 export const LAUNCH_HS256_SECRET_ENV = "HR_LAUNCH_HS256_TASKMANAGER" as const;
 export const LEAST_PRIVILEGE_LOCAL_ROLE = "employee" as const;
 export const DEFAULT_JWT_MAX_TTL_SECONDS = 60;

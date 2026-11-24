@@ -1,14 +1,25 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { consumeLaunchToken } from "./consume";
-import type { LaunchErrorCode } from "./contract";
+import { consumeLaunchToken, type SsoPortsSource } from "./consume";
+import { LAUNCH_SUCCESS_PATH, type LaunchErrorCode } from "./contract";
 import { launchRedirectStatus } from "./http";
-import { readJwtConfigFromEnv } from "./launch-jwt";
+import { readJwtConfigFromEnv, type JwtVerifyConfig } from "./launch-jwt";
 import { queryCarriesLaunchToken, readLaunchTokenFromParts } from "./launch-request";
 import { createSupabaseSsoPorts } from "./supabase-ports";
 
+export type HrLaunchDeps = {
+  jwtConfig?: JwtVerifyConfig | { error: LaunchErrorCode };
+  ports?: SsoPortsSource;
+};
+
 function redirectTo(request: NextRequest, path: string) {
   return NextResponse.redirect(new URL(path, request.url), launchRedirectStatus(request.method));
+}
+
+function jwtConfigFrom(
+  deps: HrLaunchDeps
+): JwtVerifyConfig | { error: LaunchErrorCode } {
+  return deps.jwtConfig ?? readJwtConfigFromEnv();
 }
 
 function loginError(request: NextRequest, code: LaunchErrorCode | "missing_token") {
@@ -34,14 +45,14 @@ async function readBodyToken(request: NextRequest): Promise<string> {
   });
 }
 
-export async function handleHrLaunch(request: NextRequest) {
+export async function handleHrLaunch(request: NextRequest, deps: HrLaunchDeps = {}) {
   if (request.method.toUpperCase() !== "POST") {
     return NextResponse.json({ error: "method" }, { status: 405 });
   }
   if (queryCarriesLaunchToken(request.nextUrl.searchParams)) {
     return NextResponse.json({ error: "invalid" }, { status: 400 });
   }
-  const cfg = readJwtConfigFromEnv();
+  const cfg = jwtConfigFrom(deps);
   if ("error" in cfg) {
     return loginError(request, "unconfigured");
   }
@@ -50,11 +61,15 @@ export async function handleHrLaunch(request: NextRequest) {
     return loginError(request, "missing_token");
   }
   try {
-    const result = await consumeLaunchToken(token, cfg, createSupabaseSsoPorts);
+    const result = await consumeLaunchToken(
+      token,
+      cfg,
+      deps.ports ?? createSupabaseSsoPorts
+    );
     if (!result.ok) {
       return loginError(request, result.code);
     }
-    return redirectTo(request, "/dashboard");
+    return redirectTo(request, LAUNCH_SUCCESS_PATH);
   } catch {
     return loginError(request, "failed");
   }
