@@ -1,11 +1,14 @@
 import { cookies } from "next/headers";
-import { type NextRequest } from "next/server";
+import { type NextRequest, type NextResponse } from "next/server";
 
 import type { ExecutiveMorningBrief } from "@/lib/executive-intelligence/types";
 import type { SsoPorts } from "./consume";
 import { localPasswordLoginAllowed } from "./grant";
+import { ISOLATED_COOKIE } from "./isolated-flag";
 import { handleHrLaunch } from "./launch-handler";
 import { createMemoryPorts, type MemorySsoState } from "./memory-ports";
+
+export { ISOLATED_COOKIE, isolatedLoopbackEnabled } from "./isolated-flag";
 
 type IsolatedSessionUser = {
   id: string;
@@ -13,14 +16,6 @@ type IsolatedSessionUser = {
   isSuperAdmin: boolean;
   mustChangePassword: boolean;
 };
-
-export const ISOLATED_COOKIE = "tm_sso";
-
-export function isolatedLoopbackEnabled(
-  env: NodeJS.ProcessEnv = process.env
-): boolean {
-  return env.HR_IAM_ISOLATED_LOOPBACK === "1";
-}
 
 type IsolatedRuntime = {
   ports: SsoPorts;
@@ -81,9 +76,32 @@ export async function isolatedSessionFromCookies(): Promise<IsolatedSessionUser 
 
 export function mintIsolatedCookie(localUserId: string): string {
   const runtime = getIsolatedRuntime();
+  runtime.state.sessions.add(localUserId);
   const sid = crypto.randomUUID();
   runtime.cookies.set(sid, localUserId);
   return sid;
+}
+
+export function revokeIsolatedSid(sid: string | undefined): void {
+  const runtime = getIsolatedRuntime();
+  if (!sid) return;
+  const localUserId = runtime.cookies.get(sid);
+  if (localUserId) {
+    runtime.state.sessions.delete(localUserId);
+    runtime.state.signedOut.push(localUserId);
+  }
+  runtime.cookies.delete(sid);
+}
+
+export async function clearIsolatedBrowserSession(): Promise<void> {
+  const jar = await cookies();
+  revokeIsolatedSid(jar.get(ISOLATED_COOKIE)?.value);
+  jar.set(ISOLATED_COOKIE, "", {
+    httpOnly: true,
+    path: "/",
+    sameSite: "lax",
+    maxAge: 0,
+  });
 }
 
 export function emptyIsolatedBrief(): ExecutiveMorningBrief {
@@ -157,5 +175,6 @@ export function isolatedPasswordLogin(
   const [localUserId] = match;
   const link = runtime.state.links.find((row) => row.localUserId === localUserId) ?? null;
   if (!localPasswordLoginAllowed({ link })) return { ok: false, code: "sso_grant" };
+  runtime.state.sessions.add(localUserId);
   return { ok: true, localUserId };
 }

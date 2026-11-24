@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { isPlatformGrantBlocking } from "@/lib/sso/grant-gate";
 import {
   ISOLATED_COOKIE,
+  clearIsolatedBrowserSession,
   isolatedLoopbackEnabled,
   isolatedPasswordLogin,
   mintIsolatedCookie,
@@ -100,8 +101,15 @@ export async function updatePasswordAction(formData: FormData) {
 }
 
 export async function signOutAction() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  if (isolatedLoopbackEnabled()) {
+    await clearIsolatedBrowserSession();
+  }
+  try {
+    const supabase = await createClient();
+    await supabase.auth.signOut();
+  } catch (err) {
+    if (!isolatedLoopbackEnabled()) throw err;
+  }
   revalidatePath("/", "layout");
   redirect("/login");
 }

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { SignJWT } from "jose";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   LAUNCH_SUCCESS_PATH,
@@ -38,6 +38,12 @@ import {
   isMissingRelation,
   isPlatformGrantBlockingFromLookup,
 } from "./lookup";
+import { isolatedAuthDecision } from "./isolated-flag";
+import {
+  getIsolatedRuntime,
+  mintIsolatedCookie,
+  revokeIsolatedSid,
+} from "./isolated-loopback";
 import { createMemoryPorts } from "./memory-ports";
 import { resolveAuthSessionMint, revokeSessionsForUserId } from "./sessions";
 
@@ -910,5 +916,36 @@ describe("preview SQL", () => {
     expect(sql).not.toMatch(/encrypted_password|createUser|123456/);
     expect(sql).toMatch(/never copied/i);
     expect(sql).toMatch(/Email and username are never the durable join key/);
+  });
+});
+
+describe("isolated loopback session", () => {
+  afterEach(() => {
+    delete (globalThis as { __tmIsolatedLoopback?: unknown }).__tmIsolatedLoopback;
+  });
+
+  it("honors tm_sso for /dashboard and ignores leftover GoTrue on /login", () => {
+    expect(isolatedAuthDecision({ pathname: "/dashboard", tmSso: "sid" })).toBe("next");
+    expect(isolatedAuthDecision({ pathname: "/login", tmSso: "sid" })).toBe("dashboard");
+    expect(isolatedAuthDecision({ pathname: "/dashboard", tmSso: undefined })).toBe("login");
+    expect(isolatedAuthDecision({ pathname: "/login", tmSso: undefined })).toBe("next");
+    expect(isolatedAuthDecision({ pathname: "/", tmSso: "" })).toBe("next");
+  });
+
+  it("clears tm_sso mapping and in-memory session on isolated sign-out", () => {
+    const runtime = getIsolatedRuntime();
+    const localUserId = randomUUID();
+    runtime.state.users.set(localUserId, {
+      email: "sso.user@sso.taskmanager.local",
+      isSuperAdmin: false,
+      passwordCopied: false,
+    });
+    const sid = mintIsolatedCookie(localUserId);
+    expect(runtime.state.sessions.has(localUserId)).toBe(true);
+    expect(runtime.cookies.get(sid)).toBe(localUserId);
+    revokeIsolatedSid(sid);
+    expect(runtime.state.sessions.has(localUserId)).toBe(false);
+    expect(runtime.cookies.has(sid)).toBe(false);
+    expect(runtime.state.signedOut).toContain(localUserId);
   });
 });
