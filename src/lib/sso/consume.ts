@@ -205,11 +205,18 @@ export async function consumeLaunchToken(
   const saved = await ports.saveLink(link, { expectedRevokedAt });
   if (saved === "stale") {
     const current = await ports.findLinkByPlatformUserId(claims.sub);
-    await ports.signOutLocal(localUserId);
-    if (current && current.localUserId !== localUserId) {
-      await ports.signOutLocal(current.localUserId);
+    // CAS miss can be a concurrent restore (revoked_at T → null) or a revoke.
+    // Only sign out if the live row is still revoked.
+    if (current?.grantActive && current.linkStatus !== "revoked") {
+      localUserId = current.localUserId;
+      created = false;
+    } else {
+      await ports.signOutLocal(localUserId);
+      if (current && current.localUserId !== localUserId) {
+        await ports.signOutLocal(current.localUserId);
+      }
+      return fail("grant", "launch lost to concurrent revoke");
     }
-    return fail("grant", "launch lost to concurrent revoke");
   }
   if (saved === "exists") {
     const winner = await ports.findLinkByPlatformUserId(claims.sub);

@@ -17,6 +17,7 @@ import {
 } from "./contract";
 import { consumeLaunchToken, consumeRevokeToken } from "./consume";
 import {
+  applyPlatformGrant,
   applyPlatformRevoke,
   canOpenFromPlatformGrant,
   grantBlockedByStaleLaunch,
@@ -516,6 +517,34 @@ describe("consume launch + revoke", () => {
     expect(state.links[0]?.grantActive).toBe(false);
     expect(state.links[0]?.revokedAt).toBeGreaterThan(0);
     expect(state.sessions.has(launched.localUserId)).toBe(false);
+  });
+
+  it("does not sign out a concurrent launch that already restored grant", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token, sub } = await signToken({});
+    const launched = await consumeLaunchToken(token, cfg, ports);
+    expect(launched.ok).toBe(true);
+    if (!launched.ok) return;
+
+    const { token: revoke } = await signToken({ grant: false }, { sub });
+    expect(await consumeRevokeToken(revoke, cfg, ports)).toMatchObject({ ok: true });
+    expect(state.sessions.has(launched.localUserId)).toBe(false);
+
+    const originalSave = ports.saveLink;
+    ports.saveLink = async (link, cas) => {
+      if (link.grantActive && state.links[0]) {
+        state.links[0] = applyPlatformGrant(state.links[0]!);
+        state.sessions.add(state.links[0]!.localUserId);
+      }
+      return originalSave(link, cas);
+    };
+
+    const { token: again } = await signToken({}, { sub });
+    const result = await consumeLaunchToken(again, cfg, ports);
+    expect(result.ok).toBe(true);
+    expect(state.links[0]?.grantActive).toBe(true);
+    expect(state.links[0]?.revokedAt ?? null).toBeNull();
+    expect(state.sessions.has(launched.localUserId)).toBe(true);
   });
 
   it("persists disable and signs out when live platform grant is revoked after launch", async () => {
