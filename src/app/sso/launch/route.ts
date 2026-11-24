@@ -1,17 +1,22 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { consumeLaunchToken } from "@/lib/sso/consume";
+import type { LaunchErrorCode } from "@/lib/sso/contract";
+import { launchRedirectStatus } from "@/lib/sso/http";
 import { readJwtConfigFromEnv } from "@/lib/sso/launch-jwt";
 import { createSupabaseSsoPorts } from "@/lib/sso/supabase-ports";
-import type { LaunchErrorCode } from "@/lib/sso/contract";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function redirectTo(request: NextRequest, path: string) {
+  return NextResponse.redirect(new URL(path, request.url), launchRedirectStatus(request.method));
+}
+
 function loginError(request: NextRequest, code: LaunchErrorCode | "missing_token") {
   const url = new URL("/login", request.url);
   url.searchParams.set("error", `sso_${code}`);
-  return NextResponse.redirect(url);
+  return NextResponse.redirect(url, launchRedirectStatus(request.method));
 }
 
 async function readToken(request: NextRequest): Promise<string> {
@@ -42,7 +47,7 @@ async function handle(request: NextRequest) {
     if (!result.ok) {
       return loginError(request, result.code);
     }
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return redirectTo(request, "/dashboard");
   } catch (err) {
     const message = err instanceof Error ? err.message : "";
     if (/Missing SUPABASE_SERVICE_ROLE_KEY|42P01|does not exist/i.test(message)) {

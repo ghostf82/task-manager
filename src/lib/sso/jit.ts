@@ -52,11 +52,14 @@ export function provisionedLink(input: {
       input.existing && isActiveLinkStatus(input.existing.linkStatus)
         ? input.existing.localRole
         : leastPrivilegeLocalRole(),
-    linkStatus:
-      input.existing?.linkStatus === "linked"
-        ? "linked"
-        : "provisioned",
-    grantActive: true,
+    linkStatus: nextLinkStatus(input.existing),
+    grantActive: input.existing?.linkStatus !== "revoked",
     suggestedBy: input.existing?.suggestedBy ?? "jit",
   };
+}
+
+function nextLinkStatus(existing?: IdentityLink | null): IdentityLink["linkStatus"] {
+  if (existing?.linkStatus === "revoked") return "revoked";
+  if (existing?.linkStatus === "linked") return "linked";
+  return "provisioned";
 }

@@ -69,3 +69,21 @@ create trigger platform_identity_links_touch
 before insert or update on public.platform_identity_links
 for each row
 execute function public.sso_touch_identity_link ();
+
+-- GoTrue admin.signOut() requires a session JWT, not auth.users.id.
+create or replace function public.sso_revoke_local_sessions(p_user uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  delete from auth.refresh_tokens where user_id = p_user;
+  delete from auth.sessions where user_id = p_user;
+end;
+$$;
+
+comment on function public.sso_revoke_local_sessions(uuid) is
+  'PREVIEW / STAGING ONLY. Deletes GoTrue sessions/refresh tokens for a local user id.';
+
+revoke all on function public.sso_revoke_local_sessions(uuid) from public, anon, authenticated;

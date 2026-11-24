@@ -9,6 +9,8 @@ import {
   type IdentityLinkStatus,
 } from "./contract";
 import type { SsoPorts } from "./consume";
+import type { IdentityLinkLookup } from "./lookup";
+import { revokeSessionsForUserId } from "./sessions";
 
 type LinkRow = {
   platform_user_id: string;
@@ -157,10 +159,7 @@ export function createSupabaseSsoPorts(): SsoPorts {
     },
 
     async signOutLocal(localUserId) {
-      const { error } = await admin.auth.admin.signOut(localUserId, "global");
-      if (error && !/not found|user/i.test(error.message)) {
-        throw error;
-      }
+      await revokeSessionsForUserId(admin, localUserId);
     },
 
     async checkLiveGrant(platformUserId) {
@@ -177,9 +176,9 @@ export function createSupabaseSsoPorts(): SsoPorts {
   };
 }
 
-export async function findLinkByLocalUserId(
+export async function lookupLinkByLocalUserId(
   localUserId: string
-): Promise<IdentityLink | null> {
+): Promise<IdentityLinkLookup> {
   try {
     const admin = createAdminClient();
     const { data, error } = await admin
@@ -190,11 +189,34 @@ export async function findLinkByLocalUserId(
       .eq("local_user_id", localUserId)
       .maybeSingle();
     if (error) {
-      if (isMissingRelation(error)) return null;
-      return null;
+      if (isMissingRelation(error)) {
+        return process.env.PLATFORM_SSO_ENABLED === "true"
+          ? { status: "unavailable", reason: "identity_links table missing" }
+          : { status: "missing" };
+      }
+      return { status: "unavailable", reason: error.message || "identity_links query failed" };
     }
-    return data ? fromRow(data as LinkRow) : null;
-  } catch {
-    return null;
+    return data ? { status: "found", link: fromRow(data as LinkRow) } : { status: "missing" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "identity_links lookup failed";
+    if (
+      process.env.PLATFORM_SSO_ENABLED !== "true" &&
+      /Missing SUPABASE_SERVICE_ROLE_KEY/i.test(message)
+    ) {
+      return { status: "missing" };
+    }
+    return { status: "unavailable", reason: message };
   }
+}
+
+/** @deprecated use lookupLinkByLocalUserId — unexpected errors must not look like a missing link. */
+export async function findLinkByLocalUserId(
+  localUserId: string
+): Promise<IdentityLink | null> {
+  const lookup = await lookupLinkByLocalUserId(localUserId);
+  if (lookup.status === "found") return lookup.link;
+  if (lookup.status === "unavailable") {
+    throw new Error(lookup.reason);
+  }
+  return null;
 }

@@ -93,6 +93,11 @@ export async function consumeLaunchToken(
       links,
     });
 
+  if (existing?.linkStatus === "revoked") {
+    await ports.signOutLocal(existing.localUserId);
+    return fail("grant", "identity link is revoked; admin re-link required");
+  }
+
   const decision = decideJit({
     platformUserId: claims.sub,
     displayName: claims.name,

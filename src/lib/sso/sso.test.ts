@@ -17,10 +17,13 @@ import {
   canOpenFromPlatformGrant,
   localPasswordLoginAllowed,
 } from "./grant";
+import { launchRedirectStatus } from "./http";
 import { resolveLinkForLaunch, suggestEmailMatch } from "./identity";
-import { decideJit } from "./jit";
+import { decideJit, provisionedLink } from "./jit";
 import { LaunchJwtError, parseLaunchClaims, verifyLaunchJwt } from "./launch-jwt";
+import { isPlatformGrantBlockingFromLookup } from "./lookup";
 import { createMemoryPorts } from "./memory-ports";
+import { revokeSessionsForUserId } from "./sessions";
 
 const ISSUER = "https://hr-reports-preview.example";
 const SECRET = new TextEncoder().encode("preview-task-sso-secret-not-prod");
@@ -274,6 +277,38 @@ describe("consume launch + revoke", () => {
     expect(state.links[0]?.grantActive).toBe(true);
   });
 
+  it("does not flip a revoked identity link to provisioned on grant:true launch", async () => {
+    const sub = platformUserId();
+    const localUserId = randomUUID();
+    const { ports, state } = createMemoryPorts({
+      links: [
+        {
+          platformUserId: sub,
+          localUserId,
+          localRole: "employee",
+          linkStatus: "revoked",
+          grantActive: false,
+          suggestedBy: "jit",
+        },
+      ],
+      sessions: new Set([localUserId]),
+    });
+    const flipped = provisionedLink({
+      platformUserId: sub,
+      localUserId,
+      existing: state.links[0],
+    });
+    expect(flipped.linkStatus).toBe("revoked");
+    expect(flipped.grantActive).toBe(false);
+
+    const { token } = await signToken({ grant: true }, { sub });
+    const result = await consumeLaunchToken(token, cfg, ports);
+    expect(result).toMatchObject({ ok: false, code: "grant" });
+    expect(state.links[0]?.linkStatus).toBe("revoked");
+    expect(state.links[0]?.grantActive).toBe(false);
+    expect(state.sessions.has(localUserId)).toBe(false);
+  });
+
   it("keeps the identity row on revoke (no local user delete)", () => {
     const link = applyPlatformRevoke({
       platformUserId: platformUserId(),
@@ -322,6 +357,56 @@ describe("consume launch + revoke", () => {
   });
 });
 
+describe("grant lookup fail-closed", () => {
+  it("treats lookup errors as blocked, not as unlinked", () => {
+    expect(
+      isPlatformGrantBlockingFromLookup({
+        status: "unavailable",
+        reason: "connection reset",
+      })
+    ).toBe(true);
+    expect(isPlatformGrantBlockingFromLookup({ status: "missing" })).toBe(false);
+    expect(
+      isPlatformGrantBlockingFromLookup({
+        status: "found",
+        link: {
+          platformUserId: platformUserId(),
+          localUserId: "u1",
+          localRole: "employee",
+          linkStatus: "revoked",
+          grantActive: false,
+          suggestedBy: "jit",
+        },
+      })
+    ).toBe(true);
+  });
+});
+
+describe("POST launch redirect", () => {
+  it("uses 303 for POST and 307 for GET", () => {
+    expect(launchRedirectStatus("POST")).toBe(303);
+    expect(launchRedirectStatus("GET")).toBe(307);
+  });
+});
+
+describe("session revoke by user id", () => {
+  it("calls sso_revoke_local_sessions with the user UUID, not auth.admin.signOut", async () => {
+    const calls: unknown[] = [];
+    await revokeSessionsForUserId(
+      {
+        async rpc(fn, args) {
+          calls.push([fn, args]);
+          return { error: null };
+        },
+      },
+      "11111111-1111-4111-8111-111111111111"
+    );
+    expect(calls).toEqual([
+      ["sso_revoke_local_sessions", { p_user: "11111111-1111-4111-8111-111111111111" }],
+    ]);
+  });
+});
+
 describe("preview SQL", () => {
   it("is labeled non-production and stores platform_user_id not email as the join key", () => {
     const sql = readFileSync(
@@ -336,6 +421,7 @@ describe("preview SQL", () => {
     expect(sql).toContain("platform_user_id");
     expect(sql).toContain("platform_identity_links_local_unique");
     expect(sql).toContain("platform_sso_jti");
+    expect(sql).toContain("sso_revoke_local_sessions");
     expect(sql).not.toMatch(/encrypted_password|createUser|123456/);
     expect(sql).toMatch(/never copied/i);
     expect(sql).toMatch(/Email and username are never the durable join key/);
