@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createRouteSupabaseClient } from "@/lib/supabase/route-handler";
+import { getRouteUser } from "@/lib/supabase/route-handler";
 import { resolveTaskReportScope } from "@/lib/dashboard-scope";
 import { loadTaskExportRows } from "@/lib/reports/task-export-data";
 import { buildTasksExcelBuffer } from "@/lib/reports/excel-tasks";
 import { buildTasksPdfBuffer } from "@/lib/reports/pdf-tasks";
 
 export async function GET(req: NextRequest) {
-  const supabase = await createRouteSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getRouteUser();
   if (!user) {
     return new NextResponse("Unauthorized", { status: 401 });
   }

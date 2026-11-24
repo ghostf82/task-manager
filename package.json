@@ -13,7 +13,9 @@
     "db:seed": "tsx --env-file=.env.local scripts/seed-super-admin.ts",
     "db:push": "supabase db push --include-all --yes",
     "db:apply-chat-migration": "node scripts/apply-supabase-migration.mjs",
-    "test:odoo-agenda": "node scripts/odoo-agenda-self-test.mjs"
+    "test:odoo-agenda": "node scripts/odoo-agenda-self-test.mjs",
+    "test": "vitest run",
+    "test:sso": "vitest run src/lib/sso/sso.test.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -24,6 +26,7 @@
     "clsx": "^2.1.1",
     "exceljs": "^4.4.0",
     "imap-simple": "^5.1.0",
+    "jose": "^6.2.18",
     "lucide-react": "^1.14.0",
     "mailparser": "^3.9.8",
     "next": "15.5.15",
@@ -41,9 +44,9 @@
     "xmlrpc": "^1.3.2"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3",
     "@netlify/functions": "^4.3.0",
     "@netlify/plugin-nextjs": "^5.15.1",
-    "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@types/imap-simple": "^4.2.10",
     "@types/node": "^20",
@@ -56,6 +59,7 @@
     "eslint-config-next": "15.5.15",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.7"
   }
 }

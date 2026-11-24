@@ -26,6 +26,14 @@ export default async function LoginPage({
     missing: t("auth.errorMissing"),
     invalid: t("auth.errorInvalid"),
     session: t("auth.errorSession"),
+    sso_unconfigured: t("auth.errorSsoUnconfigured"),
+    sso_missing_token: t("auth.errorSsoMissingToken"),
+    sso_invalid: t("auth.errorSsoInvalid"),
+    sso_expired: t("auth.errorSsoExpired"),
+    sso_replay: t("auth.errorSsoReplay"),
+    sso_grant: t("auth.errorSsoGrant"),
+    sso_conflict: t("auth.errorSsoConflict"),
+    sso_failed: t("auth.errorSsoFailed"),
   };
 
   const msg = sp.error ? errors[sp.error] ?? sp.error : null;

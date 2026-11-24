@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { isPlatformGrantBlocking } from "@/lib/sso/grant-gate";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -22,6 +23,14 @@ export async function loginAction(formData: FormData) {
 
   if (error) {
     redirect(errParam("invalid"));
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user && (await isPlatformGrantBlocking(user.id))) {
+    await supabase.auth.signOut();
+    redirect(errParam("sso_grant"));
   }
 
   revalidatePath("/", "layout");
