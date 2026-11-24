@@ -35,7 +35,7 @@ export async function getRouteUser(): Promise<{
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { supabase, user: null };
-  if (await isPlatformGrantBlocking(user.id)) {
+  if (await isPlatformGrantBlocking(user.id, user.last_sign_in_at ?? null)) {
     return { supabase, user: null };
   }
   return { supabase, user };

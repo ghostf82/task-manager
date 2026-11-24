@@ -25,6 +25,7 @@ import {
   interpretLiveGrantResponse,
   livePlatformAllowsAccess,
   localPasswordLoginAllowed,
+  resolveRevokeWriteAfterCas,
   revokedPlatformTombstone,
 } from "./grant";
 import { isNativeLaunchLanding, launchRedirectStatus, relativeLaunchLocation } from "./http";
@@ -1190,35 +1191,127 @@ describe("portal access_signals poll", () => {
         { sessionStartedAt: "2026-11-24T21:00:00.000Z" }
       ).action
     ).toBe("allow");
+    expect(decideAccessSignals({ status: "ok", signals: [logout] }).action).toBe(
+      "allow"
+    );
   });
 
   it("revokes taskmanager grant and ignores other program slugs", () => {
-    const revokeThis = decideAccessSignals({
-      status: "ok",
-      signals: [
-        {
-          platform_user_id: platformUserId,
-          kind: "revoke_grant",
-          program_slug: "taskmanager",
-          at: "2026-11-24T20:00:00.000Z",
-        },
-      ],
-    });
-    expect(revokeThis.action).toBe("deny");
-    if (revokeThis.action === "deny") expect(revokeThis.persistRevoke).toBe(true);
-    expect(
-      decideAccessSignals({
+    const started = "2026-11-24T19:00:00.000Z";
+    const revokeThis = decideAccessSignals(
+      {
         status: "ok",
         signals: [
           {
             platform_user_id: platformUserId,
             kind: "revoke_grant",
-            program_slug: "attendance",
+            program_slug: "taskmanager",
             at: "2026-11-24T20:00:00.000Z",
           },
         ],
-      }).action
+      },
+      { sessionStartedAt: started }
+    );
+    expect(revokeThis.action).toBe("deny");
+    if (revokeThis.action === "deny") expect(revokeThis.persistRevoke).toBe(true);
+    expect(
+      decideAccessSignals(
+        {
+          status: "ok",
+          signals: [
+            {
+              platform_user_id: platformUserId,
+              kind: "revoke_grant",
+              program_slug: "attendance",
+              at: "2026-11-24T20:00:00.000Z",
+            },
+          ],
+        },
+        { sessionStartedAt: started }
+      ).action
     ).toBe("allow");
+  });
+
+  it("does not overwrite a concurrent grant restore after a stale revoke CAS", () => {
+    const snapshot = {
+      platformUserId,
+      localUserId: "u1",
+      localRole: "employee" as const,
+      linkStatus: "linked" as const,
+      grantActive: false,
+      suggestedBy: "jit" as const,
+      revokedAt: 1_700_000_000,
+    };
+    const restored = applyPlatformGrant(snapshot);
+    expect((restored.revokedAt ?? null) === (snapshot.revokedAt ?? null)).toBe(
+      false
+    );
+    const lost = resolveRevokeWriteAfterCas({
+      snapshot,
+      wrote: false,
+      live: restored,
+    });
+    expect(lost.dropSession).toBe(false);
+    expect(lost.link.grantActive).toBe(true);
+    expect(lost.link.revokedAt ?? null).toBeNull();
+    const won = resolveRevokeWriteAfterCas({
+      snapshot,
+      wrote: true,
+      live: applyPlatformRevoke(snapshot),
+    });
+    expect(won.dropSession).toBe(true);
+    expect(won.link.grantActive).toBe(false);
+  });
+
+  it("keeps an isolated in-memory grant when revoke CAS loses to restore", () => {
+    const runtime = getIsolatedRuntime();
+    const snapshot = {
+      platformUserId,
+      localUserId: "u-cas",
+      localRole: "employee" as const,
+      linkStatus: "linked" as const,
+      grantActive: false,
+      suggestedBy: "jit" as const,
+      revokedAt: 1_700_000_000,
+    };
+    runtime.state.links.push(applyPlatformGrant(snapshot));
+    const idx = runtime.state.links.findIndex(
+      (row) => row.platformUserId === platformUserId
+    );
+    const current = runtime.state.links[idx]!;
+    const wrote =
+      (current.revokedAt ?? null) === (snapshot.revokedAt ?? null);
+    if (wrote) {
+      runtime.state.links[idx] = applyPlatformRevoke(snapshot);
+    }
+    const resolved = resolveRevokeWriteAfterCas({
+      snapshot,
+      wrote,
+      live: runtime.state.links[idx]!,
+    });
+    expect(wrote).toBe(false);
+    expect(resolved.dropSession).toBe(false);
+    expect(runtime.state.links[idx]?.grantActive).toBe(true);
+    expect(runtime.state.links[idx]?.revokedAt ?? null).toBeNull();
+    runtime.state.links.splice(idx, 1);
+  });
+
+  it("passes last_sign_in_at from getRouteUser and CASes signal revoke on revoked_at", () => {
+    const route = readFileSync(
+      join(process.cwd(), "src/lib/supabase/route-handler.ts"),
+      "utf8"
+    );
+    expect(route).toMatch(
+      /isPlatformGrantBlocking\(user\.id,\s*user\.last_sign_in_at \?\? null\)/
+    );
+    const ports = readFileSync(
+      join(process.cwd(), "src/lib/sso/supabase-ports.ts"),
+      "utf8"
+    );
+    expect(ports).toMatch(/persistRevokeCas/);
+    expect(ports).toMatch(/\.is\("revoked_at", null\)/);
+    expect(ports).toMatch(/\.eq\("revoked_at"/);
+    expect(ports).toMatch(/if \(!opts\?\.sessionStartedAt\)/);
   });
 
   it("treats memory poll HTTP 404 as unavailable", async () => {

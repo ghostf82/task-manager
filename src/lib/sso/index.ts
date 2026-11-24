@@ -28,6 +28,7 @@ export {
   interpretLiveGrantResponse,
   livePlatformAllowsAccess,
   localPasswordLoginAllowed,
+  resolveRevokeWriteAfterCas,
   revokedPlatformTombstone,
   type LiveGrantDecision,
 } from "./grant";

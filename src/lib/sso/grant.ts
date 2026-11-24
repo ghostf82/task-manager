@@ -43,6 +43,31 @@ export function applyPlatformRevoke(
   };
 }
 
+/**
+ * After a revoke write that CASed on `revoked_at`: keep a concurrent grant
+ * restore; drop the session only if the row is still revoked.
+ */
+export function resolveRevokeWriteAfterCas(input: {
+  snapshot: IdentityLink;
+  wrote: boolean;
+  live: IdentityLink | null;
+}): { link: IdentityLink; dropSession: boolean } {
+  if (input.wrote) {
+    return { link: applyPlatformRevoke(input.snapshot), dropSession: true };
+  }
+  const live = input.live;
+  if (live && live.grantActive && live.linkStatus !== "revoked") {
+    return { link: live, dropSession: false };
+  }
+  if (live) {
+    return {
+      link: live.grantActive ? applyPlatformRevoke(live) : live,
+      dropSession: true,
+    };
+  }
+  return { link: applyPlatformRevoke(input.snapshot), dropSession: true };
+}
+
 export function applyPlatformGrant(link: IdentityLink): IdentityLink {
   if (link.linkStatus === "revoked") {
     return { ...link, grantActive: false };

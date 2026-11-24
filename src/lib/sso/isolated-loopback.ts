@@ -4,7 +4,11 @@ import { type NextRequest, type NextResponse } from "next/server";
 import type { ExecutiveMorningBrief } from "@/lib/executive-intelligence/types";
 import { decideAccessSignals } from "./access-signals";
 import type { SsoPorts } from "./consume";
-import { applyPlatformRevoke, localPasswordLoginAllowed } from "./grant";
+import {
+  applyPlatformRevoke,
+  localPasswordLoginAllowed,
+  resolveRevokeWriteAfterCas,
+} from "./grant";
 import {
   ISOLATED_COOKIE,
   ISOLATED_COOKIE_CLEAR,
@@ -91,7 +95,27 @@ export async function isolatedSessionFromCookies(): Promise<IsolatedSessionUser 
         const idx = runtime.state.links.findIndex(
           (row) => row.platformUserId === link.platformUserId
         );
-        if (idx >= 0) runtime.state.links[idx] = applyPlatformRevoke(link);
+        const current = idx >= 0 ? runtime.state.links[idx]! : null;
+        const wrote =
+          current != null && (current.revokedAt ?? null) === (link.revokedAt ?? null);
+        if (wrote && idx >= 0) {
+          runtime.state.links[idx] = applyPlatformRevoke(link);
+        }
+        const live = idx >= 0 ? runtime.state.links[idx]! : null;
+        const resolved = resolveRevokeWriteAfterCas({
+          snapshot: link,
+          wrote,
+          live,
+        });
+        if (!resolved.dropSession) {
+          const user = runtime.state.users.get(localUserId);
+          return {
+            id: localUserId,
+            email: user?.email,
+            isSuperAdmin: false,
+            mustChangePassword: false,
+          };
+        }
       }
       revokeIsolatedSid(sid);
       return null;

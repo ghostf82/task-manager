@@ -14,6 +14,7 @@ import type { SsoPorts } from "./consume";
 import {
   applyPlatformRevoke,
   interpretLiveGrantResponse,
+  resolveRevokeWriteAfterCas,
   type LiveGrantDecision,
 } from "./grant";
 import { resolveAuthSessionMint } from "./sessions";
@@ -64,6 +65,44 @@ function toRow(link: IdentityLink): LinkRow {
 
 function ssoEnabled(): boolean {
   return process.env.PLATFORM_SSO_ENABLED === "true";
+}
+
+async function persistRevokeCas(
+  admin: ReturnType<typeof createAdminClient>,
+  link: IdentityLink
+): Promise<{ link: IdentityLink; dropSession: boolean }> {
+  const disabled = applyPlatformRevoke(link);
+  const row = toRow(disabled);
+  let update = admin
+    .from("platform_identity_links")
+    .update(row)
+    .eq("platform_user_id", link.platformUserId);
+  update =
+    link.revokedAt == null
+      ? update.is("revoked_at", null)
+      : update.eq("revoked_at", new Date(link.revokedAt * 1000).toISOString());
+  const { data: written, error } = await update.select(LINK_COLUMNS);
+  if (error) throw error;
+  const wrote = Boolean(written?.length);
+  let live: IdentityLink | null = wrote ? fromRow(written![0] as LinkRow) : null;
+  if (!wrote) {
+    const { data: current, error: readErr } = await admin
+      .from("platform_identity_links")
+      .select(LINK_COLUMNS)
+      .eq("platform_user_id", link.platformUserId)
+      .maybeSingle();
+    if (readErr && !isMissingRelation(readErr)) throw readErr;
+    live = current ? fromRow(current as LinkRow) : null;
+  }
+  const resolved = resolveRevokeWriteAfterCas({
+    snapshot: link,
+    wrote,
+    live,
+  });
+  if (resolved.dropSession && resolved.link.localUserId) {
+    await revokeSessionsForUserId(admin, resolved.link.localUserId);
+  }
+  return resolved;
 }
 
 async function fetchLiveGrant(platformUserId: string): Promise<LiveGrantDecision> {
@@ -273,34 +312,33 @@ export async function lookupLinkByLocalUserId(
         return { status: "unavailable", reason: "live grant unknown" };
       }
       if (live.status === "confirmed" && live.granted === false) {
-        const disabled = applyPlatformRevoke(link);
-        await admin.from("platform_identity_links").upsert(toRow(disabled), {
-          onConflict: "platform_user_id",
-        });
-        if (link.localUserId) {
-          await revokeSessionsForUserId(admin, link.localUserId);
-        }
-        return { status: "found", link: disabled, dropSession: true };
+        const resolved = await persistRevokeCas(admin, link);
+        return {
+          status: "found",
+          link: resolved.link,
+          dropSession: resolved.dropSession,
+        };
+      }
+      if (!opts?.sessionStartedAt) {
+        return { status: "found", link };
       }
       const poll = await fetchPortalAccessSignals(
         link.platformUserId,
         process.env,
         fetch,
-        opts?.sessionStartedAt
+        opts.sessionStartedAt
       );
       const decision = decideAccessSignals(poll, {
-        sessionStartedAt: opts?.sessionStartedAt,
+        sessionStartedAt: opts.sessionStartedAt,
       });
       if (decision.action === "deny") {
         if (decision.persistRevoke) {
-          const disabled = applyPlatformRevoke(link);
-          await admin.from("platform_identity_links").upsert(toRow(disabled), {
-            onConflict: "platform_user_id",
-          });
-          if (link.localUserId) {
-            await revokeSessionsForUserId(admin, link.localUserId);
-          }
-          return { status: "found", link: disabled, dropSession: true };
+          const resolved = await persistRevokeCas(admin, link);
+          return {
+            status: "found",
+            link: resolved.link,
+            dropSession: resolved.dropSession,
+          };
         }
         if (link.localUserId) {
           await revokeSessionsForUserId(admin, link.localUserId);
