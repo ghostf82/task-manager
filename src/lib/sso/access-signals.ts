@@ -86,10 +86,10 @@ export function interpretAccessSignalsHttp(input: {
 }
 
 function signalAfterSession(at: string, sessionStartedAt: string | null | undefined): boolean {
-  if (!sessionStartedAt) return false;
+  if (!sessionStartedAt) return true;
   const signalMs = Date.parse(at);
   const sessionMs = Date.parse(sessionStartedAt);
-  if (!Number.isFinite(signalMs) || !Number.isFinite(sessionMs)) return false;
+  if (!Number.isFinite(signalMs) || !Number.isFinite(sessionMs)) return true;
   return signalMs > sessionMs;
 }
 

@@ -319,17 +319,14 @@ export async function lookupLinkByLocalUserId(
           dropSession: resolved.dropSession,
         };
       }
-      if (!opts?.sessionStartedAt) {
-        return { status: "found", link };
-      }
       const poll = await fetchPortalAccessSignals(
         link.platformUserId,
         process.env,
         fetch,
-        opts.sessionStartedAt
+        opts?.sessionStartedAt
       );
       const decision = decideAccessSignals(poll, {
-        sessionStartedAt: opts.sessionStartedAt,
+        sessionStartedAt: opts?.sessionStartedAt,
       });
       if (decision.action === "deny") {
         if (decision.persistRevoke) {

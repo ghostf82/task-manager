@@ -50,6 +50,7 @@ import {
 } from "./isolated-flag";
 import {
   decideAccessSignals,
+  fetchPortalAccessSignals,
   interpretAccessSignalsHttp,
 } from "./access-signals";
 import {
@@ -1191,8 +1192,73 @@ describe("portal access_signals poll", () => {
         { sessionStartedAt: "2026-11-24T21:00:00.000Z" }
       ).action
     ).toBe("allow");
-    expect(decideAccessSignals({ status: "ok", signals: [logout] }).action).toBe(
-      "allow"
+  });
+
+  it("applies logout/revoke and 404 fail-closed when session start is unknown", async () => {
+    const logout = {
+      platform_user_id: platformUserId,
+      kind: "logout",
+      at: "2026-11-24T20:00:00.000Z",
+      program_slug: null,
+    };
+    const revoke = {
+      platform_user_id: platformUserId,
+      kind: "revoke_grant",
+      program_slug: "taskmanager",
+      at: "2026-11-24T20:00:00.000Z",
+    };
+    const missingLogout = decideAccessSignals(
+      { status: "ok", signals: [logout] },
+      { sessionStartedAt: null }
+    );
+    expect(missingLogout.action).toBe("deny");
+    if (missingLogout.action === "deny") {
+      expect(missingLogout.persistRevoke).toBe(false);
+    }
+    const missingRevoke = decideAccessSignals(
+      { status: "ok", signals: [revoke] },
+      { sessionStartedAt: undefined }
+    );
+    expect(missingRevoke.action).toBe("deny");
+    if (missingRevoke.action === "deny") {
+      expect(missingRevoke.persistRevoke).toBe(true);
+    }
+    const poll404 = interpretAccessSignalsHttp({
+      status: 404,
+      body: { signals: [] },
+    });
+    expect(decideAccessSignals(poll404, { sessionStartedAt: null }).action).toBe(
+      "deny"
+    );
+    let fetched = 0;
+    const poll = await fetchPortalAccessSignals(
+      platformUserId,
+      { PLATFORM_SSO_ACCESS_SIGNALS_URL: "https://portal.test/__mock/access-signals" },
+      (async () => {
+        fetched += 1;
+        return new Response("{}", { status: 404 });
+      }) as typeof fetch,
+      null
+    );
+    expect(fetched).toBe(1);
+    expect(poll.status).toBe("unavailable");
+    expect(decideAccessSignals(poll, { sessionStartedAt: null }).action).toBe(
+      "deny"
+    );
+    const failed = await fetchPortalAccessSignals(
+      platformUserId,
+      { PLATFORM_SSO_ACCESS_SIGNALS_URL: "https://portal.test/__mock/access-signals" },
+      (async () => {
+        throw new Error("network");
+      }) as typeof fetch,
+      null
+    );
+    expect(failed).toEqual({
+      status: "unavailable",
+      reason: "access_signals fetch failed",
+    });
+    expect(decideAccessSignals(failed, { sessionStartedAt: null }).action).toBe(
+      "deny"
     );
   });
 
@@ -1311,7 +1377,8 @@ describe("portal access_signals poll", () => {
     expect(ports).toMatch(/persistRevokeCas/);
     expect(ports).toMatch(/\.is\("revoked_at", null\)/);
     expect(ports).toMatch(/\.eq\("revoked_at"/);
-    expect(ports).toMatch(/if \(!opts\?\.sessionStartedAt\)/);
+    expect(ports).not.toMatch(/if \(!opts\?\.sessionStartedAt\)/);
+    expect(ports).toMatch(/fetchPortalAccessSignals\(/);
   });
 
   it("treats memory poll HTTP 404 as unavailable", async () => {
