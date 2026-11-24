@@ -4,7 +4,7 @@ import { type NextRequest, type NextResponse } from "next/server";
 import type { ExecutiveMorningBrief } from "@/lib/executive-intelligence/types";
 import type { SsoPorts } from "./consume";
 import { localPasswordLoginAllowed } from "./grant";
-import { ISOLATED_COOKIE } from "./isolated-flag";
+import { ISOLATED_COOKIE, ISOLATED_COOKIE_CLEAR } from "./isolated-flag";
 import { handleHrLaunch } from "./launch-handler";
 import { createMemoryPorts, type MemorySsoState } from "./memory-ports";
 
@@ -96,12 +96,11 @@ export function revokeIsolatedSid(sid: string | undefined): void {
 export async function clearIsolatedBrowserSession(): Promise<void> {
   const jar = await cookies();
   revokeIsolatedSid(jar.get(ISOLATED_COOKIE)?.value);
-  jar.set(ISOLATED_COOKIE, "", {
-    httpOnly: true,
-    path: "/",
-    sameSite: "lax",
-    maxAge: 0,
-  });
+  try {
+    jar.set(ISOLATED_COOKIE, "", ISOLATED_COOKIE_CLEAR);
+  } catch {
+    /* Server Component render cannot mutate cookies; middleware / actions do. */
+  }
 }
 
 export function emptyIsolatedBrief(): ExecutiveMorningBrief {
