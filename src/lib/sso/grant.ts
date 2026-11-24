@@ -1,4 +1,4 @@
-import { isActiveLinkStatus, type IdentityLink } from "./contract";
+import { isActiveLinkStatus, leastPrivilegeLocalRole, type IdentityLink } from "./contract";
 
 /**
  * Direct URL / leftover local session is not enough. Platform grant is the gate.
@@ -10,9 +10,26 @@ export function canOpenFromPlatformGrant(input: {
 }): boolean {
   if (!input.platformGrant) return false;
   if (!input.link) return false;
+  if (!input.link.localUserId) return false;
   if (!input.link.grantActive) return false;
   if (input.link.linkStatus === "revoked") return false;
   return isActiveLinkStatus(input.link.linkStatus);
+}
+
+/** Persist revoke for a platform_user_id that has never launched (no local user). */
+export function revokedPlatformTombstone(
+  platformUserId: string,
+  nowSeconds: number = Math.floor(Date.now() / 1000)
+): IdentityLink {
+  return {
+    platformUserId,
+    localUserId: null,
+    localRole: leastPrivilegeLocalRole(),
+    linkStatus: "none",
+    grantActive: false,
+    suggestedBy: null,
+    revokedAt: nowSeconds,
+  };
 }
 
 export function applyPlatformRevoke(

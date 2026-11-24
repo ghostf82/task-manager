@@ -4,6 +4,7 @@ import {
   applyPlatformRevoke,
   canOpenFromPlatformGrant,
   grantBlockedByStaleLaunch,
+  revokedPlatformTombstone,
   type LiveGrantDecision,
 } from "./grant";
 import { assertLocalAccountAvailable, resolveLinkForLaunch } from "./identity";
@@ -63,6 +64,13 @@ function resolvePorts(ports: SsoPortsSource): SsoPorts {
   return typeof ports === "function" ? ports() : ports;
 }
 
+async function signOutIfPresent(
+  ports: SsoPorts,
+  localUserId: string | null | undefined
+): Promise<void> {
+  if (localUserId) await ports.signOutLocal(localUserId);
+}
+
 async function abortIfConcurrentRevoke(
   ports: SsoPorts,
   platformUserId: string,
@@ -76,8 +84,8 @@ async function abortIfConcurrentRevoke(
       grantBlockedByStaleLaunch(current, iat) ||
       !current.grantActive)
   ) {
-    await ports.signOutLocal(localUserId);
-    if (current.localUserId !== localUserId) {
+    await signOutIfPresent(ports, localUserId);
+    if (current.localUserId && current.localUserId !== localUserId) {
       await ports.signOutLocal(current.localUserId);
     }
     return fail("grant", "identity link is revoked");
@@ -87,15 +95,16 @@ async function abortIfConcurrentRevoke(
 
 async function persistPlatformDisable(
   ports: SsoPorts,
-  existing: IdentityLink | null
+  existing: IdentityLink | null,
+  platformUserId: string
 ): Promise<void> {
-  if (!existing) return;
-  const saved = await ports.saveLink(applyPlatformRevoke(existing));
+  const row = existing ?? revokedPlatformTombstone(platformUserId);
+  const saved = await ports.saveLink(applyPlatformRevoke(row));
   if (saved === "exists") {
-    const current = await ports.findLinkByPlatformUserId(existing.platformUserId);
+    const current = await ports.findLinkByPlatformUserId(platformUserId);
     if (current) await ports.saveLink(applyPlatformRevoke(current));
   }
-  await ports.signOutLocal(existing.localUserId);
+  await signOutIfPresent(ports, row.localUserId);
 }
 
 export async function consumeLaunchToken(
@@ -118,7 +127,8 @@ export async function consumeLaunchToken(
   if (claims.grant !== true) {
     await persistPlatformDisable(
       ports,
-      await ports.findLinkByPlatformUserId(claims.sub)
+      await ports.findLinkByPlatformUserId(claims.sub),
+      claims.sub
     );
     await ports.consumeJti(claims.jti, claims.exp);
     return fail("grant", "platform grant is not active");
@@ -132,7 +142,7 @@ export async function consumeLaunchToken(
       return fail("failed", "platform grant check unavailable");
     }
     if (live.status === "confirmed" && live.granted === false) {
-      await persistPlatformDisable(ports, existingForDisable);
+      await persistPlatformDisable(ports, existingForDisable, claims.sub);
       await ports.consumeJti(claims.jti, claims.exp);
       return fail("grant", "platform grant check failed");
     }
@@ -148,13 +158,13 @@ export async function consumeLaunchToken(
     });
 
   if (existing?.linkStatus === "revoked") {
-    await ports.signOutLocal(existing.localUserId);
+    await signOutIfPresent(ports, existing.localUserId);
     await ports.consumeJti(claims.jti, claims.exp);
     return fail("grant", "identity link is revoked; admin re-link required");
   }
 
   if (existing && grantBlockedByStaleLaunch(existing, claims.iat)) {
-    await ports.signOutLocal(existing.localUserId);
+    await signOutIfPresent(ports, existing.localUserId);
     await ports.consumeJti(claims.jti, claims.exp);
     return fail("grant", "launch token predates platform revoke");
   }
@@ -173,7 +183,7 @@ export async function consumeLaunchToken(
   let localUserId: string;
   let created = false;
 
-  if (decision.action === "reuse" && decision.link) {
+  if (decision.action === "reuse" && decision.link?.localUserId) {
     localUserId = decision.link.localUserId;
   } else {
     const spec = decision.spec!;
@@ -207,12 +217,16 @@ export async function consumeLaunchToken(
     const current = await ports.findLinkByPlatformUserId(claims.sub);
     // CAS miss can be a concurrent restore (revoked_at T → null) or a revoke.
     // Only sign out if the live row is still revoked.
-    if (current?.grantActive && current.linkStatus !== "revoked") {
+    if (
+      current?.grantActive &&
+      current.linkStatus !== "revoked" &&
+      current.localUserId
+    ) {
       localUserId = current.localUserId;
       created = false;
     } else {
-      await ports.signOutLocal(localUserId);
-      if (current && current.localUserId !== localUserId) {
+      await signOutIfPresent(ports, localUserId);
+      if (current?.localUserId && current.localUserId !== localUserId) {
         await ports.signOutLocal(current.localUserId);
       }
       return fail("grant", "launch lost to concurrent revoke");
@@ -226,10 +240,11 @@ export async function consumeLaunchToken(
     if (
       winner.linkStatus === "revoked" ||
       grantBlockedByStaleLaunch(winner, claims.iat) ||
+      !winner.localUserId ||
       !canOpenFromPlatformGrant({ link: winner, platformGrant: true })
     ) {
-      await ports.signOutLocal(localUserId);
-      await ports.signOutLocal(winner.localUserId);
+      await signOutIfPresent(ports, localUserId);
+      await signOutIfPresent(ports, winner.localUserId);
       return fail("grant", "identity link is revoked");
     }
     localUserId = winner.localUserId;
@@ -278,10 +293,11 @@ export async function consumeRevokeToken(
     return fail("invalid", "revoke token must set grant=false");
   }
 
-  const existing = await ports.findLinkByPlatformUserId(claims.sub);
-  if (existing) {
-    await persistPlatformDisable(ports, existing);
-  }
+  await persistPlatformDisable(
+    ports,
+    await ports.findLinkByPlatformUserId(claims.sub),
+    claims.sub
+  );
 
   await ports.consumeJti(`revoke:${claims.jti}`, claims.exp);
   return { ok: true, platformUserId: claims.sub };

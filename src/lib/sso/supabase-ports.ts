@@ -25,7 +25,7 @@ import { revokeSessionsForUserId } from "./sessions";
 
 type LinkRow = {
   platform_user_id: string;
-  local_user_id: string;
+  local_user_id: string | null;
   local_role: string;
   link_status: IdentityLinkStatus;
   grant_active: boolean;
@@ -123,7 +123,13 @@ export function createSupabaseSsoPorts(): SsoPorts {
       if (readErr && !isMissingRelation(readErr)) throw readErr;
       if (current) {
         const existing = fromRow(current as LinkRow);
-        if (existing.localUserId !== link.localUserId) return "exists";
+        if (
+          existing.localUserId &&
+          link.localUserId &&
+          existing.localUserId !== link.localUserId
+        ) {
+          return "exists";
+        }
         if (link.grantActive && cas) {
           const actual = existing.revokedAt ?? null;
           if (actual !== cas.expectedRevokedAt || existing.linkStatus === "revoked") {
@@ -133,8 +139,10 @@ export function createSupabaseSsoPorts(): SsoPorts {
         let update = admin
           .from("platform_identity_links")
           .update({ ...row, last_launch_at: new Date().toISOString() })
-          .eq("platform_user_id", link.platformUserId)
-          .eq("local_user_id", link.localUserId);
+          .eq("platform_user_id", link.platformUserId);
+        update = existing.localUserId
+          ? update.eq("local_user_id", existing.localUserId)
+          : update.is("local_user_id", null);
         if (link.grantActive && cas) {
           update =
             cas.expectedRevokedAt == null
@@ -267,7 +275,9 @@ export async function lookupLinkByLocalUserId(
         await admin.from("platform_identity_links").upsert(toRow(disabled), {
           onConflict: "platform_user_id",
         });
-        await revokeSessionsForUserId(admin, link.localUserId);
+        if (link.localUserId) {
+          await revokeSessionsForUserId(admin, link.localUserId);
+        }
         return { status: "found", link: disabled };
       }
     }

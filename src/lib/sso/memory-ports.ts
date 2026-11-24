@@ -36,7 +36,13 @@ export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
       const idx = state.links.findIndex((l) => l.platformUserId === link.platformUserId);
       if (idx >= 0) {
         const current = state.links[idx]!;
-        if (current.localUserId !== link.localUserId) return "exists";
+        if (
+          current.localUserId &&
+          link.localUserId &&
+          current.localUserId !== link.localUserId
+        ) {
+          return "exists";
+        }
         if (link.grantActive && cas) {
           const actual = current.revokedAt ?? null;
           if (actual !== cas.expectedRevokedAt || current.linkStatus === "revoked") {

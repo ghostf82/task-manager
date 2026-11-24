@@ -63,7 +63,8 @@ export type LaunchJwtClaims = {
 
 export type IdentityLink = {
   platformUserId: string;
-  localUserId: string;
+  /** Null on a pre-link revoke tombstone (no local account yet). */
+  localUserId: string | null;
   localRole: string;
   linkStatus: IdentityLinkStatus;
   grantActive: boolean;

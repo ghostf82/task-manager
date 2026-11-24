@@ -6,7 +6,8 @@
 
 create table if not exists public.platform_identity_links (
   platform_user_id uuid primary key,
-  local_user_id uuid not null references public.users (id) on delete cascade,
+  -- Nullable: grant:false before first launch stores a tombstone with no local user.
+  local_user_id uuid references public.users (id) on delete cascade,
   local_role text not null default 'employee',
   link_status text not null default 'provisioned',
   grant_active boolean not null default true,
@@ -20,18 +21,32 @@ create table if not exists public.platform_identity_links (
   ),
   constraint platform_identity_links_role_check check (
     local_role in ('employee', 'member')
+  ),
+  constraint platform_identity_links_local_when_granted check (
+    grant_active = false or local_user_id is not null
   )
 );
 
 alter table public.platform_identity_links
   add column if not exists revoked_at timestamptz;
 
-comment on table public.platform_identity_links is
-  'PREVIEW / STAGING ONLY. Maps portal platform_user_id to local auth.users.id. No password copy. revoked_at blocks unused JWTs with iat before the revoke.';
+alter table public.platform_identity_links
+  alter column local_user_id drop not null;
 
+alter table public.platform_identity_links
+  drop constraint if exists platform_identity_links_local_when_granted;
+alter table public.platform_identity_links
+  add constraint platform_identity_links_local_when_granted check (
+    grant_active = false or local_user_id is not null
+  );
+
+comment on table public.platform_identity_links is
+  'PREVIEW / STAGING ONLY. Maps portal platform_user_id to local auth.users.id. No password copy. revoked_at blocks unused JWTs with iat before the revoke. A row may have no local_user_id (tombstone) so grant:false before first launch still blocks unused grant:true JIT.';
+
+drop index if exists platform_identity_links_local_unique;
 create unique index if not exists platform_identity_links_local_unique
   on public.platform_identity_links (local_user_id)
-  where link_status in ('linked', 'provisioned');
+  where link_status in ('linked', 'provisioned') and local_user_id is not null;
 
 create index if not exists platform_identity_links_local_user_idx
   on public.platform_identity_links (local_user_id);

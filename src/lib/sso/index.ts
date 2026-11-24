@@ -22,6 +22,7 @@ export {
   interpretLiveGrantResponse,
   livePlatformAllowsAccess,
   localPasswordLoginAllowed,
+  revokedPlatformTombstone,
   type LiveGrantDecision,
 } from "./grant";
 export { launchRedirectStatus } from "./http";

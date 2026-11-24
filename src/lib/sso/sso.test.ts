@@ -328,6 +328,33 @@ describe("consume launch + revoke", () => {
     expect(state.links[0]?.revokedAt).toBeNull();
   });
 
+  it("persists a platform_user_id tombstone so unused launch JWT cannot JIT after revoke", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token: unused, sub } = await signToken({}, { iatOffsetSec: -10 });
+    const { token: revoke } = await signToken({ grant: false }, { sub });
+    expect(await consumeRevokeToken(revoke, cfg, ports)).toMatchObject({ ok: true });
+    expect(state.links[0]?.platformUserId).toBe(sub);
+    expect(state.links[0]?.localUserId).toBeNull();
+    expect(state.links[0]?.grantActive).toBe(false);
+    expect(state.links[0]?.revokedAt).toBeGreaterThan(0);
+    expect(state.users.size).toBe(0);
+
+    const blocked = await consumeLaunchToken(unused, cfg, ports);
+    expect(blocked).toMatchObject({ ok: false, code: "grant" });
+    expect(state.users.size).toBe(0);
+    expect(state.sessions.size).toBe(0);
+    expect(state.links[0]?.grantActive).toBe(false);
+    expect(state.links[0]?.localUserId).toBeNull();
+
+    const { token: fresh } = await signToken({}, { sub });
+    const restored = await consumeLaunchToken(fresh, cfg, ports);
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) return;
+    expect(restored.created).toBe(true);
+    expect(state.links[0]?.localUserId).toBe(restored.localUserId);
+    expect(state.links[0]?.grantActive).toBe(true);
+  });
+
   it("does not restore grant from an unused JWT issued before revoked_at", async () => {
     const { ports, state } = createMemoryPorts();
     const { token, sub } = await signToken({});
@@ -534,7 +561,8 @@ describe("consume launch + revoke", () => {
     ports.saveLink = async (link, cas) => {
       if (link.grantActive && state.links[0]) {
         state.links[0] = applyPlatformGrant(state.links[0]!);
-        state.sessions.add(state.links[0]!.localUserId);
+        const winnerId = state.links[0]!.localUserId;
+        if (winnerId) state.sessions.add(winnerId);
       }
       return originalSave(link, cas);
     };
@@ -769,6 +797,8 @@ describe("preview SQL", () => {
     expect(sql).toContain("platform_sso_jti");
     expect(sql).toContain("sso_revoke_local_sessions");
     expect(sql).toContain("revoked_at");
+    expect(sql).toMatch(/alter column local_user_id drop not null/i);
+    expect(sql).toMatch(/tombstone/i);
     expect(sql).not.toMatch(/encrypted_password|createUser|123456/);
     expect(sql).toMatch(/never copied/i);
     expect(sql).toMatch(/Email and username are never the durable join key/);
