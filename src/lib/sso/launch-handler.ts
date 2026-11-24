@@ -4,7 +4,7 @@ import { consumeLaunchToken } from "./consume";
 import type { LaunchErrorCode } from "./contract";
 import { launchRedirectStatus } from "./http";
 import { readJwtConfigFromEnv } from "./launch-jwt";
-import { readLaunchTokenFromParts } from "./launch-request";
+import { queryCarriesLaunchToken, readLaunchTokenFromParts } from "./launch-request";
 import { createSupabaseSsoPorts } from "./supabase-ports";
 
 function redirectTo(request: NextRequest, path: string) {
@@ -17,46 +17,45 @@ function loginError(request: NextRequest, code: LaunchErrorCode | "missing_token
   return NextResponse.redirect(url, launchRedirectStatus(request.method));
 }
 
-async function readToken(request: NextRequest): Promise<string> {
+async function readBodyToken(request: NextRequest): Promise<string> {
   const contentType = request.headers.get("content-type") ?? "";
   let json: Record<string, unknown> | null = null;
   let formGet: ((name: string) => FormDataEntryValue | null) | undefined;
-  if (request.method !== "GET") {
-    if (contentType.includes("application/json")) {
-      json = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-    } else {
-      const form = await request.formData().catch(() => null);
-      if (form) formGet = (name) => form.get(name);
-    }
+  if (contentType.includes("application/json")) {
+    json = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  } else {
+    const form = await request.formData().catch(() => null);
+    if (form) formGet = (name) => form.get(name);
   }
   return readLaunchTokenFromParts({
-    method: request.method,
-    query: request.nextUrl.searchParams,
+    method: "POST",
     json,
     formGet,
   });
 }
 
 export async function handleHrLaunch(request: NextRequest) {
+  if (request.method.toUpperCase() !== "POST") {
+    return NextResponse.json({ error: "method" }, { status: 405 });
+  }
+  if (queryCarriesLaunchToken(request.nextUrl.searchParams)) {
+    return NextResponse.json({ error: "invalid" }, { status: 400 });
+  }
   const cfg = readJwtConfigFromEnv();
   if ("error" in cfg) {
     return loginError(request, "unconfigured");
   }
-  const token = await readToken(request);
+  const token = await readBodyToken(request);
   if (!token) {
     return loginError(request, "missing_token");
   }
   try {
-    const result = await consumeLaunchToken(token, cfg, createSupabaseSsoPorts());
+    const result = await consumeLaunchToken(token, cfg, createSupabaseSsoPorts);
     if (!result.ok) {
       return loginError(request, result.code);
     }
     return redirectTo(request, "/dashboard");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "";
-    if (/Missing SUPABASE_SERVICE_ROLE_KEY|42P01|does not exist/i.test(message)) {
-      return loginError(request, "unconfigured");
-    }
+  } catch {
     return loginError(request, "failed");
   }
 }

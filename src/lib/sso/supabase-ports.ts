@@ -4,11 +4,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 import {
+  PROGRAM_SLUG,
   leastPrivilegeLocalRole,
   type IdentityLink,
   type IdentityLinkStatus,
 } from "./contract";
 import type { SsoPorts } from "./consume";
+import { applyPlatformRevoke, livePlatformAllowsAccess } from "./grant";
 import {
   classifyIdentityLinkQueryError,
   isMissingRelation,
@@ -23,7 +25,11 @@ type LinkRow = {
   link_status: IdentityLinkStatus;
   grant_active: boolean;
   suggested_by: "jit" | "manual" | null;
+  revoked_at: string | null;
 };
+
+const LINK_COLUMNS =
+  "platform_user_id, local_user_id, local_role, link_status, grant_active, suggested_by, revoked_at";
 
 function fromRow(row: LinkRow): IdentityLink {
   return {
@@ -33,6 +39,7 @@ function fromRow(row: LinkRow): IdentityLink {
     linkStatus: row.link_status,
     grantActive: row.grant_active,
     suggestedBy: row.suggested_by,
+    revokedAt: row.revoked_at ? Math.floor(Date.parse(row.revoked_at) / 1000) : null,
   };
 }
 
@@ -44,11 +51,29 @@ function toRow(link: IdentityLink): LinkRow {
     link_status: link.linkStatus,
     grant_active: link.grantActive,
     suggested_by: link.suggestedBy,
+    revoked_at:
+      link.revokedAt != null ? new Date(link.revokedAt * 1000).toISOString() : null,
   };
 }
 
 function ssoEnabled(): boolean {
   return process.env.PLATFORM_SSO_ENABLED === "true";
+}
+
+async function fetchLiveGrant(platformUserId: string): Promise<boolean | null> {
+  const raw = process.env.PLATFORM_SSO_GRANT_URL?.trim();
+  if (!raw) return null;
+  const url = new URL(raw);
+  url.searchParams.set("sub", platformUserId);
+  url.searchParams.set("program", PROGRAM_SLUG);
+  const res = await fetch(url, { method: "GET", cache: "no-store" });
+  if (!res.ok) return false;
+  try {
+    const body = (await res.json()) as Record<string, unknown>;
+    return livePlatformAllowsAccess(body);
+  } catch {
+    return false;
+  }
 }
 
 export function createSupabaseSsoPorts(): SsoPorts {
@@ -58,9 +83,7 @@ export function createSupabaseSsoPorts(): SsoPorts {
     async findLinkByPlatformUserId(platformUserId) {
       const { data, error } = await admin
         .from("platform_identity_links")
-        .select(
-          "platform_user_id, local_user_id, local_role, link_status, grant_active, suggested_by"
-        )
+        .select(LINK_COLUMNS)
         .eq("platform_user_id", platformUserId)
         .maybeSingle();
       if (error) {
@@ -73,9 +96,7 @@ export function createSupabaseSsoPorts(): SsoPorts {
     async listLinks() {
       const { data, error } = await admin
         .from("platform_identity_links")
-        .select(
-          "platform_user_id, local_user_id, local_role, link_status, grant_active, suggested_by"
-        );
+        .select(LINK_COLUMNS);
       if (error) {
         if (isMissingRelation(error)) return [];
         throw error;
@@ -85,14 +106,33 @@ export function createSupabaseSsoPorts(): SsoPorts {
 
     async saveLink(link) {
       const row = toRow(link);
-      const { error } = await admin.from("platform_identity_links").upsert(row, {
-        onConflict: "platform_user_id",
-      });
-      if (error) throw error;
+      const { data: current, error: readErr } = await admin
+        .from("platform_identity_links")
+        .select(LINK_COLUMNS)
+        .eq("platform_user_id", link.platformUserId)
+        .maybeSingle();
+      if (readErr && !isMissingRelation(readErr)) throw readErr;
+      if (current) {
+        const existing = fromRow(current as LinkRow);
+        if (existing.localUserId !== link.localUserId) return "exists";
+        const { error } = await admin
+          .from("platform_identity_links")
+          .update({ ...row, last_launch_at: new Date().toISOString() })
+          .eq("platform_user_id", link.platformUserId)
+          .eq("local_user_id", link.localUserId);
+        if (error) throw error;
+        return "ok";
+      }
+      const { error } = await admin.from("platform_identity_links").insert(row);
+      if (error) {
+        if (error.code === "23505") return "exists";
+        throw error;
+      }
       await admin
         .from("platform_identity_links")
         .update({ last_launch_at: new Date().toISOString() })
         .eq("platform_user_id", link.platformUserId);
+      return "ok";
     },
 
     async consumeJti(jti, expiresAtSeconds) {
@@ -166,15 +206,7 @@ export function createSupabaseSsoPorts(): SsoPorts {
     },
 
     async checkLiveGrant(platformUserId) {
-      const raw = process.env.PLATFORM_SSO_GRANT_URL?.trim();
-      if (!raw) return null;
-      const url = new URL(raw);
-      url.searchParams.set("sub", platformUserId);
-      url.searchParams.set("program", "taskmanager");
-      const res = await fetch(url, { method: "GET", cache: "no-store" });
-      if (!res.ok) return false;
-      const body = (await res.json()) as { grant?: unknown };
-      return body.grant === true;
+      return fetchLiveGrant(platformUserId);
     },
   };
 }
@@ -186,15 +218,26 @@ export async function lookupLinkByLocalUserId(
     const admin = createAdminClient();
     const { data, error } = await admin
       .from("platform_identity_links")
-      .select(
-        "platform_user_id, local_user_id, local_role, link_status, grant_active, suggested_by"
-      )
+      .select(LINK_COLUMNS)
       .eq("local_user_id", localUserId)
       .maybeSingle();
     if (error) {
       return classifyIdentityLinkQueryError(error, ssoEnabled());
     }
-    return data ? { status: "found", link: fromRow(data as LinkRow) } : { status: "missing" };
+    if (!data) return { status: "missing" };
+    const link = fromRow(data as LinkRow);
+    if (ssoEnabled()) {
+      const live = await fetchLiveGrant(link.platformUserId);
+      if (live === false) {
+        const disabled = applyPlatformRevoke(link);
+        await admin.from("platform_identity_links").upsert(toRow(disabled), {
+          onConflict: "platform_user_id",
+        });
+        await revokeSessionsForUserId(admin, link.localUserId);
+        return { status: "found", link: disabled };
+      }
+    }
+    return { status: "found", link };
   } catch (err) {
     const shaped = {
       code:

@@ -15,10 +15,14 @@ export function canOpenFromPlatformGrant(input: {
   return isActiveLinkStatus(input.link.linkStatus);
 }
 
-export function applyPlatformRevoke(link: IdentityLink): IdentityLink {
+export function applyPlatformRevoke(
+  link: IdentityLink,
+  nowSeconds: number = Math.floor(Date.now() / 1000)
+): IdentityLink {
   return {
     ...link,
     grantActive: false,
+    revokedAt: nowSeconds,
   };
 }
 
@@ -26,7 +30,31 @@ export function applyPlatformGrant(link: IdentityLink): IdentityLink {
   if (link.linkStatus === "revoked") {
     return { ...link, grantActive: false };
   }
-  return { ...link, grantActive: true };
+  return { ...link, grantActive: true, revokedAt: null };
+}
+
+/**
+ * Unused JWTs issued before the persisted revoke cannot restore access.
+ * `link_status=revoked` still needs an admin re-link.
+ */
+export function grantBlockedByStaleLaunch(link: IdentityLink, iat: number): boolean {
+  if (link.linkStatus === "revoked") return true;
+  if (link.revokedAt != null && iat < link.revokedAt) return true;
+  return false;
+}
+
+/** Portal live check: membership must be active AND program grant true. */
+export function livePlatformAllowsAccess(body: {
+  grant?: unknown;
+  granted?: unknown;
+  membership?: unknown;
+  active?: unknown;
+  disabled?: unknown;
+}): boolean {
+  if (body.disabled === true) return false;
+  if (body.membership === false || body.active === false) return false;
+  if (body.grant === false || body.granted === false) return false;
+  return body.grant === true || body.granted === true;
 }
 
 /** Password fallback is refused once the platform grant is off. */

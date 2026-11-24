@@ -34,8 +34,13 @@ export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
     },
     async saveLink(link) {
       const idx = state.links.findIndex((l) => l.platformUserId === link.platformUserId);
-      if (idx >= 0) state.links[idx] = link;
-      else state.links.push(link);
+      if (idx >= 0) {
+        if (state.links[idx]!.localUserId !== link.localUserId) return "exists";
+        state.links[idx] = link;
+        return "ok";
+      }
+      state.links.push(link);
+      return "ok";
     },
     async consumeJti(jti) {
       if (state.jtis.has(jti)) return "replay";

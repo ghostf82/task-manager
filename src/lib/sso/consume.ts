@@ -3,6 +3,7 @@ import {
   applyPlatformGrant,
   applyPlatformRevoke,
   canOpenFromPlatformGrant,
+  grantBlockedByStaleLaunch,
 } from "./grant";
 import { assertLocalAccountAvailable, resolveLinkForLaunch } from "./identity";
 import { LaunchJwtError, verifyLaunchJwt, type JwtVerifyConfig } from "./launch-jwt";
@@ -16,7 +17,8 @@ export type CreatedLocalUser = {
 export type SsoPorts = {
   findLinkByPlatformUserId(platformUserId: string): Promise<IdentityLink | null>;
   listLinks(): Promise<IdentityLink[]>;
-  saveLink(link: IdentityLink): Promise<void>;
+  /** Insert new or update same local user. `"exists"` = another local user already owns this platform id. */
+  saveLink(link: IdentityLink): Promise<"ok" | "exists">;
   consumeJti(jti: string, expiresAtSeconds: number): Promise<"ok" | "replay">;
   createLocalUser(spec: {
     platformUserId: string;
@@ -31,6 +33,8 @@ export type SsoPorts = {
   signOutLocal(localUserId: string): Promise<void>;
   checkLiveGrant?(platformUserId: string): Promise<boolean | null>;
 };
+
+export type SsoPortsSource = SsoPorts | (() => SsoPorts);
 
 export type LaunchOk = {
   ok: true;
@@ -47,10 +51,27 @@ function fail(code: LaunchErrorCode, message: string): LaunchErr {
   return { ok: false, code, message };
 }
 
+function resolvePorts(ports: SsoPortsSource): SsoPorts {
+  return typeof ports === "function" ? ports() : ports;
+}
+
+async function persistPlatformDisable(
+  ports: SsoPorts,
+  existing: IdentityLink | null
+): Promise<void> {
+  if (!existing) return;
+  const saved = await ports.saveLink(applyPlatformRevoke(existing));
+  if (saved === "exists") {
+    const current = await ports.findLinkByPlatformUserId(existing.platformUserId);
+    if (current) await ports.saveLink(applyPlatformRevoke(current));
+  }
+  await ports.signOutLocal(existing.localUserId);
+}
+
 export async function consumeLaunchToken(
   token: string,
   cfg: JwtVerifyConfig,
-  ports: SsoPorts
+  portsSource: SsoPortsSource
 ): Promise<LaunchResult> {
   let claims;
   try {
@@ -62,31 +83,31 @@ export async function consumeLaunchToken(
     return fail("invalid", "invalid launch token");
   }
 
-  const jti = await ports.consumeJti(claims.jti, claims.exp);
-  if (jti === "replay") {
-    return fail("replay", "launch token already used");
-  }
+  const ports = resolvePorts(portsSource);
 
   if (claims.grant !== true) {
-    const existing = await ports.findLinkByPlatformUserId(claims.sub);
-    if (existing) {
-      const revoked = applyPlatformRevoke(existing);
-      await ports.saveLink(revoked);
-      await ports.signOutLocal(existing.localUserId);
-    }
+    await persistPlatformDisable(
+      ports,
+      await ports.findLinkByPlatformUserId(claims.sub)
+    );
+    await ports.consumeJti(claims.jti, claims.exp);
     return fail("grant", "platform grant is not active");
   }
+
+  const existingForDisable = await ports.findLinkByPlatformUserId(claims.sub);
 
   if (ports.checkLiveGrant) {
     const live = await ports.checkLiveGrant(claims.sub);
     if (live === false) {
+      await persistPlatformDisable(ports, existingForDisable);
+      await ports.consumeJti(claims.jti, claims.exp);
       return fail("grant", "platform grant check failed");
     }
   }
 
   const links = await ports.listLinks();
   const existing =
-    (await ports.findLinkByPlatformUserId(claims.sub)) ??
+    existingForDisable ??
     resolveLinkForLaunch({
       platformUserId: claims.sub,
       jwtEmail: claims.email,
@@ -95,7 +116,19 @@ export async function consumeLaunchToken(
 
   if (existing?.linkStatus === "revoked") {
     await ports.signOutLocal(existing.localUserId);
+    await ports.consumeJti(claims.jti, claims.exp);
     return fail("grant", "identity link is revoked; admin re-link required");
+  }
+
+  if (existing && grantBlockedByStaleLaunch(existing, claims.iat)) {
+    await ports.signOutLocal(existing.localUserId);
+    await ports.consumeJti(claims.jti, claims.exp);
+    return fail("grant", "launch token predates platform revoke");
+  }
+
+  const jti = await ports.consumeJti(claims.jti, claims.exp);
+  if (jti === "replay") {
+    return fail("replay", "launch token already used");
   }
 
   const decision = decideJit({
@@ -135,7 +168,16 @@ export async function consumeLaunchToken(
     return fail("grant", "platform grant is not active");
   }
 
-  await ports.saveLink(link);
+  const saved = await ports.saveLink(link);
+  if (saved === "exists") {
+    const winner = await ports.findLinkByPlatformUserId(claims.sub);
+    if (!winner) {
+      return fail("conflict", LOCAL_ACCOUNT_TAKEN_MESSAGE);
+    }
+    localUserId = winner.localUserId;
+    created = false;
+  }
+
   await ports.openSession(localUserId);
   return {
     ok: true,
@@ -148,7 +190,7 @@ export async function consumeLaunchToken(
 export async function consumeRevokeToken(
   token: string,
   cfg: JwtVerifyConfig,
-  ports: SsoPorts
+  portsSource: SsoPortsSource
 ): Promise<{ ok: true; platformUserId: string } | LaunchErr> {
   let claims;
   try {
@@ -160,20 +202,17 @@ export async function consumeRevokeToken(
     return fail("invalid", "invalid revoke token");
   }
 
-  const jti = await ports.consumeJti(`revoke:${claims.jti}`, claims.exp);
-  if (jti === "replay") {
-    return fail("replay", "revoke token already used");
-  }
+  const ports = resolvePorts(portsSource);
 
   if (claims.grant !== false) {
     return fail("invalid", "revoke token must set grant=false");
   }
 
   const existing = await ports.findLinkByPlatformUserId(claims.sub);
-  if (!existing) {
-    return { ok: true, platformUserId: claims.sub };
+  if (existing) {
+    await persistPlatformDisable(ports, existing);
   }
-  await ports.saveLink(applyPlatformRevoke(existing));
-  await ports.signOutLocal(existing.localUserId);
+
+  await ports.consumeJti(`revoke:${claims.jti}`, claims.exp);
   return { ok: true, platformUserId: claims.sub };
 }

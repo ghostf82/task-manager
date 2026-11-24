@@ -8,8 +8,9 @@
  *   jti = one-time
  *   exp-iat ≤ 60s
  *
- * Form POST {origin}/auth/hr-launch  field launch_token
+ * Form POST {origin}/auth/hr-launch  field launch_token (never query string).
  * Email/username are never the join key. Passwords are never copied.
+ * Per-audience secret: HR_LAUNCH_HS256_TASKMANAGER.
  */
 
 export const PROGRAM_SLUG = "taskmanager" as const;
@@ -17,6 +18,7 @@ export const PORTAL_ISSUER = "hr-portal" as const;
 export const PROGRAM_AUDIENCE = `hr-program:${PROGRAM_SLUG}` as const;
 export const LAUNCH_PATH = "/auth/hr-launch" as const;
 export const LAUNCH_TOKEN_FIELD = "launch_token" as const;
+export const LAUNCH_HS256_SECRET_ENV = "HR_LAUNCH_HS256_TASKMANAGER" as const;
 export const LEAST_PRIVILEGE_LOCAL_ROLE = "employee" as const;
 export const DEFAULT_JWT_MAX_TTL_SECONDS = 60;
 export const SYNTHETIC_EMAIL_DOMAIN = "sso.taskmanager.local";
@@ -66,6 +68,8 @@ export type IdentityLink = {
   linkStatus: IdentityLinkStatus;
   grantActive: boolean;
   suggestedBy: "jit" | "manual" | null;
+  /** Unix seconds. Stale JWTs with iat < revokedAt cannot restore grant. */
+  revokedAt?: number | null;
 };
 
 export type JitUserSpec = {

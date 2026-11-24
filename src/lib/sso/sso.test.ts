@@ -19,13 +19,15 @@ import { consumeLaunchToken, consumeRevokeToken } from "./consume";
 import {
   applyPlatformRevoke,
   canOpenFromPlatformGrant,
+  grantBlockedByStaleLaunch,
+  livePlatformAllowsAccess,
   localPasswordLoginAllowed,
 } from "./grant";
 import { launchRedirectStatus } from "./http";
 import { resolveLinkForLaunch, suggestEmailMatch } from "./identity";
 import { decideJit, provisionedLink } from "./jit";
 import { LaunchJwtError, parseLaunchClaims, verifyLaunchJwt } from "./launch-jwt";
-import { readLaunchTokenFromParts } from "./launch-request";
+import { queryCarriesLaunchToken, readLaunchTokenFromParts } from "./launch-request";
 import {
   classifyIdentityLinkQueryError,
   isMissingRelation,
@@ -51,6 +53,8 @@ async function signToken(
   extra?: { exp?: string; iatOffsetSec?: number; sub?: string; jti?: string }
 ) {
   const sub = extra?.sub ?? platformUserId();
+  const now = Math.floor(Date.now() / 1000);
+  const iat = extra?.iatOffsetSec != null ? now + extra.iatOffsetSec : now;
   const jwt = new SignJWT({
     slug: PROGRAM_SLUG,
     ...claims,
@@ -60,8 +64,8 @@ async function signToken(
     .setIssuer(PORTAL_ISSUER)
     .setAudience(PROGRAM_AUDIENCE)
     .setJti(extra?.jti ?? randomUUID())
-    .setIssuedAt(extra?.iatOffsetSec ? Math.floor(Date.now() / 1000) + extra.iatOffsetSec : undefined)
-    .setExpirationTime(extra?.exp ?? "60s");
+    .setIssuedAt(iat)
+    .setExpirationTime(extra?.exp ?? iat + 60);
   return { token: await jwt.sign(SECRET), sub };
 }
 
@@ -147,6 +151,19 @@ describe("launch_token form field", () => {
         formGet: (name) => form.get(name) ?? null,
       })
     ).toBe("from-launch");
+  });
+
+  it("does not read query-string tokens and flags them as rejected", () => {
+    const query = new URLSearchParams({ [LAUNCH_TOKEN_FIELD]: "from-query" });
+    expect(queryCarriesLaunchToken(query)).toBe(true);
+    expect(queryCarriesLaunchToken(new URLSearchParams({ token: "from-token" }))).toBe(true);
+    expect(
+      readLaunchTokenFromParts({
+        method: "POST",
+        query,
+        formGet: (name) => (name === LAUNCH_TOKEN_FIELD ? "from-form" : null),
+      })
+    ).toBe("");
   });
 });
 
@@ -306,6 +323,31 @@ describe("consume launch + revoke", () => {
     expect(back.created).toBe(false);
     expect(back.localUserId).toBe(launched.localUserId);
     expect(state.links[0]?.grantActive).toBe(true);
+    expect(state.links[0]?.revokedAt).toBeNull();
+  });
+
+  it("does not restore grant from an unused JWT issued before revoked_at", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token, sub } = await signToken({});
+    const launched = await consumeLaunchToken(token, cfg, ports);
+    expect(launched.ok).toBe(true);
+    if (!launched.ok) return;
+
+    const { token: stale } = await signToken({}, { sub, iatOffsetSec: -10 });
+    const { token: revoke } = await signToken({ grant: false }, { sub });
+    expect(await consumeRevokeToken(revoke, cfg, ports)).toMatchObject({ ok: true });
+    expect(state.links[0]?.grantActive).toBe(false);
+    expect(state.links[0]?.revokedAt).toBeGreaterThan(0);
+    expect(
+      grantBlockedByStaleLaunch(state.links[0]!, Math.floor(Date.now() / 1000) - 10)
+    ).toBe(true);
+
+    const blocked = await consumeLaunchToken(stale, cfg, ports);
+    expect(blocked).toMatchObject({ ok: false, code: "grant" });
+    expect(state.links[0]?.grantActive).toBe(false);
+    expect(
+      localPasswordLoginAllowed({ link: state.links[0]!, platformGrant: false })
+    ).toBe(false);
   });
 
   it("does not flip a revoked identity link to provisioned on grant:true launch", async () => {
@@ -352,6 +394,7 @@ describe("consume launch + revoke", () => {
     expect(link.localUserId).toBe("keep-me");
     expect(link.grantActive).toBe(false);
     expect(link.linkStatus).toBe("provisioned");
+    expect(link.revokedAt).toBeGreaterThan(0);
   });
 
   it("refuses to attach one local account to a second platform_user_id", async () => {
@@ -385,6 +428,76 @@ describe("consume launch + revoke", () => {
     const result = await consumeLaunchToken(token, cfg, ports);
     expect(result).toMatchObject({ ok: false, code: "grant" });
     expect(state.sessions.size).toBe(0);
+  });
+
+  it("does not open a session for a losing concurrent JIT user", async () => {
+    const sub = platformUserId();
+    const { ports, state } = createMemoryPorts();
+    const originalCreate = ports.createLocalUser;
+    ports.createLocalUser = async (spec) => {
+      const created = await originalCreate(spec);
+      state.links.push({
+        platformUserId: sub,
+        localUserId: "winner-local",
+        localRole: "employee",
+        linkStatus: "provisioned",
+        grantActive: true,
+        suggestedBy: "jit",
+      });
+      return created;
+    };
+    const { token } = await signToken({}, { sub });
+    const result = await consumeLaunchToken(token, cfg, ports);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.localUserId).toBe("winner-local");
+    expect(result.created).toBe(false);
+    expect(state.sessions.has("winner-local")).toBe(true);
+    expect([...state.sessions]).toEqual(["winner-local"]);
+  });
+
+  it("does not consume revoke jti if session delete fails", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token, sub } = await signToken({});
+    const launched = await consumeLaunchToken(token, cfg, ports);
+    expect(launched.ok).toBe(true);
+    const launchJtis = state.jtis.size;
+    ports.signOutLocal = async () => {
+      throw new Error("session revoke failed: 404");
+    };
+    const { token: revoke } = await signToken({ grant: false }, { sub });
+    await expect(consumeRevokeToken(revoke, cfg, ports)).rejects.toThrow(
+      /session revoke failed: 404/
+    );
+    expect(state.jtis.size).toBe(launchJtis);
+  });
+
+  it("persists disable and signs out when live platform grant is revoked after launch", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token, sub } = await signToken({});
+    const launched = await consumeLaunchToken(token, cfg, ports);
+    expect(launched.ok).toBe(true);
+    if (!launched.ok) return;
+    state.liveGrant.set(sub, false);
+    const { token: again } = await signToken({}, { sub });
+    const result = await consumeLaunchToken(again, cfg, ports);
+    expect(result).toMatchObject({ ok: false, code: "grant" });
+    expect(state.links[0]?.grantActive).toBe(false);
+    expect(state.links[0]?.revokedAt).toBeGreaterThan(0);
+    expect(state.sessions.has(launched.localUserId)).toBe(false);
+    expect(
+      localPasswordLoginAllowed({ link: state.links[0]!, platformGrant: false })
+    ).toBe(false);
+  });
+});
+
+describe("live platform grant body", () => {
+  it("requires program grant true and does not treat membership disable as access", () => {
+    expect(livePlatformAllowsAccess({ grant: true })).toBe(true);
+    expect(livePlatformAllowsAccess({ grant: true, membership: false })).toBe(false);
+    expect(livePlatformAllowsAccess({ grant: true, disabled: true })).toBe(false);
+    expect(livePlatformAllowsAccess({ grant: false })).toBe(false);
+    expect(livePlatformAllowsAccess({ granted: true, active: false })).toBe(false);
   });
 });
 
@@ -538,6 +651,7 @@ describe("preview SQL", () => {
     expect(sql).toContain("platform_identity_links_local_unique");
     expect(sql).toContain("platform_sso_jti");
     expect(sql).toContain("sso_revoke_local_sessions");
+    expect(sql).toContain("revoked_at");
     expect(sql).not.toMatch(/encrypted_password|createUser|123456/);
     expect(sql).toMatch(/never copied/i);
     expect(sql).toMatch(/Email and username are never the durable join key/);

@@ -2,6 +2,7 @@ import { createRemoteJWKSet, errors, jwtVerify, type JWTPayload } from "jose";
 
 import {
   DEFAULT_JWT_MAX_TTL_SECONDS,
+  LAUNCH_HS256_SECRET_ENV,
   PORTAL_ISSUER,
   PROGRAM_AUDIENCE,
   PROGRAM_SLUG,
@@ -148,7 +149,8 @@ export function readJwtConfigFromEnv(
   const enabled = env.PLATFORM_SSO_ENABLED === "true";
   const issuer = env.PLATFORM_SSO_ISSUER?.trim() || PORTAL_ISSUER;
   const audience = env.PLATFORM_SSO_AUDIENCE?.trim() || PROGRAM_AUDIENCE;
-  const secret = env.PLATFORM_SSO_JWT_SECRET?.trim();
+  const secret =
+    env[LAUNCH_HS256_SECRET_ENV]?.trim() || env.PLATFORM_SSO_JWT_SECRET?.trim();
   const jwksUrl = env.PLATFORM_SSO_JWKS_URL?.trim();
   const maxTtlRaw = env.PLATFORM_SSO_JWT_MAX_TTL?.trim();
   const maxTtlSeconds = maxTtlRaw

@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 /**
  * Portal-signed revoke. Body `{ token }` or `Authorization: Bearer`.
  * grant claim must be false. Isolated preview — no production webhook assumed.
+ * JWT is verified before admin clients are created. Errors are generic.
  */
 export async function POST(request: NextRequest) {
   const cfg = readJwtConfigFromEnv();
@@ -27,14 +28,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await consumeRevokeToken(token, cfg, createSupabaseSsoPorts());
+    const result = await consumeRevokeToken(token, cfg, createSupabaseSsoPorts);
     if (!result.ok) {
       const status = result.code === "replay" ? 409 : 401;
       return NextResponse.json({ error: result.code }, { status });
     }
     return NextResponse.json({ ok: true, platform_user_id: result.platformUserId });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "failed";
-    return NextResponse.json({ error: "failed", message }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "failed" }, { status: 500 });
   }
 }

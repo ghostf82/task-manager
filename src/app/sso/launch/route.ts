@@ -1,15 +1,16 @@
-import type { NextRequest } from "next/server";
-
-import { handleHrLaunch } from "@/lib/sso/launch-handler";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Compatibility alias. Portal posts `/auth/hr-launch` with `launch_token`. */
-export async function GET(request: NextRequest) {
-  return handleHrLaunch(request);
+/**
+ * Launch tokens are POST body/form only at `/auth/hr-launch`.
+ * GET and query-string tokens are rejected so JWTs never land in logs/Referer.
+ */
+export async function GET() {
+  return NextResponse.json({ error: "method" }, { status: 405 });
 }
 
-export async function POST(request: NextRequest) {
-  return handleHrLaunch(request);
+export async function POST() {
+  return NextResponse.json({ error: "method" }, { status: 405 });
 }

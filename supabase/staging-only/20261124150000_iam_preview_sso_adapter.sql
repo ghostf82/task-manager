@@ -11,6 +11,7 @@ create table if not exists public.platform_identity_links (
   link_status text not null default 'provisioned',
   grant_active boolean not null default true,
   suggested_by text,
+  revoked_at timestamptz,
   last_launch_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -22,8 +23,11 @@ create table if not exists public.platform_identity_links (
   )
 );
 
+alter table public.platform_identity_links
+  add column if not exists revoked_at timestamptz;
+
 comment on table public.platform_identity_links is
-  'PREVIEW / STAGING ONLY. Maps portal platform_user_id to local auth.users.id. No password copy.';
+  'PREVIEW / STAGING ONLY. Maps portal platform_user_id to local auth.users.id. No password copy. revoked_at blocks unused JWTs with iat before the revoke.';
 
 create unique index if not exists platform_identity_links_local_unique
   on public.platform_identity_links (local_user_id)
