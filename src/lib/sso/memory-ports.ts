@@ -9,7 +9,7 @@ export type MemorySsoState = {
   users: Map<string, { email: string; isSuperAdmin: boolean; passwordCopied: boolean }>;
   sessions: Set<string>;
   signedOut: string[];
-  liveGrant: Map<string, boolean>;
+  liveGrant: Map<string, boolean | "unknown">;
 };
 
 export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
@@ -32,10 +32,17 @@ export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
     async listLinks() {
       return [...state.links];
     },
-    async saveLink(link) {
+    async saveLink(link, cas) {
       const idx = state.links.findIndex((l) => l.platformUserId === link.platformUserId);
       if (idx >= 0) {
-        if (state.links[idx]!.localUserId !== link.localUserId) return "exists";
+        const current = state.links[idx]!;
+        if (current.localUserId !== link.localUserId) return "exists";
+        if (link.grantActive && cas) {
+          const actual = current.revokedAt ?? null;
+          if (actual !== cas.expectedRevokedAt || current.linkStatus === "revoked") {
+            return "stale";
+          }
+        }
         state.links[idx] = link;
         return "ok";
       }
@@ -68,8 +75,10 @@ export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
       state.signedOut.push(localUserId);
     },
     async checkLiveGrant(platformUserId) {
-      if (!state.liveGrant.has(platformUserId)) return null;
-      return state.liveGrant.get(platformUserId) ?? false;
+      if (!state.liveGrant.has(platformUserId)) return { status: "skipped" as const };
+      const value = state.liveGrant.get(platformUserId);
+      if (value === "unknown") return { status: "unknown" as const };
+      return { status: "confirmed" as const, granted: value === true };
     },
   };
 

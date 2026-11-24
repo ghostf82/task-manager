@@ -57,6 +57,27 @@ export function livePlatformAllowsAccess(body: {
   return body.grant === true || body.granted === true;
 }
 
+/**
+ * HTTP/JSON failures are unknown — deny the session, do not persist revoke.
+ * Persist `grant_active=false` / `revoked_at` only on confirmed false (or grant=false JWT).
+ */
+export type LiveGrantDecision =
+  | { status: "skipped" }
+  | { status: "unknown" }
+  | { status: "confirmed"; granted: boolean };
+
+export function interpretLiveGrantResponse(input: {
+  httpOk: boolean;
+  body: unknown;
+}): LiveGrantDecision {
+  if (!input.httpOk) return { status: "unknown" };
+  if (!input.body || typeof input.body !== "object") return { status: "unknown" };
+  return {
+    status: "confirmed",
+    granted: livePlatformAllowsAccess(input.body as Parameters<typeof livePlatformAllowsAccess>[0]),
+  };
+}
+
 /** Password fallback is refused once the platform grant is off. */
 export function localPasswordLoginAllowed(input: {
   link: IdentityLink | null;

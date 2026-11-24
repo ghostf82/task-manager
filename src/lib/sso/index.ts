@@ -19,8 +19,10 @@ export { consumeLaunchToken, consumeRevokeToken } from "./consume";
 export {
   canOpenFromPlatformGrant,
   grantBlockedByStaleLaunch,
+  interpretLiveGrantResponse,
   livePlatformAllowsAccess,
   localPasswordLoginAllowed,
+  type LiveGrantDecision,
 } from "./grant";
 export { launchRedirectStatus } from "./http";
 export { readJwtConfigFromEnv, verifyLaunchJwt } from "./launch-jwt";
@@ -29,4 +31,5 @@ export {
   isMissingRelation,
   isPlatformGrantBlockingFromLookup,
 } from "./lookup";
+export { resolveAuthSessionMint, revokeSessionsForUserId } from "./sessions";
 export { createSupabaseSsoPorts, lookupLinkByLocalUserId } from "./supabase-ports";

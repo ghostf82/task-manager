@@ -20,6 +20,7 @@ import {
   applyPlatformRevoke,
   canOpenFromPlatformGrant,
   grantBlockedByStaleLaunch,
+  interpretLiveGrantResponse,
   livePlatformAllowsAccess,
   localPasswordLoginAllowed,
 } from "./grant";
@@ -34,7 +35,7 @@ import {
   isPlatformGrantBlockingFromLookup,
 } from "./lookup";
 import { createMemoryPorts } from "./memory-ports";
-import { revokeSessionsForUserId } from "./sessions";
+import { resolveAuthSessionMint, revokeSessionsForUserId } from "./sessions";
 
 const SECRET = new TextEncoder().encode("preview-task-sso-secret-not-prod");
 const cfg = {
@@ -472,6 +473,51 @@ describe("consume launch + revoke", () => {
     expect(state.jtis.size).toBe(launchJtis);
   });
 
+  it("does not persist revoke or consume jti when live grant check is unknown", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token, sub } = await signToken({});
+    const launched = await consumeLaunchToken(token, cfg, ports);
+    expect(launched.ok).toBe(true);
+    if (!launched.ok) return;
+    const jtis = state.jtis.size;
+    state.liveGrant.set(sub, "unknown");
+    const { token: again } = await signToken({}, { sub });
+    const result = await consumeLaunchToken(again, cfg, ports);
+    expect(result).toMatchObject({ ok: false, code: "failed" });
+    expect(state.links[0]?.grantActive).toBe(true);
+    expect(state.links[0]?.revokedAt ?? null).toBeNull();
+    expect(state.jtis.size).toBe(jtis);
+    expect(
+      isPlatformGrantBlockingFromLookup({
+        status: "unavailable",
+        reason: "live grant unknown",
+      })
+    ).toBe(true);
+  });
+
+  it("does not let a launch that started before revoke clear revoked_at", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token, sub } = await signToken({});
+    const launched = await consumeLaunchToken(token, cfg, ports);
+    expect(launched.ok).toBe(true);
+    if (!launched.ok) return;
+
+    const originalSave = ports.saveLink;
+    ports.saveLink = async (link, cas) => {
+      if (link.grantActive && state.links[0]) {
+        state.links[0] = applyPlatformRevoke(state.links[0]!);
+      }
+      return originalSave(link, cas);
+    };
+
+    const { token: again } = await signToken({}, { sub });
+    const result = await consumeLaunchToken(again, cfg, ports);
+    expect(result).toMatchObject({ ok: false, code: "grant" });
+    expect(state.links[0]?.grantActive).toBe(false);
+    expect(state.links[0]?.revokedAt).toBeGreaterThan(0);
+    expect(state.sessions.has(launched.localUserId)).toBe(false);
+  });
+
   it("persists disable and signs out when live platform grant is revoked after launch", async () => {
     const { ports, state } = createMemoryPorts();
     const { token, sub } = await signToken({});
@@ -498,6 +544,48 @@ describe("live platform grant body", () => {
     expect(livePlatformAllowsAccess({ grant: true, disabled: true })).toBe(false);
     expect(livePlatformAllowsAccess({ grant: false })).toBe(false);
     expect(livePlatformAllowsAccess({ granted: true, active: false })).toBe(false);
+  });
+
+  it("treats portal HTTP errors and malformed bodies as unknown, not confirmed false", () => {
+    expect(interpretLiveGrantResponse({ httpOk: false, body: { grant: false } })).toEqual({
+      status: "unknown",
+    });
+    expect(interpretLiveGrantResponse({ httpOk: true, body: "not-json-object" })).toEqual({
+      status: "unknown",
+    });
+    expect(interpretLiveGrantResponse({ httpOk: true, body: null })).toEqual({
+      status: "unknown",
+    });
+    expect(interpretLiveGrantResponse({ httpOk: true, body: { grant: false } })).toEqual({
+      status: "confirmed",
+      granted: false,
+    });
+    expect(interpretLiveGrantResponse({ httpOk: true, body: { grant: true } })).toEqual({
+      status: "confirmed",
+      granted: true,
+    });
+  });
+});
+
+describe("session mint identity", () => {
+  it("binds GoTrue mint to auth user id and ignores mutable profile email", () => {
+    const localUserId = randomUUID();
+    const minted = resolveAuthSessionMint({
+      localUserId,
+      authUser: { id: localUserId, email: "sso.user@sso.taskmanager.local" },
+      profileEmail: "super-admin@example.com",
+    });
+    expect(minted).toEqual({
+      localUserId,
+      authEmail: "sso.user@sso.taskmanager.local",
+    });
+    expect(() =>
+      resolveAuthSessionMint({
+        localUserId,
+        authUser: { id: randomUUID(), email: "super-admin@example.com" },
+        profileEmail: "super-admin@example.com",
+      })
+    ).toThrow(/auth user id/);
   });
 });
 

@@ -10,7 +10,12 @@ import {
   type IdentityLinkStatus,
 } from "./contract";
 import type { SsoPorts } from "./consume";
-import { applyPlatformRevoke, livePlatformAllowsAccess } from "./grant";
+import {
+  applyPlatformRevoke,
+  interpretLiveGrantResponse,
+  type LiveGrantDecision,
+} from "./grant";
+import { resolveAuthSessionMint } from "./sessions";
 import {
   classifyIdentityLinkQueryError,
   isMissingRelation,
@@ -60,19 +65,23 @@ function ssoEnabled(): boolean {
   return process.env.PLATFORM_SSO_ENABLED === "true";
 }
 
-async function fetchLiveGrant(platformUserId: string): Promise<boolean | null> {
+async function fetchLiveGrant(platformUserId: string): Promise<LiveGrantDecision> {
   const raw = process.env.PLATFORM_SSO_GRANT_URL?.trim();
-  if (!raw) return null;
-  const url = new URL(raw);
-  url.searchParams.set("sub", platformUserId);
-  url.searchParams.set("program", PROGRAM_SLUG);
-  const res = await fetch(url, { method: "GET", cache: "no-store" });
-  if (!res.ok) return false;
+  if (!raw) return { status: "skipped" };
   try {
-    const body = (await res.json()) as Record<string, unknown>;
-    return livePlatformAllowsAccess(body);
+    const url = new URL(raw);
+    url.searchParams.set("sub", platformUserId);
+    url.searchParams.set("program", PROGRAM_SLUG);
+    const res = await fetch(url, { method: "GET", cache: "no-store" });
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      return { status: "unknown" };
+    }
+    return interpretLiveGrantResponse({ httpOk: res.ok, body });
   } catch {
-    return false;
+    return { status: "unknown" };
   }
 }
 
@@ -104,7 +113,7 @@ export function createSupabaseSsoPorts(): SsoPorts {
       return (data as LinkRow[] | null)?.map(fromRow) ?? [];
     },
 
-    async saveLink(link) {
+    async saveLink(link, cas) {
       const row = toRow(link);
       const { data: current, error: readErr } = await admin
         .from("platform_identity_links")
@@ -115,12 +124,30 @@ export function createSupabaseSsoPorts(): SsoPorts {
       if (current) {
         const existing = fromRow(current as LinkRow);
         if (existing.localUserId !== link.localUserId) return "exists";
-        const { error } = await admin
+        if (link.grantActive && cas) {
+          const actual = existing.revokedAt ?? null;
+          if (actual !== cas.expectedRevokedAt || existing.linkStatus === "revoked") {
+            return "stale";
+          }
+        }
+        let update = admin
           .from("platform_identity_links")
           .update({ ...row, last_launch_at: new Date().toISOString() })
           .eq("platform_user_id", link.platformUserId)
           .eq("local_user_id", link.localUserId);
+        if (link.grantActive && cas) {
+          update =
+            cas.expectedRevokedAt == null
+              ? update.is("revoked_at", null)
+              : update.eq(
+                  "revoked_at",
+                  new Date(cas.expectedRevokedAt * 1000).toISOString()
+                );
+          update = update.neq("link_status", "revoked");
+        }
+        const { data: written, error } = await update.select("platform_user_id");
         if (error) throw error;
+        if (link.grantActive && cas && !written?.length) return "stale";
         return "ok";
       }
       const { error } = await admin.from("platform_identity_links").insert(row);
@@ -178,17 +205,16 @@ export function createSupabaseSsoPorts(): SsoPorts {
     },
 
     async openSession(localUserId) {
-      const { data: profile, error: profileErr } = await admin
-        .from("users")
-        .select("email")
-        .eq("id", localUserId)
-        .maybeSingle();
-      if (profileErr || !profile?.email) {
-        throw profileErr ?? new Error("local user missing");
-      }
+      const { data: authData, error: authErr } = await admin.auth.admin.getUserById(
+        localUserId
+      );
+      const mint = resolveAuthSessionMint({
+        localUserId,
+        authUser: authErr ? null : authData.user,
+      });
       const { data: link, error: linkErr } = await admin.auth.admin.generateLink({
         type: "magiclink",
-        email: profile.email,
+        email: mint.authEmail,
       });
       if (linkErr || !link?.properties?.hashed_token) {
         throw linkErr ?? new Error("generateLink failed");
@@ -199,6 +225,11 @@ export function createSupabaseSsoPorts(): SsoPorts {
         token_hash: link.properties.hashed_token,
       });
       if (otpErr) throw otpErr;
+      const { data: sessionUser, error: sessionErr } = await supabase.auth.getUser();
+      if (sessionErr || sessionUser.user?.id !== mint.localUserId) {
+        await supabase.auth.signOut();
+        throw sessionErr ?? new Error("session subject mismatch");
+      }
     },
 
     async signOutLocal(localUserId) {
@@ -228,7 +259,10 @@ export async function lookupLinkByLocalUserId(
     const link = fromRow(data as LinkRow);
     if (ssoEnabled()) {
       const live = await fetchLiveGrant(link.platformUserId);
-      if (live === false) {
+      if (live.status === "unknown") {
+        return { status: "unavailable", reason: "live grant unknown" };
+      }
+      if (live.status === "confirmed" && live.granted === false) {
         const disabled = applyPlatformRevoke(link);
         await admin.from("platform_identity_links").upsert(toRow(disabled), {
           onConflict: "platform_user_id",

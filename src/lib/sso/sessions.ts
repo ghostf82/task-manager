@@ -1,5 +1,23 @@
 import { getValidatedSupabasePublicEnv } from "@/lib/supabase/public-env";
 
+/**
+ * Mint a GoTrue session only for the linked auth user id.
+ * `public.users.email` is ignored — it is caller-writable and must not select the session.
+ */
+export function resolveAuthSessionMint(input: {
+  localUserId: string;
+  authUser: { id: string; email?: string | null } | null | undefined;
+  profileEmail?: string | null;
+}): { localUserId: string; authEmail: string } {
+  void input.profileEmail;
+  const authUserId = input.authUser?.id?.trim() ?? "";
+  const authEmail = input.authUser?.email?.trim() ?? "";
+  if (!authUserId || authUserId !== input.localUserId || !authEmail) {
+    throw new Error("session mint requires linked auth user id");
+  }
+  return { localUserId: authUserId, authEmail };
+}
+
 type RpcError = { code?: string; message?: string } | null;
 
 type AdminRpc = {

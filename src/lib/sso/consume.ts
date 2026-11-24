@@ -4,6 +4,7 @@ import {
   applyPlatformRevoke,
   canOpenFromPlatformGrant,
   grantBlockedByStaleLaunch,
+  type LiveGrantDecision,
 } from "./grant";
 import { assertLocalAccountAvailable, resolveLinkForLaunch } from "./identity";
 import { LaunchJwtError, verifyLaunchJwt, type JwtVerifyConfig } from "./launch-jwt";
@@ -17,8 +18,15 @@ export type CreatedLocalUser = {
 export type SsoPorts = {
   findLinkByPlatformUserId(platformUserId: string): Promise<IdentityLink | null>;
   listLinks(): Promise<IdentityLink[]>;
-  /** Insert new or update same local user. `"exists"` = another local user already owns this platform id. */
-  saveLink(link: IdentityLink): Promise<"ok" | "exists">;
+  /**
+   * Insert new or update same local user.
+   * `"exists"` = another local user already owns this platform id.
+   * `"stale"` = CAS lost (concurrent revoke changed `revoked_at`).
+   */
+  saveLink(
+    link: IdentityLink,
+    cas?: { expectedRevokedAt: number | null }
+  ): Promise<"ok" | "exists" | "stale">;
   consumeJti(jti: string, expiresAtSeconds: number): Promise<"ok" | "replay">;
   createLocalUser(spec: {
     platformUserId: string;
@@ -31,7 +39,7 @@ export type SsoPorts = {
   }): Promise<CreatedLocalUser>;
   openSession(localUserId: string): Promise<void>;
   signOutLocal(localUserId: string): Promise<void>;
-  checkLiveGrant?(platformUserId: string): Promise<boolean | null>;
+  checkLiveGrant?(platformUserId: string): Promise<LiveGrantDecision>;
 };
 
 export type SsoPortsSource = SsoPorts | (() => SsoPorts);
@@ -53,6 +61,28 @@ function fail(code: LaunchErrorCode, message: string): LaunchErr {
 
 function resolvePorts(ports: SsoPortsSource): SsoPorts {
   return typeof ports === "function" ? ports() : ports;
+}
+
+async function abortIfConcurrentRevoke(
+  ports: SsoPorts,
+  platformUserId: string,
+  localUserId: string,
+  iat: number
+): Promise<LaunchErr | null> {
+  const current = await ports.findLinkByPlatformUserId(platformUserId);
+  if (
+    current &&
+    (current.linkStatus === "revoked" ||
+      grantBlockedByStaleLaunch(current, iat) ||
+      !current.grantActive)
+  ) {
+    await ports.signOutLocal(localUserId);
+    if (current.localUserId !== localUserId) {
+      await ports.signOutLocal(current.localUserId);
+    }
+    return fail("grant", "identity link is revoked");
+  }
+  return null;
 }
 
 async function persistPlatformDisable(
@@ -98,7 +128,10 @@ export async function consumeLaunchToken(
 
   if (ports.checkLiveGrant) {
     const live = await ports.checkLiveGrant(claims.sub);
-    if (live === false) {
+    if (live.status === "unknown") {
+      return fail("failed", "platform grant check unavailable");
+    }
+    if (live.status === "confirmed" && live.granted === false) {
       await persistPlatformDisable(ports, existingForDisable);
       await ports.consumeJti(claims.jti, claims.exp);
       return fail("grant", "platform grant check failed");
@@ -168,17 +201,47 @@ export async function consumeLaunchToken(
     return fail("grant", "platform grant is not active");
   }
 
-  const saved = await ports.saveLink(link);
+  const expectedRevokedAt = existing?.revokedAt ?? null;
+  const saved = await ports.saveLink(link, { expectedRevokedAt });
+  if (saved === "stale") {
+    const current = await ports.findLinkByPlatformUserId(claims.sub);
+    await ports.signOutLocal(localUserId);
+    if (current && current.localUserId !== localUserId) {
+      await ports.signOutLocal(current.localUserId);
+    }
+    return fail("grant", "launch lost to concurrent revoke");
+  }
   if (saved === "exists") {
     const winner = await ports.findLinkByPlatformUserId(claims.sub);
     if (!winner) {
       return fail("conflict", LOCAL_ACCOUNT_TAKEN_MESSAGE);
     }
+    if (
+      winner.linkStatus === "revoked" ||
+      grantBlockedByStaleLaunch(winner, claims.iat) ||
+      !canOpenFromPlatformGrant({ link: winner, platformGrant: true })
+    ) {
+      await ports.signOutLocal(localUserId);
+      await ports.signOutLocal(winner.localUserId);
+      return fail("grant", "identity link is revoked");
+    }
     localUserId = winner.localUserId;
     created = false;
   }
 
+  const blocked = await abortIfConcurrentRevoke(ports, claims.sub, localUserId, claims.iat);
+  if (blocked) return blocked;
+
   await ports.openSession(localUserId);
+
+  const blockedAfterSession = await abortIfConcurrentRevoke(
+    ports,
+    claims.sub,
+    localUserId,
+    claims.iat
+  );
+  if (blockedAfterSession) return blockedAfterSession;
+
   return {
     ok: true,
     localUserId,
