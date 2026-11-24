@@ -123,11 +123,7 @@ export function createSupabaseSsoPorts(): SsoPorts {
       if (readErr && !isMissingRelation(readErr)) throw readErr;
       if (current) {
         const existing = fromRow(current as LinkRow);
-        if (
-          existing.localUserId &&
-          link.localUserId &&
-          existing.localUserId !== link.localUserId
-        ) {
+        if (existing.localUserId && existing.localUserId !== link.localUserId) {
           return "exists";
         }
         if (link.grantActive && cas) {
@@ -155,7 +151,7 @@ export function createSupabaseSsoPorts(): SsoPorts {
         }
         const { data: written, error } = await update.select("platform_user_id");
         if (error) throw error;
-        if (link.grantActive && cas && !written?.length) return "stale";
+        if (!written?.length) return "stale";
         return "ok";
       }
       const { error } = await admin.from("platform_identity_links").insert(row);

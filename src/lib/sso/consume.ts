@@ -100,11 +100,20 @@ async function persistPlatformDisable(
 ): Promise<void> {
   const row = existing ?? revokedPlatformTombstone(platformUserId);
   const saved = await ports.saveLink(applyPlatformRevoke(row));
-  if (saved === "exists") {
-    const current = await ports.findLinkByPlatformUserId(platformUserId);
-    if (current) await ports.saveLink(applyPlatformRevoke(current));
+  let live = await ports.findLinkByPlatformUserId(platformUserId);
+  if (saved === "exists" || saved === "stale" || live?.grantActive) {
+    if (live) {
+      await ports.saveLink(applyPlatformRevoke(live));
+      live = await ports.findLinkByPlatformUserId(platformUserId);
+    }
   }
-  await signOutIfPresent(ports, row.localUserId);
+  if (!live || live.grantActive) {
+    throw new Error("platform revoke did not persist");
+  }
+  await signOutIfPresent(ports, live.localUserId);
+  if (row.localUserId && row.localUserId !== live.localUserId) {
+    await signOutIfPresent(ports, row.localUserId);
+  }
 }
 
 export async function consumeLaunchToken(

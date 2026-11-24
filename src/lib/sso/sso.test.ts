@@ -24,6 +24,7 @@ import {
   interpretLiveGrantResponse,
   livePlatformAllowsAccess,
   localPasswordLoginAllowed,
+  revokedPlatformTombstone,
 } from "./grant";
 import { launchRedirectStatus } from "./http";
 import { resolveLinkForLaunch, suggestEmailMatch } from "./identity";
@@ -352,6 +353,75 @@ describe("consume launch + revoke", () => {
     if (!restored.ok) return;
     expect(restored.created).toBe(true);
     expect(state.links[0]?.localUserId).toBe(restored.localUserId);
+    expect(state.links[0]?.grantActive).toBe(true);
+  });
+
+  it("does not let a tombstone null out an existing local_user_id", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token, sub } = await signToken({});
+    const launched = await consumeLaunchToken(token, cfg, ports);
+    expect(launched.ok).toBe(true);
+    if (!launched.ok) return;
+
+    expect(await ports.saveLink(revokedPlatformTombstone(sub))).toBe("exists");
+    expect(state.links[0]?.localUserId).toBe(launched.localUserId);
+    expect(state.links[0]?.grantActive).toBe(true);
+
+    const { token: revoke } = await signToken({ grant: false }, { sub });
+    expect(await consumeRevokeToken(revoke, cfg, ports)).toMatchObject({ ok: true });
+    expect(state.links[0]?.localUserId).toBe(launched.localUserId);
+    expect(state.links[0]?.grantActive).toBe(false);
+    expect(state.sessions.has(launched.localUserId)).toBe(false);
+  });
+
+  it("revokes and signs out a concurrent first-launch user instead of a null tombstone", async () => {
+    const { ports, state } = createMemoryPorts();
+    const sub = platformUserId();
+    const concurrentLocal = randomUUID();
+    const originalSave = ports.saveLink;
+    ports.saveLink = async (link, cas) => {
+      if (!link.localUserId && !state.links.length) {
+        state.links.push({
+          platformUserId: sub,
+          localUserId: concurrentLocal,
+          localRole: "employee",
+          linkStatus: "provisioned",
+          grantActive: true,
+          suggestedBy: "jit",
+        });
+        state.sessions.add(concurrentLocal);
+      }
+      return originalSave(link, cas);
+    };
+
+    const { token: revoke } = await signToken({ grant: false }, { sub });
+    expect(await consumeRevokeToken(revoke, cfg, ports)).toMatchObject({ ok: true });
+    expect(state.links[0]?.localUserId).toBe(concurrentLocal);
+    expect(state.links[0]?.grantActive).toBe(false);
+    expect(state.sessions.has(concurrentLocal)).toBe(false);
+  });
+
+  it("does not consume revoke jti if a concurrent launch keeps grant active", async () => {
+    const { ports, state } = createMemoryPorts();
+    const { token, sub } = await signToken({});
+    const launched = await consumeLaunchToken(token, cfg, ports);
+    expect(launched.ok).toBe(true);
+    if (!launched.ok) return;
+    const jtis = state.jtis.size;
+    const originalSave = ports.saveLink;
+    ports.saveLink = async (link, cas) => {
+      const saved = await originalSave(link, cas);
+      if (!link.grantActive && state.links[0]) {
+        state.links[0] = applyPlatformGrant(state.links[0]!);
+        state.sessions.add(state.links[0]!.localUserId ?? launched.localUserId);
+      }
+      return saved;
+    };
+    const { token: revoke } = await signToken({ grant: false }, { sub });
+    await expect(consumeRevokeToken(revoke, cfg, ports)).rejects.toThrow(
+      /platform revoke did not persist/
+    );
+    expect(state.jtis.size).toBe(jtis);
     expect(state.links[0]?.grantActive).toBe(true);
   });
 
