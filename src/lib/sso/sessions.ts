@@ -35,7 +35,8 @@ export async function revokeSessionsForUserId(
       },
     }
   );
-  if (!res.ok && res.status !== 404) {
+  // 404 means the admin sessions route is missing, not that the user has no sessions.
+  if (!res.ok) {
     throw new Error(`session revoke failed: ${res.status} (${error.message})`);
   }
 }

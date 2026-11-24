@@ -18,5 +18,9 @@ export { consumeLaunchToken, consumeRevokeToken } from "./consume";
 export { canOpenFromPlatformGrant, localPasswordLoginAllowed } from "./grant";
 export { launchRedirectStatus } from "./http";
 export { readJwtConfigFromEnv, verifyLaunchJwt } from "./launch-jwt";
-export { isPlatformGrantBlockingFromLookup } from "./lookup";
+export {
+  classifyIdentityLinkQueryError,
+  isMissingRelation,
+  isPlatformGrantBlockingFromLookup,
+} from "./lookup";
 export { createSupabaseSsoPorts, lookupLinkByLocalUserId } from "./supabase-ports";

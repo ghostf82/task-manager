@@ -26,7 +26,11 @@ import { resolveLinkForLaunch, suggestEmailMatch } from "./identity";
 import { decideJit, provisionedLink } from "./jit";
 import { LaunchJwtError, parseLaunchClaims, verifyLaunchJwt } from "./launch-jwt";
 import { readLaunchTokenFromParts } from "./launch-request";
-import { isPlatformGrantBlockingFromLookup } from "./lookup";
+import {
+  classifyIdentityLinkQueryError,
+  isMissingRelation,
+  isPlatformGrantBlockingFromLookup,
+} from "./lookup";
 import { createMemoryPorts } from "./memory-ports";
 import { revokeSessionsForUserId } from "./sessions";
 
@@ -385,6 +389,16 @@ describe("consume launch + revoke", () => {
 });
 
 describe("grant lookup fail-closed", () => {
+  const pgrst205 = {
+    code: "PGRST205",
+    message:
+      "Could not find the table 'public.platform_identity_links' in the schema cache",
+  };
+  const undefinedTable = {
+    code: "42P01",
+    message: 'relation "platform_identity_links" does not exist',
+  };
+
   it("treats lookup errors as blocked, not as unlinked", () => {
     expect(
       isPlatformGrantBlockingFromLookup({
@@ -407,6 +421,45 @@ describe("grant lookup fail-closed", () => {
       })
     ).toBe(true);
   });
+
+  it("treats PostgREST PGRST205 as a missing table, not a real query failure", () => {
+    expect(isMissingRelation(pgrst205)).toBe(true);
+    expect(isMissingRelation(undefinedTable)).toBe(true);
+    expect(isMissingRelation({ code: "42501", message: "permission denied" })).toBe(false);
+    expect(isMissingRelation({ code: "PGRST116", message: "JSON object requested" })).toBe(
+      false
+    );
+  });
+
+  it("does not lock out password login when SSO is off and the table is missing", () => {
+    const lookup = classifyIdentityLinkQueryError(pgrst205, false);
+    expect(lookup).toEqual({ status: "missing" });
+    expect(isPlatformGrantBlockingFromLookup(lookup)).toBe(false);
+    expect(
+      isPlatformGrantBlockingFromLookup(classifyIdentityLinkQueryError(undefinedTable, false))
+    ).toBe(false);
+  });
+
+  it("fails closed when SSO is on, even if the table is missing", () => {
+    const lookup = classifyIdentityLinkQueryError(pgrst205, true);
+    expect(lookup.status).toBe("unavailable");
+    expect(isPlatformGrantBlockingFromLookup(lookup)).toBe(true);
+  });
+
+  it("fails closed on real DB errors even when SSO is off", () => {
+    const lookup = classifyIdentityLinkQueryError(
+      { code: "42501", message: "permission denied for table platform_identity_links" },
+      false
+    );
+    expect(lookup.status).toBe("unavailable");
+    expect(isPlatformGrantBlockingFromLookup(lookup)).toBe(true);
+    expect(
+      isPlatformGrantBlockingFromLookup({
+        status: "unavailable",
+        reason: "connection reset",
+      })
+    ).toBe(true);
+  });
 });
 
 describe("POST launch redirect", () => {
@@ -417,6 +470,8 @@ describe("POST launch redirect", () => {
 });
 
 describe("session revoke by user id", () => {
+  const userId = "11111111-1111-4111-8111-111111111111";
+
   it("calls sso_revoke_local_sessions with the user UUID, not auth.admin.signOut", async () => {
     const calls: unknown[] = [];
     await revokeSessionsForUserId(
@@ -426,11 +481,45 @@ describe("session revoke by user id", () => {
           return { error: null };
         },
       },
-      "11111111-1111-4111-8111-111111111111"
+      userId
     );
-    expect(calls).toEqual([
-      ["sso_revoke_local_sessions", { p_user: "11111111-1111-4111-8111-111111111111" }],
-    ]);
+    expect(calls).toEqual([["sso_revoke_local_sessions", { p_user: userId }]]);
+  });
+
+  it("does not treat REST 404 as a successful revoke when SQL revoke failed", async () => {
+    const prev = {
+      url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      anon: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      key: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    };
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-test-key";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "service-test-key";
+    try {
+      const failingRpc = {
+        async rpc() {
+          return { error: { code: "PGRST202", message: "function missing" } };
+        },
+      };
+      await expect(
+        revokeSessionsForUserId(failingRpc, userId, (async () =>
+          new Response("", { status: 404 })
+        ) as typeof fetch)
+      ).rejects.toThrow(/session revoke failed: 404/);
+
+      await expect(
+        revokeSessionsForUserId(failingRpc, userId, (async () =>
+          new Response("", { status: 200 })
+        ) as typeof fetch)
+      ).resolves.toBeUndefined();
+    } finally {
+      if (prev.url === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+      else process.env.NEXT_PUBLIC_SUPABASE_URL = prev.url;
+      if (prev.anon === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      else process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = prev.anon;
+      if (prev.key === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+      else process.env.SUPABASE_SERVICE_ROLE_KEY = prev.key;
+    }
   });
 });
 

@@ -9,7 +9,11 @@ import {
   type IdentityLinkStatus,
 } from "./contract";
 import type { SsoPorts } from "./consume";
-import type { IdentityLinkLookup } from "./lookup";
+import {
+  classifyIdentityLinkQueryError,
+  isMissingRelation,
+  type IdentityLinkLookup,
+} from "./lookup";
 import { revokeSessionsForUserId } from "./sessions";
 
 type LinkRow = {
@@ -43,9 +47,8 @@ function toRow(link: IdentityLink): LinkRow {
   };
 }
 
-function isMissingRelation(error: { code?: string; message?: string } | null): boolean {
-  if (!error) return false;
-  return error.code === "42P01" || /does not exist/i.test(error.message ?? "");
+function ssoEnabled(): boolean {
+  return process.env.PLATFORM_SSO_ENABLED === "true";
 }
 
 export function createSupabaseSsoPorts(): SsoPorts {
@@ -189,23 +192,24 @@ export async function lookupLinkByLocalUserId(
       .eq("local_user_id", localUserId)
       .maybeSingle();
     if (error) {
-      if (isMissingRelation(error)) {
-        return process.env.PLATFORM_SSO_ENABLED === "true"
-          ? { status: "unavailable", reason: "identity_links table missing" }
-          : { status: "missing" };
-      }
-      return { status: "unavailable", reason: error.message || "identity_links query failed" };
+      return classifyIdentityLinkQueryError(error, ssoEnabled());
     }
     return data ? { status: "found", link: fromRow(data as LinkRow) } : { status: "missing" };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "identity_links lookup failed";
-    if (
-      process.env.PLATFORM_SSO_ENABLED !== "true" &&
-      /Missing SUPABASE_SERVICE_ROLE_KEY/i.test(message)
-    ) {
+    const shaped = {
+      code:
+        typeof err === "object" && err && "code" in err
+          ? String((err as { code?: unknown }).code ?? "")
+          : undefined,
+      message: err instanceof Error ? err.message : String(err),
+    };
+    if (isMissingRelation(shaped)) {
+      return classifyIdentityLinkQueryError(shaped, ssoEnabled());
+    }
+    if (!ssoEnabled() && /Missing SUPABASE_SERVICE_ROLE_KEY/i.test(shaped.message)) {
       return { status: "missing" };
     }
-    return { status: "unavailable", reason: message };
+    return { status: "unavailable", reason: shaped.message || "identity_links lookup failed" };
   }
 }
 
