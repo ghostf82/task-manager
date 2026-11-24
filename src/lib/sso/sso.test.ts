@@ -27,7 +27,7 @@ import {
   localPasswordLoginAllowed,
   revokedPlatformTombstone,
 } from "./grant";
-import { isNativeLaunchLanding, launchRedirectStatus } from "./http";
+import { isNativeLaunchLanding, launchRedirectStatus, relativeLaunchLocation } from "./http";
 import { handleHrLaunch } from "./launch-handler";
 import { resolveLinkForLaunch, suggestEmailMatch } from "./identity";
 import { decideJit, provisionedLink } from "./jit";
@@ -38,7 +38,13 @@ import {
   isMissingRelation,
   isPlatformGrantBlockingFromLookup,
 } from "./lookup";
-import { isolatedAuthDecision, peekIsolatedSidLive } from "./isolated-flag";
+import {
+  isolatedAuthDecision,
+  isolatedLoopbackEnabled,
+  isolatedLoopbackRemotePlatform,
+  isIsolatedLoopbackHost,
+  peekIsolatedSidLive,
+} from "./isolated-flag";
 import {
   getIsolatedRuntime,
   mintIsolatedCookie,
@@ -832,8 +838,14 @@ describe("POST launch redirect", () => {
       ports,
     });
     expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/dashboard");
+    expect(relativeLaunchLocation("/dashboard")).toBe("/dashboard");
+    expect(() => relativeLaunchLocation("http://localhost:3012/dashboard")).toThrow(
+      /origin-relative/
+    );
     const loc = new URL(res.headers.get("location") ?? "", "http://127.0.0.1:3012");
     expect(loc.pathname).toBe("/dashboard");
+    expect(loc.host).toBe("127.0.0.1:3012");
     expect(isNativeLaunchLanding(loc.pathname)).toBe(true);
     expect(loc.pathname).not.toMatch(/proof|iam-sso/i);
     const html = await res.text();
@@ -922,6 +934,99 @@ describe("preview SQL", () => {
 describe("isolated loopback session", () => {
   afterEach(() => {
     delete (globalThis as { __tmIsolatedLoopback?: unknown }).__tmIsolatedLoopback;
+  });
+
+  it("TM-1: refuses HR_IAM_ISOLATED_LOOPBACK=1 on production and Netlify", () => {
+    expect(
+      isolatedLoopbackEnabled({
+        HR_IAM_ISOLATED_LOOPBACK: "1",
+        NODE_ENV: "production",
+      })
+    ).toBe(false);
+    expect(
+      isolatedLoopbackEnabled({
+        HR_IAM_ISOLATED_LOOPBACK: "1",
+        NODE_ENV: "development",
+        HR_IAM_ISOLATED_HOST: "127.0.0.1",
+        NETLIFY: "true",
+      })
+    ).toBe(false);
+    expect(
+      isolatedLoopbackEnabled({
+        HR_IAM_ISOLATED_LOOPBACK: "1",
+        NODE_ENV: "test",
+        NETLIFY: "true",
+      })
+    ).toBe(false);
+    expect(
+      isolatedLoopbackEnabled({
+        HR_IAM_ISOLATED_LOOPBACK: "1",
+        NODE_ENV: "development",
+        CONTEXT: "deploy-preview",
+        URL: "https://deploy-preview-1--hr-task-manager.netlify.app",
+      })
+    ).toBe(false);
+    expect(
+      isolatedLoopbackRemotePlatform({
+        NETLIFY: "true",
+        URL: "https://hr-task-manager.netlify.app",
+      })
+    ).toBe(true);
+  });
+
+  it("TM-1: allows NODE_ENV=test or an explicit loopback host only", () => {
+    expect(
+      isolatedLoopbackEnabled({
+        HR_IAM_ISOLATED_LOOPBACK: "1",
+        NODE_ENV: "test",
+      })
+    ).toBe(true);
+    expect(
+      isolatedLoopbackEnabled({
+        HR_IAM_ISOLATED_LOOPBACK: "1",
+        VITEST: "true",
+      })
+    ).toBe(true);
+    expect(
+      isolatedLoopbackEnabled({
+        HR_IAM_ISOLATED_LOOPBACK: "1",
+        NODE_ENV: "development",
+        HR_IAM_ISOLATED_HOST: "127.0.0.1",
+      })
+    ).toBe(true);
+    expect(
+      isolatedLoopbackEnabled(
+        { HR_IAM_ISOLATED_LOOPBACK: "1", NODE_ENV: "development" },
+        "localhost"
+      )
+    ).toBe(true);
+    expect(
+      isolatedLoopbackEnabled({
+        HR_IAM_ISOLATED_LOOPBACK: "1",
+        NODE_ENV: "development",
+      })
+    ).toBe(false);
+    expect(
+      isolatedLoopbackEnabled(
+        {
+          HR_IAM_ISOLATED_LOOPBACK: "1",
+          NODE_ENV: "development",
+          HR_IAM_ISOLATED_HOST: "127.0.0.1",
+        },
+        "hr-task-manager.netlify.app"
+      )
+    ).toBe(false);
+    expect(
+      isolatedLoopbackEnabled({
+        HR_IAM_ISOLATED_LOOPBACK: "1",
+        NODE_ENV: "development",
+        HR_IAM_ISOLATED_HOST: "evil.example",
+      })
+    ).toBe(false);
+    expect(isolatedLoopbackEnabled({ NODE_ENV: "test" })).toBe(false);
+    expect(isIsolatedLoopbackHost("127.0.0.1:3012")).toBe(true);
+    expect(isIsolatedLoopbackHost("[::1]:3012")).toBe(true);
+    expect(isIsolatedLoopbackHost("hr-task-manager.netlify.app")).toBe(false);
   });
 
   it("honors live tm_sso and ignores leftover GoTrue on /login", () => {

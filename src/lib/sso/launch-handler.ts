@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { consumeLaunchToken, type SsoPortsSource } from "./consume";
 import { LAUNCH_SUCCESS_PATH, type LaunchErrorCode } from "./contract";
-import { launchRedirectStatus } from "./http";
+import { launchRedirectStatus, relativeLaunchLocation } from "./http";
 import { readJwtConfigFromEnv, type JwtVerifyConfig } from "./launch-jwt";
 import { queryCarriesLaunchToken, readLaunchTokenFromParts } from "./launch-request";
 import { createSupabaseSsoPorts } from "./supabase-ports";
@@ -13,7 +13,10 @@ export type HrLaunchDeps = {
 };
 
 function redirectTo(request: NextRequest, path: string) {
-  return NextResponse.redirect(new URL(path, request.url), launchRedirectStatus(request.method));
+  return new NextResponse(null, {
+    status: launchRedirectStatus(request.method),
+    headers: { Location: relativeLaunchLocation(path) },
+  });
 }
 
 function jwtConfigFrom(
@@ -23,9 +26,12 @@ function jwtConfigFrom(
 }
 
 function loginError(request: NextRequest, code: LaunchErrorCode | "missing_token") {
-  const url = new URL("/login", request.url);
-  url.searchParams.set("error", `sso_${code}`);
-  return NextResponse.redirect(url, launchRedirectStatus(request.method));
+  const loc = new URL("/login", "http://127.0.0.1");
+  loc.searchParams.set("error", `sso_${code}`);
+  return new NextResponse(null, {
+    status: launchRedirectStatus(request.method),
+    headers: { Location: relativeLaunchLocation(`${loc.pathname}${loc.search}`) },
+  });
 }
 
 async function readBodyToken(request: NextRequest): Promise<string> {

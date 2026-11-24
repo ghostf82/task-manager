@@ -4,11 +4,18 @@ import { type NextRequest, type NextResponse } from "next/server";
 import type { ExecutiveMorningBrief } from "@/lib/executive-intelligence/types";
 import type { SsoPorts } from "./consume";
 import { localPasswordLoginAllowed } from "./grant";
-import { ISOLATED_COOKIE, ISOLATED_COOKIE_CLEAR } from "./isolated-flag";
+import {
+  ISOLATED_COOKIE,
+  ISOLATED_COOKIE_CLEAR,
+  isolatedLoopbackEnabled,
+} from "./isolated-flag";
 import { handleHrLaunch } from "./launch-handler";
 import { createMemoryPorts, type MemorySsoState } from "./memory-ports";
 
-export { ISOLATED_COOKIE, isolatedLoopbackEnabled } from "./isolated-flag";
+export {
+  ISOLATED_COOKIE,
+  isolatedLoopbackEnabled,
+} from "./isolated-flag";
 
 type IsolatedSessionUser = {
   id: string;
@@ -137,6 +144,9 @@ export function emptyIsolatedBrief(): ExecutiveMorningBrief {
 }
 
 export async function handleIsolatedHrLaunch(request: NextRequest): Promise<NextResponse> {
+  if (!isolatedLoopbackEnabled(process.env, request.nextUrl.hostname)) {
+    return handleHrLaunch(request);
+  }
   const runtime = getIsolatedRuntime();
   runtime.lastOpened = null;
   const response = await handleHrLaunch(request, { ports: runtime.ports });

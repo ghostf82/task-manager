@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  * Success: 303 /dashboard (native executive briefing + AppSidebar, not an SSO proof page).
  */
 export async function POST(request: NextRequest) {
-  if (isolatedLoopbackEnabled()) {
+  if (isolatedLoopbackEnabled(process.env, request.nextUrl.hostname)) {
     return handleIsolatedHrLaunch(request);
   }
   return handleHrLaunch(request);

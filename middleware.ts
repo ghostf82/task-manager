@@ -31,7 +31,7 @@ function isolatedLoopbackResponse(request: NextRequest) {
 }
 
 export async function middleware(request: NextRequest) {
-  if (isolatedLoopbackEnabled()) {
+  if (isolatedLoopbackEnabled(process.env, request.nextUrl.hostname)) {
     return isolatedLoopbackResponse(request);
   }
 
