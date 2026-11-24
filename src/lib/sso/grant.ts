@@ -88,10 +88,16 @@ export function interpretLiveGrantResponse(input: {
   body: unknown;
 }): LiveGrantDecision {
   if (!input.httpOk) return { status: "unknown" };
-  if (!input.body || typeof input.body !== "object") return { status: "unknown" };
+  if (!input.body || typeof input.body !== "object" || Array.isArray(input.body)) {
+    return { status: "unknown" };
+  }
+  const body = input.body as Record<string, unknown>;
+  if (typeof body.grant !== "boolean" && typeof body.granted !== "boolean") {
+    return { status: "unknown" };
+  }
   return {
     status: "confirmed",
-    granted: livePlatformAllowsAccess(input.body as Parameters<typeof livePlatformAllowsAccess>[0]),
+    granted: livePlatformAllowsAccess(body),
   };
 }
 

@@ -683,6 +683,15 @@ describe("live platform grant body", () => {
     expect(interpretLiveGrantResponse({ httpOk: true, body: null })).toEqual({
       status: "unknown",
     });
+    expect(interpretLiveGrantResponse({ httpOk: true, body: {} })).toEqual({
+      status: "unknown",
+    });
+    expect(interpretLiveGrantResponse({ httpOk: true, body: [] })).toEqual({
+      status: "unknown",
+    });
+    expect(interpretLiveGrantResponse({ httpOk: true, body: { status: "ok" } })).toEqual({
+      status: "unknown",
+    });
     expect(interpretLiveGrantResponse({ httpOk: true, body: { grant: false } })).toEqual({
       status: "confirmed",
       granted: false,
