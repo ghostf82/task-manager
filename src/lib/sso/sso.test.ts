@@ -6,9 +6,13 @@ import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 
 import {
+  LAUNCH_TOKEN_FIELD,
+  PORTAL_ISSUER,
+  PROGRAM_AUDIENCE,
   PROGRAM_SLUG,
   isPlatformUserId,
   leastPrivilegeLocalRole,
+  programAudience,
   syntheticSsoEmail,
 } from "./contract";
 import { consumeLaunchToken, consumeRevokeToken } from "./consume";
@@ -21,17 +25,17 @@ import { launchRedirectStatus } from "./http";
 import { resolveLinkForLaunch, suggestEmailMatch } from "./identity";
 import { decideJit, provisionedLink } from "./jit";
 import { LaunchJwtError, parseLaunchClaims, verifyLaunchJwt } from "./launch-jwt";
+import { readLaunchTokenFromParts } from "./launch-request";
 import { isPlatformGrantBlockingFromLookup } from "./lookup";
 import { createMemoryPorts } from "./memory-ports";
 import { revokeSessionsForUserId } from "./sessions";
 
-const ISSUER = "https://hr-reports-preview.example";
 const SECRET = new TextEncoder().encode("preview-task-sso-secret-not-prod");
 const cfg = {
-  issuer: ISSUER,
-  audience: PROGRAM_SLUG,
+  issuer: PORTAL_ISSUER,
+  audience: PROGRAM_AUDIENCE,
   secret: SECRET,
-  maxTtlSeconds: 300,
+  maxTtlSeconds: 60,
 };
 
 function platformUserId() {
@@ -44,17 +48,16 @@ async function signToken(
 ) {
   const sub = extra?.sub ?? platformUserId();
   const jwt = new SignJWT({
-    program: PROGRAM_SLUG,
-    grant: true,
+    slug: PROGRAM_SLUG,
     ...claims,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(sub)
-    .setIssuer(ISSUER)
-    .setAudience(PROGRAM_SLUG)
+    .setIssuer(PORTAL_ISSUER)
+    .setAudience(PROGRAM_AUDIENCE)
     .setJti(extra?.jti ?? randomUUID())
     .setIssuedAt(extra?.iatOffsetSec ? Math.floor(Date.now() / 1000) + extra.iatOffsetSec : undefined)
-    .setExpirationTime(extra?.exp ?? "3m");
+    .setExpirationTime(extra?.exp ?? "60s");
   return { token: await jwt.sign(SECRET), sub };
 }
 
@@ -65,8 +68,18 @@ describe("launch JWT contract", () => {
     expect(isPlatformUserId(claims.sub)).toBe(true);
     expect(claims.sub).toBe(sub);
     expect(claims.sub.includes("@")).toBe(false);
+    expect(claims.slug).toBe("taskmanager");
     expect(claims.program).toBe("taskmanager");
     expect(claims.grant).toBe(true);
+    expect(claims.iss).toBe(PORTAL_ISSUER);
+    expect(claims.aud).toBe(PROGRAM_AUDIENCE);
+  });
+
+  it("accepts a portal token without a grant claim", async () => {
+    const { token } = await signToken({});
+    const claims = await verifyLaunchJwt(token, cfg);
+    expect(claims.grant).toBe(true);
+    expect(claims.slug).toBe(PROGRAM_SLUG);
   });
 
   it("rejects an email as sub", () => {
@@ -74,13 +87,12 @@ describe("launch JWT contract", () => {
       parseLaunchClaims(
         {
           sub: "asm@smsh.com.sa",
-          iss: ISSUER,
-          aud: PROGRAM_SLUG,
+          iss: PORTAL_ISSUER,
+          aud: PROGRAM_AUDIENCE,
           exp: Math.floor(Date.now() / 1000) + 60,
           iat: Math.floor(Date.now() / 1000),
           jti: "j1",
-          grant: true,
-          program: PROGRAM_SLUG,
+          slug: PROGRAM_SLUG,
         },
         cfg
       )
@@ -93,29 +105,44 @@ describe("launch JWT contract", () => {
       code: expect.stringMatching(/expired|invalid/),
     });
 
-    const long = await new SignJWT({ grant: true, program: PROGRAM_SLUG })
+    const long = await new SignJWT({ slug: PROGRAM_SLUG })
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(platformUserId())
-      .setIssuer(ISSUER)
-      .setAudience(PROGRAM_SLUG)
+      .setIssuer(PORTAL_ISSUER)
+      .setAudience(PROGRAM_AUDIENCE)
       .setJti(randomUUID())
       .setIssuedAt()
-      .setExpirationTime("1h")
+      .setExpirationTime("5m")
       .sign(SECRET);
     await expect(verifyLaunchJwt(long, cfg)).rejects.toMatchObject({ code: "invalid" });
   });
 
   it("rejects wrong audience", async () => {
-    const token = await new SignJWT({ grant: true, program: PROGRAM_SLUG })
+    const token = await new SignJWT({ slug: "attendance" })
       .setProtectedHeader({ alg: "HS256" })
       .setSubject(platformUserId())
-      .setIssuer(ISSUER)
-      .setAudience("attendance")
+      .setIssuer(PORTAL_ISSUER)
+      .setAudience(programAudience("attendance"))
       .setJti(randomUUID())
       .setIssuedAt()
-      .setExpirationTime("2m")
+      .setExpirationTime("60s")
       .sign(SECRET);
     await expect(verifyLaunchJwt(token, cfg)).rejects.toMatchObject({ code: "invalid" });
+  });
+});
+
+describe("launch_token form field", () => {
+  it("reads launch_token ahead of the token alias", () => {
+    const form = new Map<string, string>([
+      [LAUNCH_TOKEN_FIELD, "from-launch"],
+      ["token", "from-token"],
+    ]);
+    expect(
+      readLaunchTokenFromParts({
+        method: "POST",
+        formGet: (name) => form.get(name) ?? null,
+      })
+    ).toBe("from-launch");
   });
 });
 

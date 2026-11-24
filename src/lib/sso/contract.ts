@@ -1,14 +1,24 @@
 /**
- * Portal launch JWT contract for program slug `taskmanager`.
- * Isolated preview adapter — not a production cutover.
+ * Portal launch JWT (HS256). Isolated preview adapter — not a production cutover.
  *
- * sub = platform_user_id = portal auth.users.id. Email/username are never the join key.
- * Passwords are never copied. JIT local role is employee (not super_admin / manager).
+ *   iss = hr-portal
+ *   aud = hr-program:{slug}  (this app: hr-program:taskmanager)
+ *   sub = platform_user_id (portal auth.users.id, UUID)
+ *   slug = taskmanager
+ *   jti = one-time
+ *   exp-iat ≤ 60s
+ *
+ * Form POST {origin}/auth/hr-launch  field launch_token
+ * Email/username are never the join key. Passwords are never copied.
  */
 
 export const PROGRAM_SLUG = "taskmanager" as const;
+export const PORTAL_ISSUER = "hr-portal" as const;
+export const PROGRAM_AUDIENCE = `hr-program:${PROGRAM_SLUG}` as const;
+export const LAUNCH_PATH = "/auth/hr-launch" as const;
+export const LAUNCH_TOKEN_FIELD = "launch_token" as const;
 export const LEAST_PRIVILEGE_LOCAL_ROLE = "employee" as const;
-export const DEFAULT_JWT_MAX_TTL_SECONDS = 300;
+export const DEFAULT_JWT_MAX_TTL_SECONDS = 60;
 export const SYNTHETIC_EMAIL_DOMAIN = "sso.taskmanager.local";
 
 export const ACTIVE_LINK_STATUSES = ["linked", "provisioned"] as const;
@@ -39,7 +49,9 @@ export type LaunchJwtClaims = {
   iat: number;
   nbf?: number;
   jti: string;
+  slug: typeof PROGRAM_SLUG;
   program: typeof PROGRAM_SLUG;
+  /** Portal launch tokens omit this; issuance implies grant. Explicit false is a revoke token. */
   grant: boolean;
   /** Display only. Never used to find or merge a local account. */
   email?: string;
@@ -93,6 +105,10 @@ export function syntheticSsoEmail(platformUserId: string): string {
 export function audienceList(aud: string | string[] | undefined): string[] {
   if (!aud) return [];
   return Array.isArray(aud) ? aud : [aud];
+}
+
+export function programAudience(slug: string = PROGRAM_SLUG): `hr-program:${string}` {
+  return `hr-program:${slug}`;
 }
 
 export const LOCAL_ACCOUNT_TAKEN_MESSAGE =

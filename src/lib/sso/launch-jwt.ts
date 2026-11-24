@@ -2,6 +2,8 @@ import { createRemoteJWKSet, errors, jwtVerify, type JWTPayload } from "jose";
 
 import {
   DEFAULT_JWT_MAX_TTL_SECONDS,
+  PORTAL_ISSUER,
+  PROGRAM_AUDIENCE,
   PROGRAM_SLUG,
   audienceList,
   isPlatformUserId,
@@ -65,7 +67,7 @@ export function parseLaunchClaims(
     throw new LaunchJwtError("invalid", "issuer mismatch");
   }
   const aud = audienceList(payload.aud as string | string[] | undefined);
-  if (!aud.includes(cfg.audience) && !aud.includes(PROGRAM_SLUG)) {
+  if (!aud.includes(cfg.audience) && !aud.includes(PROGRAM_AUDIENCE)) {
     throw new LaunchJwtError("invalid", "audience mismatch");
   }
   if (!jti) {
@@ -81,15 +83,12 @@ export function parseLaunchClaims(
     throw new LaunchJwtError("invalid", "launch token ttl exceeds max");
   }
 
-  const program = readString(rec.program) ?? PROGRAM_SLUG;
-  if (program !== PROGRAM_SLUG) {
-    throw new LaunchJwtError("invalid", "program mismatch");
+  const slug = readString(rec.slug) ?? readString(rec.program);
+  if (slug !== PROGRAM_SLUG) {
+    throw new LaunchJwtError("invalid", "slug mismatch");
   }
 
-  const grant = readBool(rec.grant);
-  if (grant !== true && grant !== false) {
-    throw new LaunchJwtError("invalid", "grant claim required");
-  }
+  const grant = readBool(rec.grant) ?? true;
 
   return {
     sub,
@@ -99,6 +98,7 @@ export function parseLaunchClaims(
     iat,
     nbf: typeof payload.nbf === "number" ? payload.nbf : undefined,
     jti,
+    slug: PROGRAM_SLUG,
     program: PROGRAM_SLUG,
     grant,
     email: readString(rec.email),
@@ -117,14 +117,14 @@ export async function verifyLaunchJwt(
     throw new LaunchJwtError("unconfigured", "no jwt verifier configured");
   }
 
-  const algorithms = cfg.jwksUrl
+  const algorithms = cfg.jwksUrl && !cfg.secret
     ? (["ES256", "RS256"] as const)
     : (["HS256"] as const);
 
   try {
-    const key = cfg.jwksUrl
-      ? createRemoteJWKSet(new URL(cfg.jwksUrl))
-      : cfg.secret!;
+    const key = cfg.secret
+      ? cfg.secret
+      : createRemoteJWKSet(new URL(cfg.jwksUrl!));
     const { payload } = await jwtVerify(token, key, {
       issuer: cfg.issuer,
       audience: cfg.audience,
@@ -146,8 +146,8 @@ export function readJwtConfigFromEnv(
   env: NodeJS.ProcessEnv = process.env
 ): JwtVerifyConfig | { error: LaunchErrorCode } {
   const enabled = env.PLATFORM_SSO_ENABLED === "true";
-  const issuer = env.PLATFORM_SSO_ISSUER?.trim();
-  const audience = env.PLATFORM_SSO_AUDIENCE?.trim() || PROGRAM_SLUG;
+  const issuer = env.PLATFORM_SSO_ISSUER?.trim() || PORTAL_ISSUER;
+  const audience = env.PLATFORM_SSO_AUDIENCE?.trim() || PROGRAM_AUDIENCE;
   const secret = env.PLATFORM_SSO_JWT_SECRET?.trim();
   const jwksUrl = env.PLATFORM_SSO_JWKS_URL?.trim();
   const maxTtlRaw = env.PLATFORM_SSO_JWT_MAX_TTL?.trim();
@@ -155,10 +155,10 @@ export function readJwtConfigFromEnv(
     ? Number.parseInt(maxTtlRaw, 10)
     : DEFAULT_JWT_MAX_TTL_SECONDS;
 
-  if (!enabled || !issuer || (!secret && !jwksUrl)) {
+  if (!enabled || (!secret && !jwksUrl)) {
     return { error: "unconfigured" };
   }
-  if (!Number.isFinite(maxTtlSeconds) || maxTtlSeconds <= 0 || maxTtlSeconds > 600) {
+  if (!Number.isFinite(maxTtlSeconds) || maxTtlSeconds <= 0 || maxTtlSeconds > 120) {
     return { error: "unconfigured" };
   }
 
