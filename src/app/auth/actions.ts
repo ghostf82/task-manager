@@ -7,7 +7,7 @@ import { isPlatformGrantBlocking } from "@/lib/sso/grant-gate";
 import {
   ISOLATED_COOKIE,
   clearIsolatedBrowserSession,
-  isolatedLoopbackEnabled,
+  isolatedLoopbackEnabledNow,
   isolatedPasswordLogin,
   mintIsolatedCookie,
 } from "@/lib/sso/isolated-loopback";
@@ -26,7 +26,7 @@ export async function loginAction(formData: FormData) {
     redirect(errParam("missing"));
   }
 
-  if (isolatedLoopbackEnabled()) {
+  if (await isolatedLoopbackEnabledNow()) {
     const result = isolatedPasswordLogin(email, password);
     if (!result.ok) {
       redirect(errParam(result.code === "sso_grant" ? "sso_grant" : "invalid"));
@@ -51,7 +51,7 @@ export async function loginAction(formData: FormData) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (user && (await isPlatformGrantBlocking(user.id))) {
+  if (user && (await isPlatformGrantBlocking(user.id, user.last_sign_in_at ?? null))) {
     await supabase.auth.signOut();
     redirect(errParam("sso_grant"));
   }
@@ -101,14 +101,15 @@ export async function updatePasswordAction(formData: FormData) {
 }
 
 export async function signOutAction() {
-  if (isolatedLoopbackEnabled()) {
+  const isolated = await isolatedLoopbackEnabledNow();
+  if (isolated) {
     await clearIsolatedBrowserSession();
   }
   try {
     const supabase = await createClient();
     await supabase.auth.signOut();
   } catch (err) {
-    if (!isolatedLoopbackEnabled()) throw err;
+    if (!isolated) throw err;
   }
   revalidatePath("/", "layout");
   redirect("/login");

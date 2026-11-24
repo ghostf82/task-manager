@@ -41,10 +41,16 @@ import {
 import {
   isolatedAuthDecision,
   isolatedLoopbackEnabled,
+  isolatedLoopbackEnabledForRequest,
+  isolatedLoopbackHostFromHeaders,
   isolatedLoopbackRemotePlatform,
   isIsolatedLoopbackHost,
   peekIsolatedSidLive,
 } from "./isolated-flag";
+import {
+  decideAccessSignals,
+  interpretAccessSignalsHttp,
+} from "./access-signals";
 import {
   getIsolatedRuntime,
   mintIsolatedCookie,
@@ -753,6 +759,20 @@ describe("grant lookup fail-closed", () => {
   it("treats lookup errors as blocked, not as unlinked", () => {
     expect(
       isPlatformGrantBlockingFromLookup({
+        status: "found",
+        dropSession: true,
+        link: {
+          platformUserId: platformUserId(),
+          localUserId: "u1",
+          localRole: "employee",
+          linkStatus: "linked",
+          grantActive: true,
+          suggestedBy: "jit",
+        },
+      })
+    ).toBe(true);
+    expect(
+      isPlatformGrantBlockingFromLookup({
         status: "unavailable",
         reason: "connection reset",
       })
@@ -1029,6 +1049,60 @@ describe("isolated loopback session", () => {
     expect(isIsolatedLoopbackHost("hr-task-manager.netlify.app")).toBe(false);
   });
 
+  it("TM-1: middleware Host and RSC headers agree; omitted host is fail-closed", () => {
+    const env = {
+      HR_IAM_ISOLATED_LOOPBACK: "1",
+      NODE_ENV: "development",
+    };
+    const loopbackHeaders = {
+      get(name: string) {
+        return name.toLowerCase() === "host" ? "127.0.0.1:3012" : null;
+      },
+    };
+    const localhostHeaders = {
+      get(name: string) {
+        return name.toLowerCase() === "host" ? "localhost:3012" : null;
+      },
+    };
+    expect(isolatedLoopbackEnabled(env)).toBe(false);
+    expect(isolatedLoopbackEnabled(env, loopbackHeaders)).toBe(true);
+    expect(isolatedLoopbackEnabled(env, localhostHeaders)).toBe(true);
+    expect(
+      isolatedLoopbackEnabledForRequest(
+        { headers: loopbackHeaders, nextUrl: { hostname: "localhost" } },
+        env
+      )
+    ).toBe(true);
+    expect(
+      isolatedLoopbackEnabledForRequest(
+        { headers: localhostHeaders, nextUrl: { hostname: "localhost" } },
+        env
+      )
+    ).toBe(isolatedLoopbackEnabled(env, localhostHeaders));
+    expect(
+      isolatedLoopbackHostFromHeaders({
+        get(name: string) {
+          if (name === "host") return "127.0.0.1:3012";
+          if (name === "x-forwarded-host") return "hr-task-manager.netlify.app";
+          return null;
+        },
+      })
+    ).toBe("hr-task-manager.netlify.app");
+    expect(
+      isolatedLoopbackEnabled(
+        { ...env, NETLIFY: "true" },
+        loopbackHeaders
+      )
+    ).toBe(false);
+    expect(
+      isolatedLoopbackEnabled(env, {
+        get(name: string) {
+          return name === "host" ? "hr-task-manager.netlify.app" : null;
+        },
+      })
+    ).toBe(false);
+  });
+
   it("honors live tm_sso and ignores leftover GoTrue on /login", () => {
     expect(isolatedAuthDecision({ pathname: "/dashboard", tmSso: "sid", live: true })).toBe("next");
     expect(isolatedAuthDecision({ pathname: "/login", tmSso: "sid", live: true })).toBe("dashboard");
@@ -1077,5 +1151,81 @@ describe("isolated loopback session", () => {
     expect(runtime.state.sessions.has(localUserId)).toBe(false);
     expect(runtime.cookies.has(sid)).toBe(false);
     expect(runtime.state.signedOut).toContain(localUserId);
+  });
+});
+
+describe("portal access_signals poll", () => {
+  const platformUserId = "11111111-1111-4111-8111-111111111111";
+
+  it("fails closed on HTTP 404 and does not persist revoke", () => {
+    const poll = interpretAccessSignalsHttp({
+      status: 404,
+      body: { signals: [] },
+    });
+    expect(poll).toEqual({ status: "unavailable", reason: "access_signals 404" });
+    const decision = decideAccessSignals(poll);
+    expect(decision.action).toBe("deny");
+    if (decision.action === "deny") {
+      expect(decision.persistRevoke).toBe(false);
+      expect(decision.signOut).toBe(true);
+    }
+  });
+
+  it("drops leftover session on logout after session start, not before", () => {
+    const logout = {
+      platform_user_id: platformUserId,
+      kind: "logout",
+      at: "2026-11-24T20:00:00.000Z",
+      program_slug: null,
+    };
+    const after = decideAccessSignals(
+      { status: "ok", signals: [logout] },
+      { sessionStartedAt: "2026-11-24T19:00:00.000Z" }
+    );
+    expect(after.action).toBe("deny");
+    if (after.action === "deny") expect(after.persistRevoke).toBe(false);
+    expect(
+      decideAccessSignals(
+        { status: "ok", signals: [logout] },
+        { sessionStartedAt: "2026-11-24T21:00:00.000Z" }
+      ).action
+    ).toBe("allow");
+  });
+
+  it("revokes taskmanager grant and ignores other program slugs", () => {
+    const revokeThis = decideAccessSignals({
+      status: "ok",
+      signals: [
+        {
+          platform_user_id: platformUserId,
+          kind: "revoke_grant",
+          program_slug: "taskmanager",
+          at: "2026-11-24T20:00:00.000Z",
+        },
+      ],
+    });
+    expect(revokeThis.action).toBe("deny");
+    if (revokeThis.action === "deny") expect(revokeThis.persistRevoke).toBe(true);
+    expect(
+      decideAccessSignals({
+        status: "ok",
+        signals: [
+          {
+            platform_user_id: platformUserId,
+            kind: "revoke_grant",
+            program_slug: "attendance",
+            at: "2026-11-24T20:00:00.000Z",
+          },
+        ],
+      }).action
+    ).toBe("allow");
+  });
+
+  it("treats memory poll HTTP 404 as unavailable", async () => {
+    const { ports, state } = createMemoryPorts();
+    state.accessSignalsHttpStatus = 404;
+    const poll = await ports.pollAccessSignals!(platformUserId);
+    expect(poll.status).toBe("unavailable");
+    expect(decideAccessSignals(poll).action).toBe("deny");
   });
 });

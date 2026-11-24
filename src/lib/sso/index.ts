@@ -16,6 +16,11 @@ export {
   type LaunchErrorCode,
   type LaunchJwtClaims,
 } from "./contract";
+export {
+  ACCESS_SIGNALS_URL_ENV,
+  decideAccessSignals,
+  interpretAccessSignalsHttp,
+} from "./access-signals";
 export { consumeLaunchToken, consumeRevokeToken } from "./consume";
 export {
   canOpenFromPlatformGrant,

@@ -20,7 +20,7 @@ import { fetchNotificationsForUser } from "@/lib/notifications/queries";
 import { formatOdooLastSyncLine } from "@/lib/dashboard/format-odoo-last-sync";
 import { DASHBOARD_NAV_LINKS } from "@/lib/i18n/nav-config";
 import { getTranslator } from "@/lib/i18n/get-translator";
-import { isolatedLoopbackEnabled } from "@/lib/sso/isolated-loopback";
+import { isolatedLoopbackEnabledNow } from "@/lib/sso/isolated-loopback";
 
 /** Netlify / serverless: allow long-running dashboard server actions (Odoo sync, calendar clone). */
 export const maxDuration = 120;
@@ -68,7 +68,7 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const session = await requireSession();
-  const isolated = isolatedLoopbackEnabled();
+  const isolated = await isolatedLoopbackEnabledNow();
   const supabase = isolated ? null : await createClient();
   const [{ t, locale, catalog }, profileRes, membershipRes, notifsResult, odooSyncRes] =
     isolated

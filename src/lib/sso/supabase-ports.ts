@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
+import { decideAccessSignals, fetchPortalAccessSignals } from "./access-signals";
 import {
   PROGRAM_SLUG,
   leastPrivilegeLocalRole,
@@ -243,11 +244,16 @@ export function createSupabaseSsoPorts(): SsoPorts {
     async checkLiveGrant(platformUserId) {
       return fetchLiveGrant(platformUserId);
     },
+
+    async pollAccessSignals(platformUserId) {
+      return fetchPortalAccessSignals(platformUserId);
+    },
   };
 }
 
 export async function lookupLinkByLocalUserId(
-  localUserId: string
+  localUserId: string,
+  opts?: { sessionStartedAt?: string | null }
 ): Promise<IdentityLinkLookup> {
   try {
     const admin = createAdminClient();
@@ -274,7 +280,32 @@ export async function lookupLinkByLocalUserId(
         if (link.localUserId) {
           await revokeSessionsForUserId(admin, link.localUserId);
         }
-        return { status: "found", link: disabled };
+        return { status: "found", link: disabled, dropSession: true };
+      }
+      const poll = await fetchPortalAccessSignals(
+        link.platformUserId,
+        process.env,
+        fetch,
+        opts?.sessionStartedAt
+      );
+      const decision = decideAccessSignals(poll, {
+        sessionStartedAt: opts?.sessionStartedAt,
+      });
+      if (decision.action === "deny") {
+        if (decision.persistRevoke) {
+          const disabled = applyPlatformRevoke(link);
+          await admin.from("platform_identity_links").upsert(toRow(disabled), {
+            onConflict: "platform_user_id",
+          });
+          if (link.localUserId) {
+            await revokeSessionsForUserId(admin, link.localUserId);
+          }
+          return { status: "found", link: disabled, dropSession: true };
+        }
+        if (link.localUserId) {
+          await revokeSessionsForUserId(admin, link.localUserId);
+        }
+        return { status: "found", link, dropSession: true };
       }
     }
     return { status: "found", link };

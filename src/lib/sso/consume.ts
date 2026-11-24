@@ -1,4 +1,5 @@
 import { LOCAL_ACCOUNT_TAKEN_MESSAGE, type IdentityLink, type LaunchErrorCode } from "./contract";
+import type { AccessSignalsPoll } from "./access-signals";
 import {
   applyPlatformGrant,
   applyPlatformRevoke,
@@ -41,6 +42,7 @@ export type SsoPorts = {
   openSession(localUserId: string): Promise<void>;
   signOutLocal(localUserId: string): Promise<void>;
   checkLiveGrant?(platformUserId: string): Promise<LiveGrantDecision>;
+  pollAccessSignals?(platformUserId: string): Promise<AccessSignalsPoll>;
 };
 
 export type SsoPortsSource = SsoPorts | (() => SsoPorts);

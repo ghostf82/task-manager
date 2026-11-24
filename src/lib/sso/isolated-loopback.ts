@@ -1,13 +1,15 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { type NextRequest, type NextResponse } from "next/server";
 
 import type { ExecutiveMorningBrief } from "@/lib/executive-intelligence/types";
+import { decideAccessSignals } from "./access-signals";
 import type { SsoPorts } from "./consume";
-import { localPasswordLoginAllowed } from "./grant";
+import { applyPlatformRevoke, localPasswordLoginAllowed } from "./grant";
 import {
   ISOLATED_COOKIE,
   ISOLATED_COOKIE_CLEAR,
   isolatedLoopbackEnabled,
+  isolatedLoopbackEnabledForRequest,
 } from "./isolated-flag";
 import { handleHrLaunch } from "./launch-handler";
 import { createMemoryPorts, type MemorySsoState } from "./memory-ports";
@@ -15,7 +17,15 @@ import { createMemoryPorts, type MemorySsoState } from "./memory-ports";
 export {
   ISOLATED_COOKIE,
   isolatedLoopbackEnabled,
+  isolatedLoopbackEnabledForRequest,
 } from "./isolated-flag";
+
+/** RSC / Server Actions: same TM-1 gate as middleware, using incoming Host. */
+export async function isolatedLoopbackEnabledNow(
+  env: NodeJS.ProcessEnv = process.env
+): Promise<boolean> {
+  return isolatedLoopbackEnabled(env, await headers());
+}
 
 type IsolatedSessionUser = {
   id: string;
@@ -72,6 +82,21 @@ export async function isolatedSessionFromCookies(): Promise<IsolatedSessionUser 
   if (!localUserId || !runtime.state.sessions.has(localUserId)) return null;
   const link = runtime.state.links.find((row) => row.localUserId === localUserId) ?? null;
   if (link && !localPasswordLoginAllowed({ link })) return null;
+  if (link && runtime.ports.pollAccessSignals) {
+    const started = runtime.state.sessionStartedAt.get(localUserId) ?? null;
+    const poll = await runtime.ports.pollAccessSignals(link.platformUserId);
+    const decision = decideAccessSignals(poll, { sessionStartedAt: started });
+    if (decision.action === "deny") {
+      if (decision.persistRevoke) {
+        const idx = runtime.state.links.findIndex(
+          (row) => row.platformUserId === link.platformUserId
+        );
+        if (idx >= 0) runtime.state.links[idx] = applyPlatformRevoke(link);
+      }
+      revokeIsolatedSid(sid);
+      return null;
+    }
+  }
   const user = runtime.state.users.get(localUserId);
   return {
     id: localUserId,
@@ -84,6 +109,7 @@ export async function isolatedSessionFromCookies(): Promise<IsolatedSessionUser 
 export function mintIsolatedCookie(localUserId: string): string {
   const runtime = getIsolatedRuntime();
   runtime.state.sessions.add(localUserId);
+  runtime.state.sessionStartedAt.set(localUserId, new Date().toISOString());
   const sid = crypto.randomUUID();
   runtime.cookies.set(sid, localUserId);
   return sid;
@@ -144,7 +170,7 @@ export function emptyIsolatedBrief(): ExecutiveMorningBrief {
 }
 
 export async function handleIsolatedHrLaunch(request: NextRequest): Promise<NextResponse> {
-  if (!isolatedLoopbackEnabled(process.env, request.nextUrl.hostname)) {
+  if (!isolatedLoopbackEnabledForRequest(request)) {
     return handleHrLaunch(request);
   }
   const runtime = getIsolatedRuntime();

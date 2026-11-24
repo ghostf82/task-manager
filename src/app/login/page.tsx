@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { getTranslator } from "@/lib/i18n/get-translator";
 import {
   clearIsolatedBrowserSession,
-  isolatedLoopbackEnabled,
+  isolatedLoopbackEnabledNow,
   isolatedSessionFromCookies,
 } from "@/lib/sso/isolated-loopback";
 
@@ -26,7 +26,7 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const sp = await searchParams;
-  if (isolatedLoopbackEnabled()) {
+  if (await isolatedLoopbackEnabledNow()) {
     const isolated = await isolatedSessionFromCookies();
     if (isolated) redirect("/dashboard");
     await clearIsolatedBrowserSession();

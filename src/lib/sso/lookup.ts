@@ -2,7 +2,7 @@ import type { IdentityLink } from "./contract";
 import { localPasswordLoginAllowed } from "./grant";
 
 export type IdentityLinkLookup =
-  | { status: "found"; link: IdentityLink }
+  | { status: "found"; link: IdentityLink; dropSession?: boolean }
   | { status: "missing" }
   | { status: "unavailable"; reason: string };
 
@@ -44,5 +44,6 @@ export function isPlatformGrantBlockingFromLookup(
 ): boolean {
   if (lookup.status === "unavailable") return true;
   if (lookup.status === "missing") return false;
+  if (lookup.dropSession) return true;
   return !localPasswordLoginAllowed({ link: lookup.link });
 }

@@ -3,7 +3,7 @@ import {
   ISOLATED_COOKIE,
   ISOLATED_COOKIE_CLEAR,
   isolatedAuthDecision,
-  isolatedLoopbackEnabled,
+  isolatedLoopbackEnabledForRequest,
   peekIsolatedSidLive,
 } from "@/lib/sso/isolated-flag";
 import { updateSession } from "@/lib/supabase/middleware";
@@ -31,7 +31,7 @@ function isolatedLoopbackResponse(request: NextRequest) {
 }
 
 export async function middleware(request: NextRequest) {
-  if (isolatedLoopbackEnabled(process.env, request.nextUrl.hostname)) {
+  if (isolatedLoopbackEnabledForRequest(request)) {
     return isolatedLoopbackResponse(request);
   }
 

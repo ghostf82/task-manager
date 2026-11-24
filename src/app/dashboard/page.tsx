@@ -5,7 +5,7 @@ import { requireSession } from "@/lib/dashboard-auth";
 import { getTranslator } from "@/lib/i18n/get-translator";
 import {
   emptyIsolatedBrief,
-  isolatedLoopbackEnabled,
+  isolatedLoopbackEnabledNow,
 } from "@/lib/sso/isolated-loopback";
 import { createClient } from "@/lib/supabase/server";
 
@@ -14,7 +14,7 @@ export const maxDuration = 120;
 export default async function DashboardHomePage() {
   const session = await requireSession();
   const { t, locale } = await getTranslator();
-  if (isolatedLoopbackEnabled()) {
+  if (await isolatedLoopbackEnabledNow()) {
     return (
       <ExecutiveBriefingView
         brief={emptyIsolatedBrief()}

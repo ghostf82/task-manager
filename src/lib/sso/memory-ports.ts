@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { AccessSignal } from "./access-signals";
+import { interpretAccessSignalsHttp } from "./access-signals";
 import type { IdentityLink } from "./contract";
 import type { CreatedLocalUser, SsoPorts } from "./consume";
 
@@ -10,6 +12,10 @@ export type MemorySsoState = {
   sessions: Set<string>;
   signedOut: string[];
   liveGrant: Map<string, boolean | "unknown">;
+  accessSignals: AccessSignal[];
+  /** Isolated test control. 404 is fail-closed, not "no signals". */
+  accessSignalsHttpStatus: number | null;
+  sessionStartedAt: Map<string, string>;
 };
 
 export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
@@ -23,6 +29,9 @@ export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
     sessions: new Set(initial?.sessions ?? []),
     signedOut: initial?.signedOut ? [...initial.signedOut] : [],
     liveGrant: new Map(initial?.liveGrant ?? []),
+    accessSignals: initial?.accessSignals ? [...initial.accessSignals] : [],
+    accessSignalsHttpStatus: initial?.accessSignalsHttpStatus ?? null,
+    sessionStartedAt: new Map(initial?.sessionStartedAt ?? []),
   };
 
   const ports: SsoPorts = {
@@ -71,6 +80,7 @@ export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
     },
     async openSession(localUserId) {
       state.sessions.add(localUserId);
+      state.sessionStartedAt.set(localUserId, new Date().toISOString());
     },
     async signOutLocal(localUserId) {
       state.sessions.delete(localUserId);
@@ -81,6 +91,28 @@ export function createMemoryPorts(initial?: Partial<MemorySsoState>): {
       const value = state.liveGrant.get(platformUserId);
       if (value === "unknown") return { status: "unknown" as const };
       return { status: "confirmed" as const, granted: value === true };
+    },
+    async pollAccessSignals(platformUserId) {
+      if (state.accessSignalsHttpStatus != null) {
+        const body =
+          state.accessSignalsHttpStatus === 200
+            ? {
+                signals: state.accessSignals.filter(
+                  (row) => row.platform_user_id === platformUserId
+                ),
+              }
+            : null;
+        return interpretAccessSignalsHttp({
+          status: state.accessSignalsHttpStatus,
+          body,
+        });
+      }
+      return {
+        status: "ok" as const,
+        signals: state.accessSignals.filter(
+          (row) => row.platform_user_id === platformUserId
+        ),
+      };
     },
   };
 

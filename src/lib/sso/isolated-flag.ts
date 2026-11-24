@@ -57,14 +57,44 @@ function isTestRuntime(env: NodeJS.ProcessEnv): boolean {
   return nodeEnv === "test" || envTruthy(env.VITEST);
 }
 
+export type IsolatedHostHeaders = {
+  get(name: string): string | null;
+};
+
+/**
+ * Fail-closed host from the incoming request. A public Host or
+ * X-Forwarded-Host wins over loopback so spoofed 127.0.0.1 cannot enable.
+ */
+export function isolatedLoopbackHostFromHeaders(
+  headers: IsolatedHostHeaders | null | undefined
+): string | undefined {
+  if (!headers) return undefined;
+  const candidates = [headers.get("host"), headers.get("x-forwarded-host")?.split(",")[0]]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  if (candidates.length === 0) return undefined;
+  return candidates.find((value) => !isIsolatedLoopbackHost(value)) ?? candidates[0];
+}
+
+function resolveIsolatedHost(
+  hostOrHeaders?: string | IsolatedHostHeaders
+): string | undefined {
+  if (hostOrHeaders == null) return undefined;
+  if (typeof hostOrHeaders === "string") return hostOrHeaders;
+  return isolatedLoopbackHostFromHeaders(hostOrHeaders);
+}
+
 /**
  * In-memory `tm_sso` bypasses GoTrue. Enable only for Vitest / NODE_ENV=test
  * or an explicit loopback host. Never on production or Netlify (TM-1).
+ * Callers must pass the incoming Host (middleware `request.headers`, RSC `headers()`).
+ * Omitting host outside test is fail-closed (false).
  */
 export function isolatedLoopbackEnabled(
   env: NodeJS.ProcessEnv = process.env,
-  host?: string
+  hostOrHeaders?: string | IsolatedHostHeaders
 ): boolean {
+  const host = resolveIsolatedHost(hostOrHeaders);
   if (env.HR_IAM_ISOLATED_LOOPBACK !== "1") return false;
   if (isolatedLoopbackRemotePlatform(env)) return false;
   if ((env.NODE_ENV ?? "").trim().toLowerCase() === "production") return false;
@@ -74,6 +104,15 @@ export function isolatedLoopbackEnabled(
     isIsolatedLoopbackHost(env.HR_IAM_ISOLATED_HOST) ||
     isIsolatedLoopbackHost(host)
   );
+}
+
+/** Same gate for middleware / route handlers (Host header, then nextUrl). */
+export function isolatedLoopbackEnabledForRequest(
+  request: { headers: IsolatedHostHeaders; nextUrl: { hostname: string } },
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  const fromHeaders = isolatedLoopbackHostFromHeaders(request.headers);
+  return isolatedLoopbackEnabled(env, fromHeaders ?? request.nextUrl.hostname);
 }
 
 export type IsolatedAuthDecision = "next" | "login" | "dashboard";
