@@ -8,6 +8,8 @@ export {
   LAUNCH_HS256_SECRET_ENV,
   LEAST_PRIVILEGE_LOCAL_ROLE,
   LOCAL_ACCOUNT_TAKEN_MESSAGE,
+  EXCLUSIVE_PORTAL_ROLE,
+  isExclusivePortalSuperAdmin,
   isPlatformUserId,
   leastPrivilegeLocalRole,
   programAudience,
@@ -16,6 +18,13 @@ export {
   type LaunchErrorCode,
   type LaunchJwtClaims,
 } from "./contract";
+export {
+  CATALOG_FORBIDDEN_ORIGINS,
+  CATALOG_PUBLIC_ORIGIN,
+  CATALOG_SLUG,
+  exclusiveCatalogRow,
+  isForbiddenCatalogOrigin,
+} from "./catalog";
 export {
   ACCESS_SIGNALS_URL_ENV,
   decideAccessSignals,

@@ -6,11 +6,20 @@ import { SignJWT } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  CATALOG_FORBIDDEN_ORIGINS,
+  CATALOG_PUBLIC_ORIGIN,
+  exclusiveCatalogRow,
+  isForbiddenCatalogOrigin,
+} from "./catalog";
+import {
+  EXCLUSIVE_PORTAL_ROLE,
+  LAUNCH_HS256_SECRET_ENV,
   LAUNCH_SUCCESS_PATH,
   LAUNCH_TOKEN_FIELD,
   PORTAL_ISSUER,
   PROGRAM_AUDIENCE,
   PROGRAM_SLUG,
+  isExclusivePortalSuperAdmin,
   isPlatformUserId,
   leastPrivilegeLocalRole,
   programAudience,
@@ -84,6 +93,8 @@ async function signToken(
   const iat = extra?.iatOffsetSec != null ? now + extra.iatOffsetSec : now;
   const jwt = new SignJWT({
     slug: PROGRAM_SLUG,
+    is_super_admin: true,
+    portal_role: EXCLUSIVE_PORTAL_ROLE,
     ...claims,
   })
     .setProtectedHeader({ alg: "HS256" })
@@ -103,8 +114,8 @@ describe("launch JWT contract", () => {
     expect(isPlatformUserId(claims.sub)).toBe(true);
     expect(claims.sub).toBe(sub);
     expect(claims.sub.includes("@")).toBe(false);
-    expect(claims.slug).toBe("taskmanager");
-    expect(claims.program).toBe("taskmanager");
+    expect(claims.slug).toBe("odoo-taskmanager");
+    expect(claims.program).toBe("odoo-taskmanager");
     expect(claims.grant).toBe(true);
     expect(claims.iss).toBe(PORTAL_ISSUER);
     expect(claims.aud).toBe(PROGRAM_AUDIENCE);
@@ -163,6 +174,109 @@ describe("launch JWT contract", () => {
       .setExpirationTime("60s")
       .sign(SECRET);
     await expect(verifyLaunchJwt(token, cfg)).rejects.toMatchObject({ code: "invalid" });
+  });
+
+  it("rejects Almudayfer taskmanager slug and audience", async () => {
+    expect(PROGRAM_SLUG).toBe("odoo-taskmanager");
+    expect(PROGRAM_AUDIENCE).toBe("hr-program:odoo-taskmanager");
+    expect(LAUNCH_HS256_SECRET_ENV).toBe("HR_LAUNCH_HS256_ODOO_TASKMANAGER");
+    const now = Math.floor(Date.now() / 1000);
+    expect(() =>
+      parseLaunchClaims(
+        {
+          sub: platformUserId(),
+          iss: PORTAL_ISSUER,
+          aud: "hr-program:taskmanager",
+          exp: now + 60,
+          iat: now,
+          jti: "j-taskmanager",
+          slug: "taskmanager",
+          is_super_admin: true,
+        },
+        { ...cfg, audience: PROGRAM_AUDIENCE }
+      )
+    ).toThrow(LaunchJwtError);
+    const token = await new SignJWT({
+      slug: "taskmanager",
+      is_super_admin: true,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject(platformUserId())
+      .setIssuer(PORTAL_ISSUER)
+      .setAudience("hr-program:taskmanager")
+      .setJti(randomUUID())
+      .setIssuedAt()
+      .setExpirationTime("60s")
+      .sign(SECRET);
+    await expect(verifyLaunchJwt(token, cfg)).rejects.toMatchObject({
+      code: "invalid",
+    });
+    const slugMismatch = await new SignJWT({
+      slug: "taskmanager",
+      is_super_admin: true,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject(platformUserId())
+      .setIssuer(PORTAL_ISSUER)
+      .setAudience(PROGRAM_AUDIENCE)
+      .setJti(randomUUID())
+      .setIssuedAt()
+      .setExpirationTime("60s")
+      .sign(SECRET);
+    await expect(verifyLaunchJwt(slugMismatch, cfg)).rejects.toMatchObject({
+      code: "invalid",
+    });
+    const { ports, state } = createMemoryPorts();
+    const consumed = await consumeLaunchToken(token, cfg, ports);
+    expect(consumed).toMatchObject({ ok: false, code: "invalid" });
+    expect(state.users.size).toBe(0);
+    expect(state.sessions.size).toBe(0);
+  });
+});
+
+describe("exclusive portal super_admin catalog", () => {
+  it("binds odoo-taskmanager to fared-taskmanager and forbids hr-task-manager", () => {
+    const row = exclusiveCatalogRow();
+    expect(row.slug).toBe("odoo-taskmanager");
+    expect(row.audience).toBe("hr-program:odoo-taskmanager");
+    expect(row.origin).toBe(CATALOG_PUBLIC_ORIGIN);
+    expect(row.origin).toBe("https://fared-taskmanager.netlify.app");
+    expect(row.exclusive).toBe(true);
+    expect(row.exclusiveTo).toBe("portal_super_admin");
+    expect(isForbiddenCatalogOrigin("https://hr-task-manager.netlify.app")).toBe(
+      true
+    );
+    expect(CATALOG_FORBIDDEN_ORIGINS).toContain(
+      "https://hr-task-manager.netlify.app"
+    );
+  });
+
+  it("refuses launch when the JWT is not a portal super_admin", async () => {
+    expect(isExclusivePortalSuperAdmin({})).toBe(false);
+    expect(
+      isExclusivePortalSuperAdmin({ portal_role: "employee" })
+    ).toBe(false);
+    const { ports, state } = createMemoryPorts();
+    const jti = "not-super-admin-jti";
+    const { token } = await signToken(
+      { is_super_admin: false, portal_role: "member" },
+      { jti }
+    );
+    const result = await consumeLaunchToken(token, cfg, ports);
+    expect(result).toMatchObject({ ok: false, code: "grant" });
+    expect(state.jtis.has(jti)).toBe(false);
+    expect(state.users.size).toBe(0);
+    expect(state.sessions.size).toBe(0);
+  });
+
+  it("allows launch for portal_role super_admin without is_super_admin", async () => {
+    const { ports } = createMemoryPorts();
+    const { token } = await signToken({
+      is_super_admin: false,
+      portal_role: "super_admin",
+    });
+    const result = await consumeLaunchToken(token, cfg, ports);
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -537,7 +651,7 @@ describe("consume launch + revoke", () => {
     });
     ports.createLocalUser = async () => ({
       localUserId: takenLocal,
-      email: "dup@sso.taskmanager.local",
+      email: "dup@sso.odoo-taskmanager.local",
     });
     const { token } = await signToken({});
     const result = await consumeLaunchToken(token, cfg, ports);
@@ -695,7 +809,7 @@ describe("consume launch + revoke", () => {
     state.accessSignals.push({
       platform_user_id: pendingSub,
       kind: "revoke_grant",
-      program_slug: "taskmanager",
+      program_slug: "odoo-taskmanager",
       at: revokeAt,
     });
     const usersBefore = state.users.size;
@@ -720,7 +834,7 @@ describe("consume launch + revoke", () => {
     state.accessSignals.push({
       platform_user_id: sub,
       kind: "revoke_grant",
-      program_slug: "taskmanager",
+      program_slug: "odoo-taskmanager",
       at: revokeAt,
     });
     const jti = "pending-revoke-linked-jti";
@@ -781,7 +895,7 @@ describe("consume launch + revoke", () => {
         {
           platform_user_id: "p",
           kind: "revoke_grant",
-          program_slug: "taskmanager",
+          program_slug: "odoo-taskmanager",
           at,
         },
       ],
@@ -837,12 +951,12 @@ describe("session mint identity", () => {
     const localUserId = randomUUID();
     const minted = resolveAuthSessionMint({
       localUserId,
-      authUser: { id: localUserId, email: "sso.user@sso.taskmanager.local" },
+      authUser: { id: localUserId, email: "sso.user@sso.odoo-taskmanager.local" },
       profileEmail: "super-admin@example.com",
     });
     expect(minted).toEqual({
       localUserId,
-      authEmail: "sso.user@sso.taskmanager.local",
+      authEmail: "sso.user@sso.odoo-taskmanager.local",
     });
     expect(() =>
       resolveAuthSessionMint({
@@ -1232,7 +1346,7 @@ describe("isolated loopback session", () => {
     const runtime = getIsolatedRuntime();
     const localUserId = randomUUID();
     runtime.state.users.set(localUserId, {
-      email: "sso.user@sso.taskmanager.local",
+      email: "sso.user@sso.odoo-taskmanager.local",
       isSuperAdmin: false,
       passwordCopied: false,
     });
@@ -1249,7 +1363,7 @@ describe("isolated loopback session", () => {
     const runtime = getIsolatedRuntime();
     const localUserId = randomUUID();
     runtime.state.users.set(localUserId, {
-      email: "sso.user@sso.taskmanager.local",
+      email: "sso.user@sso.odoo-taskmanager.local",
       isSuperAdmin: false,
       passwordCopied: false,
     });
@@ -1311,7 +1425,7 @@ describe("portal access_signals poll", () => {
     const revoke = {
       platform_user_id: platformUserId,
       kind: "revoke_grant",
-      program_slug: "taskmanager",
+      program_slug: "odoo-taskmanager",
       at: "2026-11-24T20:00:00.000Z",
     };
     const missingLogout = decideAccessSignals(
@@ -1369,7 +1483,7 @@ describe("portal access_signals poll", () => {
     );
   });
 
-  it("revokes taskmanager grant and ignores other program slugs", () => {
+  it("revokes odoo-taskmanager grant and ignores other program slugs", () => {
     const started = "2026-11-24T19:00:00.000Z";
     const revokeThis = decideAccessSignals(
       {
@@ -1378,7 +1492,7 @@ describe("portal access_signals poll", () => {
           {
             platform_user_id: platformUserId,
             kind: "revoke_grant",
-            program_slug: "taskmanager",
+            program_slug: "odoo-taskmanager",
             at: "2026-11-24T20:00:00.000Z",
           },
         ],
@@ -1396,6 +1510,22 @@ describe("portal access_signals poll", () => {
               platform_user_id: platformUserId,
               kind: "revoke_grant",
               program_slug: "attendance",
+              at: "2026-11-24T20:00:00.000Z",
+            },
+          ],
+        },
+        { sessionStartedAt: started }
+      ).action
+    ).toBe("allow");
+    expect(
+      decideAccessSignals(
+        {
+          status: "ok",
+          signals: [
+            {
+              platform_user_id: platformUserId,
+              kind: "revoke_grant",
+              program_slug: "taskmanager",
               at: "2026-11-24T20:00:00.000Z",
             },
           ],

@@ -90,6 +90,7 @@ export function parseLaunchClaims(
   }
 
   const grant = readBool(rec.grant) ?? true;
+  const isSuperAdmin = readBool(rec.is_super_admin);
 
   return {
     sub,
@@ -104,6 +105,8 @@ export function parseLaunchClaims(
     grant,
     email: readString(rec.email),
     name: readString(rec.name),
+    is_super_admin: isSuperAdmin,
+    portal_role: readString(rec.portal_role),
   };
 }
 

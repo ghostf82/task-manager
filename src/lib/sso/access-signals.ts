@@ -21,7 +21,12 @@ export type AccessSignalDecision =
   | { action: "allow" }
   | { action: "deny"; persistRevoke: boolean; signOut: true; reason: string };
 
-const TASKMANAGER_SLUGS = new Set(["taskmanager", "task-manager", "tasks"]);
+/** This Odoo adapter only. `taskmanager` is the other (Almudayfer) product. */
+const ODOO_TASKMANAGER_SLUGS = new Set([
+  "odoo-taskmanager",
+  "odoo_taskmanager",
+  "odootaskmanager",
+]);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -123,7 +128,9 @@ function signalTargetsThisProgram(
 ): boolean {
   const slug = (signal.program_slug ?? "").trim();
   if (!slug) return true;
-  if (TASKMANAGER_SLUGS.has(slug) && TASKMANAGER_SLUGS.has(programSlug)) return true;
+  if (ODOO_TASKMANAGER_SLUGS.has(slug) && ODOO_TASKMANAGER_SLUGS.has(programSlug)) {
+    return true;
+  }
   return slug === programSlug;
 }
 

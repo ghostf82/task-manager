@@ -7,7 +7,7 @@
     "dev:turbo": "next dev --turbopack",
     "i18n:check": "node scripts/check-i18n-parity.mjs",
     "odoo-links:check": "node scripts/check-odoo-document-links.mjs",
-    "build": "npm run i18n:check && npm run odoo-links:check && next build --turbopack",
+    "build": "npm run i18n:check && npm run odoo-links:check && next build",
     "start": "next start",
     "lint": "eslint",
     "db:seed": "tsx --env-file=.env.local scripts/seed-super-admin.ts",

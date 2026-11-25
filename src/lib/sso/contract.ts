@@ -1,29 +1,33 @@
 /**
- * Portal launch JWT (HS256). Isolated preview adapter — not a production cutover.
+ * Portal launch JWT (HS256) for إدارة مهام أودو only.
+ * Origin: https://fared-taskmanager.netlify.app — never hr-task-manager.
  *
  *   iss = hr-portal
- *   aud = hr-program:{slug}  (this app: hr-program:taskmanager)
+ *   aud = hr-program:odoo-taskmanager
  *   sub = platform_user_id (portal auth.users.id, UUID)
- *   slug = taskmanager
+ *   slug = odoo-taskmanager
+ *   exclusive: portal super_admin only
  *   jti = one-time
  *   exp-iat ≤ 60s
  *
  * Form POST {origin}/auth/hr-launch  field launch_token (never query string).
  * Email/username are never the join key. Passwords are never copied.
- * Per-audience secret: HR_LAUNCH_HS256_TASKMANAGER.
+ * Per-audience secret: HR_LAUNCH_HS256_ODOO_TASKMANAGER (underscores).
  */
 
-export const PROGRAM_SLUG = "taskmanager" as const;
+export const PROGRAM_SLUG = "odoo-taskmanager" as const;
 export const PORTAL_ISSUER = "hr-portal" as const;
 export const PROGRAM_AUDIENCE = `hr-program:${PROGRAM_SLUG}` as const;
 export const LAUNCH_PATH = "/auth/hr-launch" as const;
 export const LAUNCH_TOKEN_FIELD = "launch_token" as const;
 /** Native App Router home (executive briefing + dashboard shell). Not an SSO proof page. */
 export const LAUNCH_SUCCESS_PATH = "/dashboard" as const;
-export const LAUNCH_HS256_SECRET_ENV = "HR_LAUNCH_HS256_TASKMANAGER" as const;
+export const LAUNCH_HS256_SECRET_ENV = "HR_LAUNCH_HS256_ODOO_TASKMANAGER" as const;
 export const LEAST_PRIVILEGE_LOCAL_ROLE = "employee" as const;
 export const DEFAULT_JWT_MAX_TTL_SECONDS = 60;
-export const SYNTHETIC_EMAIL_DOMAIN = "sso.taskmanager.local";
+export const SYNTHETIC_EMAIL_DOMAIN = "sso.odoo-taskmanager.local";
+/** Catalog + launch: only a portal super_admin platform_user_id. */
+export const EXCLUSIVE_PORTAL_ROLE = "super_admin" as const;
 
 export const ACTIVE_LINK_STATUSES = ["linked", "provisioned"] as const;
 
@@ -61,6 +65,10 @@ export type LaunchJwtClaims = {
   email?: string;
   /** Display only. */
   name?: string;
+  /** Portal exclusive launch. True only for platform super_admin. */
+  is_super_admin?: boolean;
+  /** Portal exclusive launch. Must be `super_admin` when is_super_admin is omitted. */
+  portal_role?: string;
 };
 
 export type IdentityLink = {
@@ -116,6 +124,15 @@ export function audienceList(aud: string | string[] | undefined): string[] {
 
 export function programAudience(slug: string = PROGRAM_SLUG): `hr-program:${string}` {
   return `hr-program:${slug}`;
+}
+
+/** Exclusive catalog: launch only when the JWT names a portal super_admin. */
+export function isExclusivePortalSuperAdmin(claims: {
+  is_super_admin?: boolean;
+  portal_role?: string;
+}): boolean {
+  if (claims.is_super_admin === true) return true;
+  return (claims.portal_role ?? "").trim().toLowerCase() === EXCLUSIVE_PORTAL_ROLE;
 }
 
 export const LOCAL_ACCOUNT_TAKEN_MESSAGE =

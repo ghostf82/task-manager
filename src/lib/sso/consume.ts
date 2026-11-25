@@ -1,4 +1,9 @@
-import { LOCAL_ACCOUNT_TAKEN_MESSAGE, type IdentityLink, type LaunchErrorCode } from "./contract";
+import {
+  LOCAL_ACCOUNT_TAKEN_MESSAGE,
+  isExclusivePortalSuperAdmin,
+  type IdentityLink,
+  type LaunchErrorCode,
+} from "./contract";
 import {
   decidePendingLaunchSignals,
   laterSignalAt,
@@ -190,6 +195,10 @@ export async function consumeLaunchToken(
   }
 
   const ports = resolvePorts(portsSource);
+
+  if (claims.grant === true && !isExclusivePortalSuperAdmin(claims)) {
+    return fail("grant", "odoo-taskmanager is exclusive to portal super_admin");
+  }
 
   if (claims.grant !== true) {
     await persistPlatformDisable(
