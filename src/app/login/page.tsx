@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { loginAction } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getTranslator } from "@/lib/i18n/get-translator";
+import {
+  clearIsolatedBrowserSession,
+  isolatedLoopbackEnabledNow,
+  isolatedSessionFromCookies,
+} from "@/lib/sso/isolated-loopback";
 
 export default async function LoginPage({
   searchParams,
@@ -20,12 +26,25 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const sp = await searchParams;
+  if (await isolatedLoopbackEnabledNow()) {
+    const isolated = await isolatedSessionFromCookies();
+    if (isolated) redirect("/dashboard");
+    await clearIsolatedBrowserSession();
+  }
   const { t } = await getTranslator();
 
   const errors: Record<string, string> = {
     missing: t("auth.errorMissing"),
     invalid: t("auth.errorInvalid"),
     session: t("auth.errorSession"),
+    sso_unconfigured: t("auth.errorSsoUnconfigured"),
+    sso_missing_token: t("auth.errorSsoMissingToken"),
+    sso_invalid: t("auth.errorSsoInvalid"),
+    sso_expired: t("auth.errorSsoExpired"),
+    sso_replay: t("auth.errorSsoReplay"),
+    sso_grant: t("auth.errorSsoGrant"),
+    sso_conflict: t("auth.errorSsoConflict"),
+    sso_failed: t("auth.errorSsoFailed"),
   };
 
   const msg = sp.error ? errors[sp.error] ?? sp.error : null;

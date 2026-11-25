@@ -2,13 +2,10 @@ import { NextResponse } from "next/server";
 
 import { loadOdooOperationalBrief } from "@/lib/command-center/odoo-operational-brief";
 import { buildOdooOperationalPdfBuffer } from "@/lib/reports/pdf-odoo-operational";
-import { createRouteSupabaseClient } from "@/lib/supabase/route-handler";
+import { getRouteUser } from "@/lib/supabase/route-handler";
 
 export async function GET() {
-  const supabase = await createRouteSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getRouteUser();
   if (!user) {
     return new NextResponse("Unauthorized", { status: 401 });
   }

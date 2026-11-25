@@ -5,15 +5,12 @@ import { loadOdooWorkspaceCache } from "@/lib/command-center/load-odoo-workspace
 import { buildOdooWorkspaceExcelBuffer } from "@/lib/reports/excel-odoo-workspace";
 import type { OdooProjectEnrichedRow } from "@/lib/integrations/odoo-project-enrich";
 import type { OdooTaskUiRow } from "@/lib/integrations/odoo-task-ui-types";
-import { createRouteSupabaseClient } from "@/lib/supabase/route-handler";
+import { getRouteUser } from "@/lib/supabase/route-handler";
 
 export const maxDuration = 120;
 
 export async function GET() {
-  const supabase = await createRouteSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getRouteUser();
   if (!user) return new NextResponse("Unauthorized", { status: 401 });
 
   const { data: profile } = await supabase

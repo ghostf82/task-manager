@@ -1,7 +1,16 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { isPlatformGrantBlocking } from "@/lib/sso/grant-gate";
+import {
+  ISOLATED_COOKIE,
+  clearIsolatedBrowserSession,
+  isolatedLoopbackEnabledNow,
+  isolatedPasswordLogin,
+  mintIsolatedCookie,
+} from "@/lib/sso/isolated-loopback";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -17,11 +26,34 @@ export async function loginAction(formData: FormData) {
     redirect(errParam("missing"));
   }
 
+  if (await isolatedLoopbackEnabledNow()) {
+    const result = isolatedPasswordLogin(email, password);
+    if (!result.ok) {
+      redirect(errParam(result.code === "sso_grant" ? "sso_grant" : "invalid"));
+    }
+    const jar = await cookies();
+    jar.set(ISOLATED_COOKIE, mintIsolatedCookie(result.localUserId), {
+      httpOnly: true,
+      path: "/",
+      sameSite: "lax",
+    });
+    revalidatePath("/", "layout");
+    redirect("/dashboard");
+  }
+
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
     redirect(errParam("invalid"));
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user && (await isPlatformGrantBlocking(user.id, user.last_sign_in_at ?? null))) {
+    await supabase.auth.signOut();
+    redirect(errParam("sso_grant"));
   }
 
   revalidatePath("/", "layout");
@@ -69,8 +101,16 @@ export async function updatePasswordAction(formData: FormData) {
 }
 
 export async function signOutAction() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  const isolated = await isolatedLoopbackEnabledNow();
+  if (isolated) {
+    await clearIsolatedBrowserSession();
+  }
+  try {
+    const supabase = await createClient();
+    await supabase.auth.signOut();
+  } catch (err) {
+    if (!isolated) throw err;
+  }
   revalidatePath("/", "layout");
   redirect("/login");
 }

@@ -20,6 +20,7 @@ import { fetchNotificationsForUser } from "@/lib/notifications/queries";
 import { formatOdooLastSyncLine } from "@/lib/dashboard/format-odoo-last-sync";
 import { DASHBOARD_NAV_LINKS } from "@/lib/i18n/nav-config";
 import { getTranslator } from "@/lib/i18n/get-translator";
+import { isolatedLoopbackEnabledNow } from "@/lib/sso/isolated-loopback";
 
 /** Netlify / serverless: allow long-running dashboard server actions (Odoo sync, calendar clone). */
 export const maxDuration = 120;
@@ -67,30 +68,39 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const session = await requireSession();
-  const supabase = await createClient();
+  const isolated = await isolatedLoopbackEnabledNow();
+  const supabase = isolated ? null : await createClient();
   const [{ t, locale, catalog }, profileRes, membershipRes, notifsResult, odooSyncRes] =
-    await Promise.all([
-      getTranslator(),
-      supabase
-        .from("users")
-        .select("full_name, email, avatar_url")
-        .eq("id", session.id)
-        .single(),
-      supabase
-        .from("tenant_memberships")
-        .select("job_title, tenants(name)")
-        .eq("user_id", session.id)
-        .eq("status", "active")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle(),
-      fetchNotificationsForUser(supabase, {
-        userId: session.id,
-        limit: 12,
-        activeOnly: true,
-      }),
-      supabase.from("odoo_browser_cache").select("updated_at").eq("user_id", session.id),
-    ]);
+    isolated
+      ? await Promise.all([
+          getTranslator(),
+          Promise.resolve({ data: { full_name: null, email: session.email ?? null, avatar_url: null } }),
+          Promise.resolve({ data: null }),
+          Promise.resolve({ ok: true as const, rows: [] }),
+          Promise.resolve({ data: [] as { updated_at: string }[] }),
+        ])
+      : await Promise.all([
+          getTranslator(),
+          supabase!
+            .from("users")
+            .select("full_name, email, avatar_url")
+            .eq("id", session.id)
+            .single(),
+          supabase!
+            .from("tenant_memberships")
+            .select("job_title, tenants(name)")
+            .eq("user_id", session.id)
+            .eq("status", "active")
+            .order("created_at", { ascending: true })
+            .limit(1)
+            .maybeSingle(),
+          fetchNotificationsForUser(supabase!, {
+            userId: session.id,
+            limit: 12,
+            activeOnly: true,
+          }),
+          supabase!.from("odoo_browser_cache").select("updated_at").eq("user_id", session.id),
+        ]);
   const profile = profileRes.data;
   const membership = membershipRes.data;
   const notifs = notifsResult.ok ? notifsResult.rows : [];

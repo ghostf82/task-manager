@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { handleAiChatPost } from "@/lib/ai-chat/run-ai-chat";
-import { createRouteSupabaseClient } from "@/lib/supabase/route-handler";
+import { getRouteUser } from "@/lib/supabase/route-handler";
 
 /** Avoid Edge quirks with streaming bodies and binary chunk coercion (ByteString). */
 export const runtime = "nodejs";
@@ -20,10 +20,7 @@ export async function POST(req: NextRequest) {
    * Streams SSE from handleAiChatPost. Browser extensions may still surface `message channel closed`
    * in the console during long reads; that cannot be suppressed from route code.
    */
-  const supabase = await createRouteSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getRouteUser();
   if (!user) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }

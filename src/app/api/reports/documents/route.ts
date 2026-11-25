@@ -3,13 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { resolveTaskReportScope } from "@/lib/dashboard-scope";
 import { loadCompanyDocumentExportRows } from "@/lib/reports/document-export-data";
 import { buildCompanyDocumentsExcelBuffer } from "@/lib/reports/excel-company-documents";
-import { createRouteSupabaseClient } from "@/lib/supabase/route-handler";
+import { getRouteUser } from "@/lib/supabase/route-handler";
 
 export async function GET(req: NextRequest) {
-  const supabase = await createRouteSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user } = await getRouteUser();
   if (!user) {
     return new NextResponse("Unauthorized", { status: 401 });
   }

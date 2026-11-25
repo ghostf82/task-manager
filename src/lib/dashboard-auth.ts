@@ -1,4 +1,10 @@
 import { redirect } from "next/navigation";
+import { isPlatformGrantBlocking } from "@/lib/sso/grant-gate";
+import {
+  clearIsolatedBrowserSession,
+  isolatedLoopbackEnabledNow,
+  isolatedSessionFromCookies,
+} from "@/lib/sso/isolated-loopback";
 import { createClient } from "@/lib/supabase/server";
 
 export type SessionUser = {
@@ -9,12 +15,26 @@ export type SessionUser = {
 };
 
 export async function requireSession(): Promise<SessionUser> {
+  if (await isolatedLoopbackEnabledNow()) {
+    const isolated = await isolatedSessionFromCookies();
+    if (!isolated) {
+      await clearIsolatedBrowserSession();
+      redirect("/login");
+    }
+    return isolated;
+  }
+
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) redirect("/login");
+
+  if (await isPlatformGrantBlocking(user.id, user.last_sign_in_at ?? null)) {
+    await supabase.auth.signOut();
+    redirect("/login?error=sso_grant");
+  }
 
   const { data: profile } = await supabase
     .from("users")
